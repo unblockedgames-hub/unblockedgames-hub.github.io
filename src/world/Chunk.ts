@@ -1,0 +1,527 @@
+import * as THREE from 'three';
+import { Registries, BlockDefinition } from '../core/Registries';
+import { TextureAtlas } from '../render/TextureAtlas';
+
+export const CHUNK_SIZE = 16;
+export const CHUNK_HEIGHT = 128;
+
+export interface BiomeInfo {
+  id: string;
+  name: string;
+  grassColor: [number, number, number];
+  foliageColor: [number, number, number];
+  waterColor: [number, number, number];
+}
+
+export const BIOMES_26_3: Record<string, BiomeInfo> = {
+  'minecraft:dappled_forest': {
+    id: 'minecraft:dappled_forest',
+    name: 'Dappled Forest',
+    grassColor: [0.64, 0.76, 0.34], // Warm autumn-tinted grass
+    foliageColor: [0.88, 0.58, 0.22],
+    waterColor: [0.24, 0.48, 0.89],
+  },
+  'minecraft:plains': {
+    id: 'minecraft:plains',
+    name: 'Plains',
+    grassColor: [0.56, 0.74, 0.35],
+    foliageColor: [0.47, 0.67, 0.28],
+    waterColor: [0.24, 0.46, 0.89],
+  },
+  'minecraft:cherry_grove': {
+    id: 'minecraft:cherry_grove',
+    name: 'Cherry Grove',
+    grassColor: [0.71, 0.86, 0.38],
+    foliageColor: [0.71, 0.86, 0.38],
+    waterColor: [0.36, 0.72, 0.94],
+  },
+  'minecraft:birch_forest': {
+    id: 'minecraft:birch_forest',
+    name: 'Birch Forest',
+    grassColor: [0.53, 0.73, 0.40],
+    foliageColor: [0.50, 0.65, 0.33],
+    waterColor: [0.24, 0.46, 0.89],
+  },
+};
+
+/**
+ * Represents a 16x128x16 Chunk with block IDs, metadata (facing/orientation), biome map,
+ * and builds optimized Three.js BufferGeometries using the official 26.3 TextureAtlas.
+ */
+export class Chunk {
+  readonly cx: number;
+  readonly cz: number;
+  readonly blocks: Uint16Array;
+  readonly meta: Uint8Array; // Lower 2 bits: facing (0=N,1=E,2=S,3=W), Bit 2: top half
+  readonly biomes: string[]; // 16x16 biome IDs
+  dirty = true;
+  solidMesh: THREE.Mesh | null = null;
+  waterMesh: THREE.Mesh | null = null;
+
+  constructor(cx: number, cz: number) {
+    this.cx = cx;
+    this.cz = cz;
+    this.blocks = new Uint16Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+    this.meta = new Uint8Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+    this.biomes = new Array(CHUNK_SIZE * CHUNK_SIZE).fill('minecraft:dappled_forest');
+  }
+
+  private idx(lx: number, y: number, lz: number): number {
+    return (y * CHUNK_SIZE + lz) * CHUNK_SIZE + lx;
+  }
+
+  getBlock(lx: number, y: number, lz: number): number {
+    if (lx < 0 || lx >= CHUNK_SIZE || y < 0 || y >= CHUNK_HEIGHT || lz < 0 || lz >= CHUNK_SIZE) {
+      return 0;
+    }
+    return this.blocks[this.idx(lx, y, lz)];
+  }
+
+  setBlock(lx: number, y: number, lz: number, blockNumId: number, metaVal = 0) {
+    if (lx < 0 || lx >= CHUNK_SIZE || y < 0 || y >= CHUNK_HEIGHT || lz < 0 || lz >= CHUNK_SIZE) {
+      return;
+    }
+    const i = this.idx(lx, y, lz);
+    this.blocks[i] = blockNumId;
+    this.meta[i] = metaVal;
+    this.dirty = true;
+  }
+
+  getMeta(lx: number, y: number, lz: number): number {
+    if (lx < 0 || lx >= CHUNK_SIZE || y < 0 || y >= CHUNK_HEIGHT || lz < 0 || lz >= CHUNK_SIZE) {
+      return 0;
+    }
+    return this.meta[this.idx(lx, y, lz)];
+  }
+
+  getBiome(lx: number, lz: number): BiomeInfo {
+    const bId = this.biomes[(lz & 15) * CHUNK_SIZE + (lx & 15)] || 'minecraft:dappled_forest';
+    return BIOMES_26_3[bId] || BIOMES_26_3['minecraft:dappled_forest'];
+  }
+
+  setBiome(lx: number, lz: number, biomeId: string) {
+    this.biomes[(lz & 15) * CHUNK_SIZE + (lx & 15)] = biomeId;
+  }
+
+  buildMeshes(
+    getWorldBlock: (wx: number, wy: number, wz: number) => number,
+    solidMaterial: THREE.Material,
+    waterMaterial: THREE.Material
+  ) {
+    this.dirty = false;
+
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const uvs: number[] = [];
+    const colors: number[] = [];
+    const indices: number[] = [];
+    let vertCount = 0;
+
+    const wPositions: number[] = [];
+    const wNormals: number[] = [];
+    const wUvs: number[] = [];
+    const wColors: number[] = [];
+    const wIndices: number[] = [];
+    let wVertCount = 0;
+
+    const pushQuad = (
+      isWater: boolean,
+      v0: [number, number, number],
+      v1: [number, number, number],
+      v2: [number, number, number],
+      v3: [number, number, number],
+      nx: number,
+      ny: number,
+      nz: number,
+      texName: string,
+      r: number,
+      g: number,
+      b: number,
+      uvSub?: [number, number, number, number]
+    ) => {
+      const uvBox = TextureAtlas.getUV(texName);
+      let u0 = uvBox.u0;
+      let vBottom = uvBox.v0;
+      let u1 = uvBox.u1;
+      let vTop = uvBox.v1;
+
+      if (uvSub) {
+        const du = uvBox.u1 - uvBox.u0;
+        const dv = uvBox.v1 - uvBox.v0;
+        u0 = uvBox.u0 + uvSub[0] * du;
+        vBottom = uvBox.v0 + uvSub[1] * dv;
+        u1 = uvBox.u0 + uvSub[2] * du;
+        vTop = uvBox.v0 + uvSub[3] * dv;
+      }
+
+      if (isWater) {
+        wPositions.push(...v0, ...v1, ...v2, ...v3);
+        for (let i = 0; i < 4; i++) {
+          wNormals.push(nx, ny, nz);
+          wColors.push(r, g, b);
+        }
+        wUvs.push(u0, vBottom, u1, vBottom, u1, vTop, u0, vTop);
+        wIndices.push(
+          wVertCount,
+          wVertCount + 1,
+          wVertCount + 2,
+          wVertCount,
+          wVertCount + 2,
+          wVertCount + 3
+        );
+        wVertCount += 4;
+      } else {
+        positions.push(...v0, ...v1, ...v2, ...v3);
+        for (let i = 0; i < 4; i++) {
+          normals.push(nx, ny, nz);
+          colors.push(r, g, b);
+        }
+        uvs.push(u0, vBottom, u1, vBottom, u1, vTop, u0, vTop);
+        indices.push(
+          vertCount,
+          vertCount + 1,
+          vertCount + 2,
+          vertCount,
+          vertCount + 2,
+          vertCount + 3
+        );
+        vertCount += 4;
+      }
+    };
+
+    const pushBox = (
+      x0: number,
+      y0: number,
+      z0: number,
+      x1: number,
+      y1: number,
+      z1: number,
+      def: BlockDefinition,
+      biome: BiomeInfo,
+      cullMask = 0x3f
+    ) => {
+      const isWater = def.fluid === 'water';
+      const getTint = (face: 'top' | 'bottom' | 'side', shade: number): [number, number, number] => {
+        if (def.tint === 'grass' && face === 'top') {
+          return [biome.grassColor[0] * shade, biome.grassColor[1] * shade, biome.grassColor[2] * shade];
+        }
+        if (def.tint === 'foliage') {
+          return [biome.foliageColor[0] * shade, biome.foliageColor[1] * shade, biome.foliageColor[2] * shade];
+        }
+        if (def.tint === 'birch') {
+          return [0.5 * shade, 0.66 * shade, 0.33 * shade];
+        }
+        if (def.tint === 'spruce') {
+          return [0.38 * shade, 0.6 * shade, 0.38 * shade];
+        }
+        if (def.tint === 'water') {
+          return [biome.waterColor[0] * shade, biome.waterColor[1] * shade, biome.waterColor[2] * shade];
+        }
+        return [shade, shade, shade];
+      };
+
+      const dy = y1 - y0;
+      const uvSubSide: [number, number, number, number] | undefined =
+        dy < 1.0 ? [0, 0, 1, dy] : undefined;
+
+      // Top (+Y)
+      if (cullMask & 1) {
+        const [r, g, b] = getTint('top', 1.0);
+        pushQuad(
+          isWater,
+          [x0, y1, z1],
+          [x1, y1, z1],
+          [x1, y1, z0],
+          [x0, y1, z0],
+          0,
+          1,
+          0,
+          def.textures.top,
+          r,
+          g,
+          b
+        );
+      }
+      // Bottom (-Y)
+      if (cullMask & 2) {
+        const [r, g, b] = getTint('bottom', 0.55);
+        pushQuad(
+          isWater,
+          [x0, y0, z0],
+          [x1, y0, z0],
+          [x1, y0, z1],
+          [x0, y0, z1],
+          0,
+          -1,
+          0,
+          def.textures.bottom,
+          r,
+          g,
+          b
+        );
+      }
+      // South (+Z)
+      if (cullMask & 4) {
+        const [r, g, b] = getTint('side', 0.86);
+        pushQuad(
+          isWater,
+          [x0, y0, z1],
+          [x1, y0, z1],
+          [x1, y1, z1],
+          [x0, y1, z1],
+          0,
+          0,
+          1,
+          def.textures.south,
+          r,
+          g,
+          b,
+          uvSubSide
+        );
+      }
+      // North (-Z)
+      if (cullMask & 8) {
+        const [r, g, b] = getTint('side', 0.86);
+        pushQuad(
+          isWater,
+          [x1, y0, z0],
+          [x0, y0, z0],
+          [x0, y1, z0],
+          [x1, y1, z0],
+          0,
+          0,
+          -1,
+          def.textures.north,
+          r,
+          g,
+          b,
+          uvSubSide
+        );
+      }
+      // East (+X)
+      if (cullMask & 16) {
+        const [r, g, b] = getTint('side', 0.72);
+        pushQuad(
+          isWater,
+          [x1, y0, z1],
+          [x1, y0, z0],
+          [x1, y1, z0],
+          [x1, y1, z1],
+          1,
+          0,
+          0,
+          def.textures.east,
+          r,
+          g,
+          b,
+          uvSubSide
+        );
+      }
+      // West (-X)
+      if (cullMask & 32) {
+        const [r, g, b] = getTint('side', 0.72);
+        pushQuad(
+          isWater,
+          [x0, y0, z0],
+          [x0, y0, z1],
+          [x0, y1, z1],
+          [x0, y1, z0],
+          -1,
+          0,
+          0,
+          def.textures.west,
+          r,
+          g,
+          b,
+          uvSubSide
+        );
+      }
+    };
+
+    const baseX = this.cx * CHUNK_SIZE;
+    const baseZ = this.cz * CHUNK_SIZE;
+
+    const shouldRenderNeighborFace = (selfDef: BlockDefinition, neighborNum: number): boolean => {
+      if (neighborNum === 0) return true;
+      const nDef = Registries.getBlock(neighborNum);
+      if (selfDef.fluid === 'water' && nDef.fluid === 'water') return false;
+      if (nDef.transparent || nDef.shape !== 'cube') {
+        // Cull identical leaves or glass interiors to keep framerate high while showing outer faces
+        if (nDef.numId === selfDef.numId && (selfDef.shortId === 'glass' || selfDef.fluid)) {
+          return false;
+        }
+        return true;
+      }
+      return false;
+    };
+
+    for (let y = 0; y < CHUNK_HEIGHT; y++) {
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+          const bNum = this.getBlock(lx, y, lz);
+          if (bNum === 0) continue;
+
+          const def = Registries.getBlock(bNum);
+          if (def.shape === 'air') continue;
+
+          const wx = baseX + lx;
+          const wz = baseZ + lz;
+          const biome = this.getBiome(lx, lz);
+          const meta = this.getMeta(lx, y, lz);
+
+          if (def.shape === 'cube' || def.shape === 'pillar') {
+            let mask = 0;
+            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y + 1, wz))) mask |= 1;
+            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y - 1, wz))) mask |= 2;
+            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y, wz + 1))) mask |= 4;
+            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y, wz - 1))) mask |= 8;
+            if (shouldRenderNeighborFace(def, getWorldBlock(wx + 1, y, wz))) mask |= 16;
+            if (shouldRenderNeighborFace(def, getWorldBlock(wx - 1, y, wz))) mask |= 32;
+            if (mask !== 0) {
+              pushBox(lx, y, lz, lx + 1, y + 1, lz + 1, def, biome, mask);
+            }
+          } else if (def.shape === 'fluid') {
+            let mask = 0;
+            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y + 1, wz))) mask |= 1;
+            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y - 1, wz))) mask |= 2;
+            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y, wz + 1))) mask |= 4;
+            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y, wz - 1))) mask |= 8;
+            if (shouldRenderNeighborFace(def, getWorldBlock(wx + 1, y, wz))) mask |= 16;
+            if (shouldRenderNeighborFace(def, getWorldBlock(wx - 1, y, wz))) mask |= 32;
+            if (mask !== 0) {
+              const topY = getWorldBlock(wx, y + 1, wz) === bNum ? y + 1 : y + 0.88;
+              pushBox(lx, y, lz, lx + 1, topY, lz + 1, def, biome, mask);
+            }
+          } else if (def.shape === 'slab_bottom' || def.shape === 'trapdoor') {
+            const topHalf = (meta & 4) !== 0;
+            const y0 = topHalf ? y + 0.5 : y;
+            const y1 = topHalf ? y + 1.0 : y + 0.5;
+            pushBox(lx, y0, lz, lx + 1, y1, lz + 1, def, biome, 0x3f);
+          } else if (def.shape === 'slab_top') {
+            pushBox(lx, y + 0.65, lz, lx + 1, y + 1.0, lz + 1, def, biome, 0x3f);
+          } else if (def.shape === 'stairs') {
+            // Render bottom slab + upper step based on facing (meta & 3: 0=North, 1=East, 2=South, 3=West)
+            pushBox(lx, y, lz, lx + 1, y + 0.5, lz + 1, def, biome, 0x3f);
+            const facing = meta & 3;
+            if (facing === 0) {
+              pushBox(lx, y + 0.5, lz, lx + 1, y + 1, lz + 0.5, def, biome, 0x3f);
+            } else if (facing === 1) {
+              pushBox(lx + 0.5, y + 0.5, lz, lx + 1, y + 1, lz + 1, def, biome, 0x3f);
+            } else if (facing === 2) {
+              pushBox(lx, y + 0.5, lz + 0.5, lx + 1, y + 1, lz + 1, def, biome, 0x3f);
+            } else {
+              pushBox(lx, y + 0.5, lz, lx + 0.5, y + 1, lz + 1, def, biome, 0x3f);
+            }
+          } else if (def.shape === 'bed_foot' || def.shape === 'bed_head') {
+            // 26.3 Straw Bed low-profile 4/16 height mattress + straw edge
+            const h = def.shape === 'bed_head' ? 0.32 : 0.26;
+            pushBox(lx + 0.02, y, lz + 0.02, lx + 0.98, y + h, lz + 0.98, def, biome, 0x3f);
+          } else if (def.shape === 'carpet') {
+            if (def.shortId === 'leaf_litter') {
+              // template_leaf_litter_1.json: flat 0.25/16 ground quad with dry autumn foliage tint (0xA37542)
+              pushQuad(
+                false,
+                [lx, y + 0.016, lz + 1],
+                [lx + 1, y + 0.016, lz + 1],
+                [lx + 1, y + 0.016, lz],
+                [lx, y + 0.016, lz],
+                0,
+                1,
+                0,
+                def.textures.top,
+                0.64,
+                0.46,
+                0.26
+              );
+            } else {
+              pushBox(lx, y, lz, lx + 1, y + 0.0625, lz + 1, def, biome, 0x3f);
+            }
+          } else if (def.shape === 'fence') {
+            // Center post + dynamic rails to adjacent solid/fence blocks
+            pushBox(lx + 0.375, y, lz + 0.375, lx + 0.625, y + 1, lz + 0.625, def, biome, 0x3f);
+            const canConnect = (nb: number) => {
+              if (nb === 0) return false;
+              const nd = Registries.getBlock(nb);
+              return nd.shape === 'fence' || nd.shape === 'cube' || nd.shape === 'pillar';
+            };
+            if (canConnect(getWorldBlock(wx, y, wz - 1))) {
+              pushBox(lx + 0.4375, y + 0.375, lz, lx + 0.5625, y + 0.5625, lz + 0.375, def, biome, 0x3f);
+              pushBox(lx + 0.4375, y + 0.75, lz, lx + 0.5625, y + 0.9375, lz + 0.375, def, biome, 0x3f);
+            }
+            if (canConnect(getWorldBlock(wx, y, wz + 1))) {
+              pushBox(lx + 0.4375, y + 0.375, lz + 0.625, lx + 0.5625, y + 0.5625, lz + 1, def, biome, 0x3f);
+              pushBox(lx + 0.4375, y + 0.75, lz + 0.625, lx + 0.5625, y + 0.9375, lz + 1, def, biome, 0x3f);
+            }
+            if (canConnect(getWorldBlock(wx - 1, y, wz))) {
+              pushBox(lx, y + 0.375, lz + 0.4375, lx + 0.375, y + 0.5625, lz + 0.5625, def, biome, 0x3f);
+              pushBox(lx, y + 0.75, lz + 0.4375, lx + 0.375, y + 0.9375, lz + 0.5625, def, biome, 0x3f);
+            }
+            if (canConnect(getWorldBlock(wx + 1, y, wz))) {
+              pushBox(lx + 0.625, y + 0.375, lz + 0.4375, lx + 1, y + 0.5625, lz + 0.5625, def, biome, 0x3f);
+              pushBox(lx + 0.625, y + 0.75, lz + 0.4375, lx + 1, y + 0.9375, lz + 0.5625, def, biome, 0x3f);
+            }
+          } else if (def.shape === 'campfire') {
+            pushBox(lx + 0.1, y, lz + 0.1, lx + 0.9, y + 0.44, lz + 0.9, def, biome, 0x3f);
+          } else if (def.shape === 'torch') {
+            pushBox(lx + 0.4375, y, lz + 0.4375, lx + 0.5625, y + 0.625, lz + 0.5625, def, biome, 0x3f);
+          } else if (def.shape === 'cross') {
+            // Intersecting diagonal quads (front & back faces)
+            const [r, g, b] =
+              def.tint === 'grass' ? biome.grassColor : [0.95, 0.95, 0.95];
+            const x0 = lx + 0.15;
+            const x1 = lx + 0.85;
+            const z0 = lz + 0.15;
+            const z1 = lz + 0.85;
+            pushQuad(false, [x0, y, z0], [x1, y, z1], [x1, y + 0.9, z1], [x0, y + 0.9, z0], 0, 1, 0, def.textures.north, r, g, b);
+            pushQuad(false, [x1, y, z1], [x0, y, z0], [x0, y + 0.9, z0], [x1, y + 0.9, z1], 0, 1, 0, def.textures.north, r, g, b);
+            pushQuad(false, [x0, y, z1], [x1, y, z0], [x1, y + 0.9, z0], [x0, y + 0.9, z1], 0, 1, 0, def.textures.north, r, g, b);
+            pushQuad(false, [x1, y, z0], [x0, y, z1], [x0, y + 0.9, z1], [x1, y + 0.9, z0], 0, 1, 0, def.textures.north, r, g, b);
+          }
+        }
+      }
+    }
+
+    if (this.solidMesh) {
+      this.solidMesh.geometry.dispose();
+    }
+    if (vertCount > 0) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      geo.setIndex(indices);
+      geo.computeBoundingSphere();
+      if (!this.solidMesh) {
+        this.solidMesh = new THREE.Mesh(geo, solidMaterial);
+        this.solidMesh.position.set(baseX, 0, baseZ);
+      } else {
+        this.solidMesh.geometry = geo;
+      }
+    } else if (this.solidMesh) {
+      this.solidMesh.geometry = new THREE.BufferGeometry();
+    }
+
+    if (this.waterMesh) {
+      this.waterMesh.geometry.dispose();
+    }
+    if (wVertCount > 0) {
+      const wGeo = new THREE.BufferGeometry();
+      wGeo.setAttribute('position', new THREE.Float32BufferAttribute(wPositions, 3));
+      wGeo.setAttribute('normal', new THREE.Float32BufferAttribute(wNormals, 3));
+      wGeo.setAttribute('uv', new THREE.Float32BufferAttribute(wUvs, 2));
+      wGeo.setAttribute('color', new THREE.Float32BufferAttribute(wColors, 3));
+      wGeo.setIndex(wIndices);
+      wGeo.computeBoundingSphere();
+      if (!this.waterMesh) {
+        this.waterMesh = new THREE.Mesh(wGeo, waterMaterial);
+        this.waterMesh.position.set(baseX, 0, baseZ);
+        this.waterMesh.renderOrder = 1;
+      } else {
+        this.waterMesh.geometry = wGeo;
+      }
+    } else if (this.waterMesh) {
+      this.waterMesh.geometry = new THREE.BufferGeometry();
+    }
+  }
+}
