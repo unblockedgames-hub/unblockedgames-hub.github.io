@@ -419,6 +419,14 @@ export class WorldGen26_3 {
     const coalOreId = Registries.getBlock('coal_ore').numId;
     const ironOreId = Registries.getBlock('iron_ore').numId;
     const diamondOreId = Registries.getBlock('diamond_ore').numId;
+    const copperOreId = Registries.getBlock('copper_ore')?.numId || ironOreId;
+    const goldOreId = Registries.getBlock('gold_ore')?.numId || ironOreId;
+    const redstoneOreId = Registries.getBlock('redstone_ore')?.numId || ironOreId;
+    const lapisOreId = Registries.getBlock('lapis_ore')?.numId || ironOreId;
+    const deepslateIronOreId = Registries.getBlock('deepslate_iron_ore')?.numId || ironOreId;
+    const deepslateDiamondOreId = Registries.getBlock('deepslate_diamond_ore')?.numId || diamondOreId;
+    const deepslateGoldOreId = Registries.getBlock('deepslate_gold_ore')?.numId || goldOreId;
+    const deepslateRedstoneOreId = Registries.getBlock('deepslate_redstone_ore')?.numId || redstoneOreId;
 
     const SEA_LEVEL = 62;
     const heightMap = new Int32Array(CHUNK_SIZE * CHUNK_SIZE);
@@ -436,14 +444,10 @@ export class WorldGen26_3 {
         chunk.setBlock(lx, 0, lz, bedrockId);
 
         for (let y = 1; y <= h; y++) {
-          if (y < 24) {
-            const oreRoll = this.hash2D(wx + y * 13, wz - y * 7, 500);
-            chunk.setBlock(lx, y, lz, oreRoll < 0.012 ? diamondOreId : deepslateId);
+          if (y < 18) {
+            chunk.setBlock(lx, y, lz, deepslateId);
           } else if (y < h - 3) {
-            const oreRoll = this.hash2D(wx + y * 19, wz + y * 11, 600);
-            if (oreRoll < 0.025) chunk.setBlock(lx, y, lz, coalOreId);
-            else if (oreRoll < 0.042) chunk.setBlock(lx, y, lz, ironOreId);
-            else chunk.setBlock(lx, y, lz, stoneId);
+            chunk.setBlock(lx, y, lz, stoneId);
           } else if (y < h) {
             chunk.setBlock(lx, y, lz, h <= SEA_LEVEL + 1 ? sandId : dirtId);
           } else {
@@ -475,6 +479,51 @@ export class WorldGen26_3 {
             // Keep ocean floor intact under sea level lakes/rivers
             if (h >= SEA_LEVEL || y > SEA_LEVEL) {
               chunk.setBlock(lx, y, lz, 0);
+            }
+          }
+        }
+      }
+    }
+
+    // Authentic Minecraft 3D Multi-Block Ore Vein Clusters
+    const oreConfigs = [
+      { regular: coalOreId, deep: coalOreId, count: 12, minY: 20, maxY: 100, radius: 1.8 },
+      { regular: ironOreId, deep: deepslateIronOreId, count: 8, minY: 8, maxY: 68, radius: 1.5 },
+      { regular: copperOreId, deep: copperOreId, count: 5, minY: 24, maxY: 60, radius: 1.4 },
+      { regular: goldOreId, deep: deepslateGoldOreId, count: 4, minY: 6, maxY: 32, radius: 1.3 },
+      { regular: redstoneOreId, deep: deepslateRedstoneOreId, count: 4, minY: 4, maxY: 16, radius: 1.4 },
+      { regular: lapisOreId, deep: lapisOreId, count: 2, minY: 10, maxY: 34, radius: 1.2 },
+      { regular: diamondOreId, deep: deepslateDiamondOreId, count: 2, minY: 3, maxY: 16, radius: 1.2 },
+    ];
+
+    for (let cIdx = 0; cIdx < oreConfigs.length; cIdx++) {
+      const cfg = oreConfigs[cIdx];
+      for (let v = 0; v < cfg.count; v++) {
+        const seedV = cIdx * 100 + v;
+        const originX = Math.floor(this.hash2D(cx + seedV, cz, 101) * 16);
+        const originZ = Math.floor(this.hash2D(cx, cz + seedV, 102) * 16);
+        const originY = Math.floor(cfg.minY + this.hash2D(cx + seedV, cz + seedV, 103) * (cfg.maxY - cfg.minY));
+        const r = cfg.radius;
+        const rSq = r * r;
+        const ceilR = Math.ceil(r);
+
+        for (let ox = -ceilR; ox <= ceilR; ox++) {
+          const bx = originX + ox;
+          if (bx < 0 || bx >= CHUNK_SIZE) continue;
+          for (let oz = -ceilR; oz <= ceilR; oz++) {
+            const bz = originZ + oz;
+            if (bz < 0 || bz >= CHUNK_SIZE) continue;
+            for (let oy = -ceilR; oy <= ceilR; oy++) {
+              const by = originY + oy;
+              if (by <= 0 || by >= CHUNK_HEIGHT) continue;
+              if (ox * ox + oy * oy * 1.3 + oz * oz <= rSq) {
+                const current = chunk.getBlock(bx, by, bz);
+                if (current === stoneId) {
+                  chunk.setBlock(bx, by, bz, cfg.regular);
+                } else if (current === deepslateId) {
+                  chunk.setBlock(bx, by, bz, cfg.deep);
+                }
+              }
             }
           }
         }

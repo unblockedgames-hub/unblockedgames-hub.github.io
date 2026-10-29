@@ -853,25 +853,66 @@ export interface FurnaceData {
 }
 
 export const SMELTING_RECIPES: Record<string, { result: string; cookTicks: number }> = {
+  // Ores to ingots
+  iron_ore: { result: 'iron_ingot', cookTicks: 200 },
+  deepslate_iron_ore: { result: 'iron_ingot', cookTicks: 200 },
+  raw_iron: { result: 'iron_ingot', cookTicks: 200 },
+  gold_ore: { result: 'gold_ingot', cookTicks: 200 },
+  deepslate_gold_ore: { result: 'gold_ingot', cookTicks: 200 },
+  raw_gold: { result: 'gold_ingot', cookTicks: 200 },
+  copper_ore: { result: 'copper_ingot', cookTicks: 200 },
+  deepslate_copper_ore: { result: 'copper_ingot', cookTicks: 200 },
+  raw_copper: { result: 'copper_ingot', cookTicks: 200 },
+  // Building blocks
+  sand: { result: 'glass', cookTicks: 200 },
+  red_sand: { result: 'glass', cookTicks: 200 },
+  cobblestone: { result: 'stone', cookTicks: 200 },
+  stone: { result: 'smooth_stone', cookTicks: 200 },
+  clay_ball: { result: 'brick', cookTicks: 200 },
+  clay: { result: 'terracotta', cookTicks: 200 },
+  netherrack: { result: 'nether_brick', cookTicks: 200 },
+  // Logs to charcoal
+  oak_log: { result: 'charcoal', cookTicks: 200 },
+  poplar_log: { result: 'charcoal', cookTicks: 200 },
+  birch_log: { result: 'charcoal', cookTicks: 200 },
+  spruce_log: { result: 'charcoal', cookTicks: 200 },
+  jungle_log: { result: 'charcoal', cookTicks: 200 },
+  acacia_log: { result: 'charcoal', cookTicks: 200 },
+  dark_oak_log: { result: 'charcoal', cookTicks: 200 },
+  stripped_oak_log: { result: 'charcoal', cookTicks: 200 },
+  stripped_poplar_log: { result: 'charcoal', cookTicks: 200 },
+  // Food
   raw_beef: { result: 'cooked_beef', cookTicks: 200 },
   raw_porkchop: { result: 'cooked_porkchop', cookTicks: 200 },
   raw_mutton: { result: 'cooked_mutton', cookTicks: 200 },
-  cobblestone: { result: 'stone', cookTicks: 200 },
-  sand: { result: 'glass', cookTicks: 200 },
-  oak_log: { result: 'charcoal', cookTicks: 200 },
-  poplar_log: { result: 'charcoal', cookTicks: 200 },
-  raw_iron: { result: 'iron_ingot', cookTicks: 200 },
+  raw_chicken: { result: 'cooked_chicken', cookTicks: 200 },
+  raw_salmon: { result: 'cooked_salmon', cookTicks: 200 },
+  raw_cod: { result: 'cooked_cod', cookTicks: 200 },
+  potato: { result: 'baked_potato', cookTicks: 200 },
+  kelp: { result: 'dried_kelp', cookTicks: 200 },
 };
 
 export const FUEL_VALUES: Record<string, number> = {
   coal: 1600,
   charcoal: 1600,
+  coal_block: 16000,
   oak_log: 300,
   poplar_log: 300,
+  birch_log: 300,
+  spruce_log: 300,
   oak_planks: 300,
   poplar_planks: 300,
+  birch_planks: 300,
   stick: 100,
   straw_bed: 400,
+  crafting_table: 300,
+  wooden_pickaxe: 200,
+  wooden_axe: 200,
+  wooden_sword: 200,
+  wooden_shovel: 200,
+  wooden_hoe: 200,
+  barrel: 300,
+  chest: 300,
 };
 
 export class ContainerManager {

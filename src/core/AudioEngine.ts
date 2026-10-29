@@ -1,3 +1,5 @@
+import { OptionsManager } from './Options';
+
 /**
  * Web Audio API 3D Sound Engine backed by official `/assets/minecraft/sounds.json`
  * and extracted `.ogg` files from `/.minecraft/assets/objects/` (index `34.json`).
@@ -31,14 +33,32 @@ export class AudioEngine {
     }
   }
 
+  static getEffectiveVolume(eventName: string, baseVol: number): number {
+    const opts = OptionsManager.current;
+    if (!opts) return baseVol * this.masterVolume;
+    let ch = 1.0;
+    if (eventName.startsWith('music.')) ch = opts.musicVolume ?? 1.0;
+    else if (eventName.startsWith('block.')) ch = opts.blocksVolume ?? 1.0;
+    else if (eventName.startsWith('entity.zombie.')) ch = opts.hostileVolume ?? 1.0;
+    else if (
+      eventName.startsWith('entity.cow.') ||
+      eventName.startsWith('entity.sheep.') ||
+      eventName.startsWith('entity.pig.')
+    )
+      ch = opts.friendlyVolume ?? 1.0;
+
+    return Math.min(1.0, baseVol * (opts.soundVolume ?? 0.8) * ch);
+  }
+
   static async play(eventName: string, volume = 0.7, pitch = 1.0) {
-    if (this.masterVolume <= 0) return;
+    const effVol = this.getEffectiveVolume(eventName, volume);
+    if (effVol <= 0) return;
     this.ensureContext();
     if (!this.ctx) return;
 
     const entry = this.soundsMap[eventName];
     if (!entry || !entry.sounds || entry.sounds.length === 0) {
-      this.playProceduralFallback(eventName, volume);
+      this.playProceduralFallback(eventName, effVol);
       return;
     }
 
@@ -52,7 +72,7 @@ export class AudioEngine {
       if (!buffer) {
         const resp = await fetch(url);
         if (!resp.ok) {
-          this.playProceduralFallback(eventName, volume);
+          this.playProceduralFallback(eventName, effVol);
           return;
         }
         const arr = await resp.arrayBuffer();
@@ -65,24 +85,24 @@ export class AudioEngine {
       source.playbackRate.value = pitch * (0.92 + Math.random() * 0.16);
 
       const gain = this.ctx.createGain();
-      gain.gain.value = Math.min(1.0, volume * this.masterVolume);
+      gain.gain.value = effVol;
 
       source.connect(gain);
       gain.connect(this.ctx.destination);
       source.start(0);
     } catch {
-      this.playProceduralFallback(eventName, volume);
+      this.playProceduralFallback(eventName, effVol);
     }
   }
 
   private static playProceduralFallback(eventName: string, volume: number) {
-    if (!this.ctx) return;
+    if (!this.ctx || volume <= 0) return;
     try {
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
       osc.type = eventName.includes('click') ? 'triangle' : 'sine';
       osc.frequency.value = eventName.includes('click') ? 520 : 220 + Math.random() * 120;
-      gain.gain.setValueAtTime(0.12 * volume * this.masterVolume, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.12 * volume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.09);
       osc.connect(gain);
       gain.connect(this.ctx.destination);
@@ -101,6 +121,8 @@ export class AudioEngine {
       wood: `block.wood.${action}`,
       grass: `block.grass.${action}`,
       stone: `block.stone.${action}`,
+      deepslate: `block.deepslate.${action}`,
+      dirt: `block.gravel.${action}`,
       wool: `block.wool.${action}`,
       sand: `block.sand.${action}`,
       gravel: `block.gravel.${action}`,

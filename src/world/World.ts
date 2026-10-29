@@ -134,6 +134,41 @@ export class World {
     }
   }
 
+  checkGravity(wx: number, wy: number, wz: number) {
+    const sandId = Registries.getBlock('sand')?.numId;
+    const gravelId = Registries.getBlock('gravel')?.numId;
+    if (!sandId && !gravelId) return;
+
+    let curY = Math.max(1, Math.floor(wy));
+    const bx = Math.floor(wx);
+    const bz = Math.floor(wz);
+
+    while (curY < CHUNK_HEIGHT) {
+      const b = this.getBlock(bx, curY, bz);
+      if (b === sandId || b === gravelId) {
+        let fallY = curY;
+        while (fallY > 0) {
+          const below = this.getBlock(bx, fallY - 1, bz);
+          const belowDef = Registries.getBlock(below);
+          if (below === 0 || (belowDef && (!belowDef.solid || belowDef.soundGroup === 'grass'))) {
+            fallY--;
+          } else {
+            break;
+          }
+        }
+        if (fallY < curY) {
+          const meta = this.getMeta(bx, curY, bz);
+          this.setBlock(bx, curY, bz, 0);
+          this.setBlock(bx, fallY, bz, b, meta);
+        }
+      } else if (b !== 0) {
+        const def = Registries.getBlock(b);
+        if (def && def.solid) break;
+      }
+      curY++;
+    }
+  }
+
   getBiomeName(wx: number, wz: number): string {
     const cx = Math.floor(wx / CHUNK_SIZE);
     const cz = Math.floor(wz / CHUNK_SIZE);

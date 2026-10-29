@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { TextureAtlas } from './TextureAtlas';
 
 interface Particle {
   mesh: THREE.Mesh;
@@ -182,24 +183,62 @@ export class ParticleSystem {
     return m;
   }
 
-  spawnBlockBreakBurst(x: number, y: number, z: number, hexColor = 0xa07855) {
-    const mat = this.getMaterial(hexColor);
-    const count = 8;
+  private texturedBreakMat: THREE.MeshBasicMaterial | null = null;
+
+  spawnBlockBreakBurst(x: number, y: number, z: number, textureName?: string, hexColor = 0xa07855) {
+    const count = 10;
+    let uv = textureName ? TextureAtlas.getUV(textureName) : null;
+    if (!uv) {
+      uv = TextureAtlas.getUV('stone');
+    }
+
+    if (!this.texturedBreakMat && TextureAtlas.texture) {
+      this.texturedBreakMat = new THREE.MeshBasicMaterial({
+        map: TextureAtlas.texture,
+        side: THREE.DoubleSide,
+        transparent: true,
+        alphaTest: 0.1,
+      });
+    }
+
+    const mat = this.texturedBreakMat || this.getMaterial(hexColor);
+
     for (let i = 0; i < count; i++) {
-      const mesh = new THREE.Mesh(this.sharedGeo, mat);
+      const geo = new THREE.PlaneGeometry(0.12, 0.12);
+      if (uv) {
+        // Sample random 4x4 pixel region from the block face UV
+        const uvAttr = geo.attributes.uv as THREE.BufferAttribute;
+        const uSpan = uv.u1 - uv.u0;
+        const vSpan = uv.v1 - uv.v0;
+        const uOffset = uv.u0 + Math.random() * (uSpan * 0.75);
+        const vOffset = uv.v0 + Math.random() * (vSpan * 0.75);
+        const subU = uSpan * 0.25;
+        const subV = vSpan * 0.25;
+        uvAttr.setXY(0, uOffset, vOffset + subV);
+        uvAttr.setXY(1, uOffset + subU, vOffset + subV);
+        uvAttr.setXY(2, uOffset, vOffset);
+        uvAttr.setXY(3, uOffset + subU, vOffset);
+        uvAttr.needsUpdate = true;
+      }
+      const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(
-        x + 0.25 + Math.random() * 0.5,
-        y + 0.25 + Math.random() * 0.5,
-        z + 0.25 + Math.random() * 0.5
+        x + 0.2 + Math.random() * 0.6,
+        y + 0.2 + Math.random() * 0.6,
+        z + 0.2 + Math.random() * 0.6
+      );
+      mesh.rotation.set(
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+        Math.random() * Math.PI
       );
       this.scene.add(mesh);
       this.particles.push({
         mesh,
-        vx: (Math.random() - 0.5) * 2.5,
-        vy: 1.2 + Math.random() * 1.8,
-        vz: (Math.random() - 0.5) * 2.5,
+        vx: (Math.random() - 0.5) * 3.2,
+        vy: 1.4 + Math.random() * 2.2,
+        vz: (Math.random() - 0.5) * 3.2,
         life: 0,
-        maxLife: 0.32 + Math.random() * 0.12,
+        maxLife: 0.35 + Math.random() * 0.15,
         swayFreq: 0,
       });
     }

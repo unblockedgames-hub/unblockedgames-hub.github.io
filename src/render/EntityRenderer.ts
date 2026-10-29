@@ -6,6 +6,7 @@ import { CushionEntityData } from '../world/WorldGen26_3';
 export interface DroppedItemEntity {
   id: string;
   itemId: string;
+  count: number;
   x: number;
   y: number;
   z: number;
@@ -13,6 +14,7 @@ export interface DroppedItemEntity {
   vy: number;
   vz: number;
   age: number;
+  pickupDelay: number;
   mesh: THREE.Mesh;
 }
 
@@ -184,8 +186,8 @@ export class EntityRenderer {
       const faceTexs = [
         this.cropSubTexture(img, u + dz + dx, v + dz, dz, dy, true), // +X (left flank)
         this.cropSubTexture(img, u, v + dz, dz, dy, true), // -X (right flank)
-        this.cropSubTexture(img, u + dz, v + dz, dx, dy), // +Y (top back)
-        this.cropSubTexture(img, u + dz + dx + dz, v + dz, dx, dy), // -Y (belly)
+        this.cropSubTexture(img, u + dz + dx + dz, v + dz, dx, dy), // +Y (top back)
+        this.cropSubTexture(img, u + dz, v + dz, dx, dy), // -Y (belly / udder on bottom)
         this.cropSubTexture(img, u + dz, v, dx, dz), // +Z (front chest)
         this.cropSubTexture(img, u + dz + dx, v, dx, dz), // -Z (rear)
       ];
@@ -630,7 +632,17 @@ export class EntityRenderer {
     return { hit: true, killed: false, mob };
   }
 
-  spawnDroppedItem(bx: number, by: number, bz: number, itemId: string) {
+  spawnDroppedItem(
+    bx: number,
+    by: number,
+    bz: number,
+    itemId: string,
+    count = 1,
+    vx?: number,
+    vy?: number,
+    vz?: number,
+    pickupDelay = 0.5
+  ) {
     const def = Registries.getItem(itemId);
     if (!def) return;
     const id = `item_${Date.now()}_${Math.random()}`;
@@ -716,13 +728,15 @@ export class EntityRenderer {
     this.droppedItems.set(id, {
       id,
       itemId: def.shortId,
+      count,
       x,
       y,
       z,
-      vx: (Math.random() - 0.5) * 1.1,
-      vy: 2.2 + Math.random() * 0.6,
-      vz: (Math.random() - 0.5) * 1.1,
+      vx: vx !== undefined ? vx : (Math.random() - 0.5) * 1.1,
+      vy: vy !== undefined ? vy : 2.2 + Math.random() * 0.6,
+      vz: vz !== undefined ? vz : (Math.random() - 0.5) * 1.1,
       age: 0,
+      pickupDelay,
       mesh,
     });
   }
@@ -731,13 +745,14 @@ export class EntityRenderer {
     dt: number,
     getGroundHeight: (x: number, z: number) => number,
     playerPos?: THREE.Vector3,
-    onPickupItem?: (itemId: string) => boolean,
+    onPickupItem?: (itemId: string, count: number) => boolean,
     isSolidAt?: (bx: number, by: number, bz: number) => boolean,
     onMobAttackPlayer?: (damage: number, mobType: string) => void
   ) {
     // Update bobbing & rotating 3D dropped items + local block floor collision + magnetic pickup
     for (const [id, item] of this.droppedItems) {
       item.age += dt;
+      item.pickupDelay = Math.max(0, item.pickupDelay - dt);
       item.vy = Math.max(-18.0, item.vy - 18.0 * dt);
 
       const nextX = item.x + item.vx * dt;
@@ -773,7 +788,7 @@ export class EntityRenderer {
       item.mesh.position.set(item.x, item.y + bobOffset, item.z);
       item.mesh.rotation.y = item.age * 1.8;
 
-      if (playerPos && item.age > 0.2) {
+      if (playerPos && item.pickupDelay <= 0 && item.age > 0.15) {
         const dx = playerPos.x - item.x;
         const dy = playerPos.y + 0.75 - item.y;
         const dz = playerPos.z - item.z;
@@ -782,7 +797,7 @@ export class EntityRenderer {
           item.x += (dx / dist) * 11.0 * dt;
           item.y += (dy / dist) * 11.0 * dt;
           item.z += (dz / dist) * 11.0 * dt;
-          if (dist < 0.95 && onPickupItem && onPickupItem(item.itemId)) {
+          if (dist < 0.95 && onPickupItem && onPickupItem(item.itemId, item.count)) {
             this.scene.remove(item.mesh);
             item.mesh.geometry.dispose();
             this.droppedItems.delete(id);

@@ -257,14 +257,25 @@ export class Game {
         const dropped = this.inventory.dropHeldItem(e.ctrlKey);
         if (dropped) {
           this.firstPersonHand.triggerSwing();
-          const sinYaw = Math.sin(this.player.yaw);
-          const cosYaw = Math.cos(this.player.yaw);
+          const yaw = this.player.yaw;
+          const pitch = this.player.pitch;
+          const f1 = Math.cos(pitch);
+          const tossSpeed = 0.38;
+          const vx = -Math.sin(yaw) * f1 * tossSpeed + this.player.velocity.x * 0.2;
+          const vy = -Math.sin(pitch) * tossSpeed + 0.18;
+          const vz = -Math.cos(yaw) * f1 * tossSpeed + this.player.velocity.z * 0.2;
           this.entityRenderer.spawnDroppedItem(
-            this.player.position.x - sinYaw * 0.4,
-            this.player.position.y + 1.2,
-            this.player.position.z - cosYaw * 0.4,
-            dropped.item.shortId
+            this.player.position.x - Math.sin(yaw) * 0.3,
+            this.player.position.y + 1.25,
+            this.player.position.z - Math.cos(yaw) * 0.3,
+            dropped.item.shortId,
+            dropped.count,
+            vx * 15.0,
+            vy * 16.0,
+            vz * 15.0,
+            1.8
           );
+          AudioEngine.play('entity.item.pickup', 0.5, 0.8);
           this.ui.updateHUDOnly();
         }
         return;
@@ -334,6 +345,15 @@ export class Game {
 
     window.addEventListener('keyup', (e) => {
       this.player.keys.delete(e.code);
+    });
+
+    window.addEventListener('blur', () => {
+      this.player.keys.clear();
+      this.player.isMining = false;
+      this.player.resetMining();
+      if (this.ui.state === 'IN_GAME') {
+        this.ui.setState('PAUSE');
+      }
     });
 
     window.addEventListener('wheel', (e) => {
@@ -565,6 +585,7 @@ export class Game {
         cushionAbove.blockX,
         cushionAbove.blockY,
         cushionAbove.blockZ,
+        `${cushionAbove.color}_wool`,
         0xf9801d
       );
       if (this.player.gameMode === 'survival') {
@@ -604,11 +625,13 @@ export class Game {
     }
 
     this.world.setBlock(hit.bx, hit.by, hit.bz, 0);
+    this.world.checkGravity(hit.bx, hit.by + 1, hit.bz);
     AudioEngine.playBlockSound(blockDef.soundGroup, 'break');
     this.particleSystem.spawnBlockBreakBurst(
       hit.bx,
       hit.by,
       hit.bz,
+      blockDef.textures.north || blockDef.textures.top,
       this.getBlockParticleColor(blockDef)
     );
 
@@ -830,6 +853,7 @@ export class Game {
       } else {
         this.world.setBlock(placeX, placeY, placeZ, placeDef.numId, facingMeta);
       }
+      this.world.checkGravity(placeX, placeY, placeZ);
 
       AudioEngine.playBlockSound(placeDef.soundGroup, 'place');
       this.player.triggerSwing();
@@ -986,10 +1010,10 @@ export class Game {
         dt,
         (x, z) => this.world.getTopSolidY(x, z),
         this.player.position,
-        (itemId) => {
-          const added = this.inventory.addItem(itemId, 1);
+        (itemId, count) => {
+          const added = this.inventory.addItem(itemId, count);
           if (added) {
-            AudioEngine.play('ui.button.click', 0.45);
+            AudioEngine.play('entity.item.pickup', 0.55);
             this.ui.updateHUDOnly();
             this.ui.saveActiveWorldState();
           }

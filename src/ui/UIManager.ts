@@ -24,6 +24,7 @@ export type UIState =
   | 'OPTIONS'
   | 'CONTROLS'
   | 'SOUND_OPTIONS'
+  | 'VIDEO_SETTINGS'
   | 'GAME_OVER'
   | 'IN_GAME'
   | 'PAUSE'
@@ -121,6 +122,7 @@ export class UIManager {
   private lastSlotLeftClickKey = '';
   private showRecipeBook = false;
   private focusedEditBox: 'world_search' | 'world_name' | 'world_seed' | 'direct_ip' | 'wisp_url' | 'wisp_user' | 'creative_search' | 'chat' | null = null;
+  public optionsReturnState: UIState = 'TITLE';
 
   // Text field states
   private worldSearchText = '';
@@ -143,16 +145,7 @@ export class UIManager {
   public showDebugF3 = false;
   public fps = 60;
   public splashText = SPLASH_TEXTS[0];
-  public chatHistory: Array<{ text: string; time: number }> = [
-    {
-      text: '§eWelcome to §aMinecraft 26.3 ("Wilderness Bound")§e Official Web Port!',
-      time: performance.now(),
-    },
-    {
-      text: '§7Press §fE§7 for Inventory, §fF3§7 for Debug Info, §fT§7 or §f/§7 for Chat, §fEsc§7 for Game Menu.',
-      time: performance.now(),
-    },
-  ];
+  public chatHistory: Array<{ text: string; time: number }> = [];
   private chatInputText = '';
   private heldItemTooltipTimer = 0;
   private lastHeldItemId = '';
@@ -213,6 +206,9 @@ export class UIManager {
   }
 
   public setState(newState: UIState): void {
+    if (newState === 'OPTIONS' && (this.state === 'PAUSE' || this.state === 'TITLE')) {
+      this.optionsReturnState = this.state;
+    }
     if (this.state !== newState) {
       this.previousState = this.state;
     }
@@ -381,7 +377,17 @@ export class UIManager {
       this.mouseX = e.clientX / this.gui.guiScale;
       this.mouseY = e.clientY / this.gui.guiScale;
 
-      this.focusedEditBox = null;
+      if (this.state === 'CHAT') {
+        if (this.mouseY < this.gui.scaledHeight - 20) {
+          this.chatInputText = '';
+          this.setState('IN_GAME');
+          return;
+        } else {
+          this.focusedEditBox = 'chat';
+        }
+      } else {
+        this.focusedEditBox = null;
+      }
       if (e.button === 2) {
         this.isRightMouseDown = true;
         this.rightHoldTimer = 0;
@@ -484,17 +490,25 @@ export class UIManager {
         if (this.inventory.cursorStack.count <= 0) {
           this.inventory.cursorStack = null;
         }
-        for (let k = 0; k < dropCount; k++) {
-          const sinYaw = Math.sin(this.player.yaw);
-          const cosYaw = Math.cos(this.player.yaw);
-          this.world.entityRenderer.spawnDroppedItem(
-            this.player.position.x - sinYaw * 0.5,
-            this.player.position.y + 1.2,
-            this.player.position.z - cosYaw * 0.5,
-            dropId
-          );
-        }
-        AudioEngine.play('ui.button.click', 0.5);
+        const yaw = this.player.yaw;
+        const pitch = this.player.pitch;
+        const f1 = Math.cos(pitch);
+        const tossSpeed = 0.38;
+        const vx = -Math.sin(yaw) * f1 * tossSpeed;
+        const vy = -Math.sin(pitch) * tossSpeed + 0.18;
+        const vz = -Math.cos(yaw) * f1 * tossSpeed;
+        this.world.entityRenderer.spawnDroppedItem(
+          this.player.position.x - Math.sin(yaw) * 0.4,
+          this.player.position.y + 1.25,
+          this.player.position.z - Math.cos(yaw) * 0.4,
+          dropId,
+          dropCount,
+          vx * 15.0,
+          vy * 16.0,
+          vz * 15.0,
+          1.8
+        );
+        AudioEngine.play('entity.item.pickup', 0.5, 0.8);
       }
     });
 
@@ -532,6 +546,78 @@ export class UIManager {
         this.rebindingKey = null;
         return;
       }
+
+      // Escape always closes Chat or releases focused EditBox
+      if (e.key === 'Escape') {
+        if (this.state === 'CHAT') {
+          this.chatInputText = '';
+          this.setState('IN_GAME');
+          return;
+        } else if (this.focusedEditBox) {
+          this.focusedEditBox = null;
+          return;
+        }
+      }
+
+      // Prevent Tab key from causing browser focus loss when in Chat
+      if (this.state === 'CHAT' && e.key === 'Tab') {
+        e.preventDefault();
+        return;
+      }
+
+      // Pressing Q / Ctrl+Q in Container/Inventory screen drops hovered slot item(s)
+      const kbDrop = OptionsManager.current.keyBinds?.drop || 'KeyQ';
+      if (
+        this.state === 'INVENTORY' &&
+        !this.focusedEditBox &&
+        e.code === kbDrop
+      ) {
+        for (let i = this.interactiveRects.length - 1; i >= 0; i--) {
+          const r = this.interactiveRects[i];
+          if (
+            r.isSlot &&
+            r.getSlot &&
+            r.setSlot &&
+            this.mouseX >= r.x &&
+            this.mouseX < r.x + r.w &&
+            this.mouseY >= r.y &&
+            this.mouseY < r.y + r.h
+          ) {
+            const current = r.getSlot();
+            if (current && current.count > 0) {
+              e.preventDefault();
+              const dropCount = e.ctrlKey ? current.count : 1;
+              const dropId = current.item.shortId;
+              current.count -= dropCount;
+              if (current.count <= 0) {
+                r.setSlot(null);
+              }
+              const yaw = this.player.yaw;
+              const pitch = this.player.pitch;
+              const f1 = Math.cos(pitch);
+              const tossSpeed = 0.38;
+              const vx = -Math.sin(yaw) * f1 * tossSpeed;
+              const vy = -Math.sin(pitch) * tossSpeed + 0.18;
+              const vz = -Math.cos(yaw) * f1 * tossSpeed;
+              this.world.entityRenderer.spawnDroppedItem(
+                this.player.position.x - Math.sin(yaw) * 0.4,
+                this.player.position.y + 1.25,
+                this.player.position.z - Math.cos(yaw) * 0.4,
+                dropId,
+                dropCount,
+                vx * 15.0,
+                vy * 16.0,
+                vz * 15.0,
+                1.8
+              );
+              AudioEngine.play('entity.item.pickup', 0.5, 0.8);
+              this.updateHUDOnly();
+              return;
+            }
+          }
+        }
+      }
+
       // Number keys 1..9 in Container/Inventory screens swap hovered slot with Hotbar slot 0..8
       if (
         this.state === 'INVENTORY' &&
@@ -564,22 +650,13 @@ export class UIManager {
 
       if (!this.focusedEditBox) return;
 
-      if (e.key === 'Escape') {
-        if (this.state === 'CHAT') {
-          this.chatInputText = '';
-          this.setState('IN_GAME');
-        } else {
-          this.focusedEditBox = null;
-        }
-        return;
-      }
-
       if (e.key === 'Enter') {
         if (this.state === 'CHAT') {
           const msg = this.chatInputText.trim();
           this.chatInputText = '';
           if (msg) this.handleChatSubmit(msg);
           this.setState('IN_GAME');
+          return;
         } else {
           this.focusedEditBox = null;
         }
@@ -781,6 +858,9 @@ export class UIManager {
       case 'SOUND_OPTIONS':
         this.renderSoundOptionsScreen();
         break;
+      case 'VIDEO_SETTINGS':
+        this.renderVideoSettingsScreen();
+        break;
       case 'GAME_OVER':
         this.renderGameOverScreen();
         break;
@@ -926,6 +1006,7 @@ export class UIManager {
     );
 
     this.addButton(centerX - 100, bottomRowY, 98, 20, 'Options...', () => {
+      this.optionsReturnState = 'TITLE';
       this.setState('OPTIONS');
     });
 
@@ -1103,7 +1184,7 @@ export class UIManager {
         const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
         w.folder = `${w.name.replace(/\s+/g, '_')} (${dateStr}, ${timeStr})`;
         w.gameMode = this.player.gameMode === 'creative' ? 'creative' : 'survival';
-        w.lastPlayed = `${w.gameMode === 'creative' ? 'Creative' : 'Survival'} Mode, Version: 26.3`;
+        w.lastPlayed = `${dateStr}, ${timeStr} - ${w.isHardcore ? 'Hardcore' : w.gameMode === 'creative' ? 'Creative' : 'Survival'} Mode`;
         this.saveWorldsList();
       }
 
@@ -1353,7 +1434,7 @@ export class UIManager {
         48,
         150,
         20,
-        'World Type: Default (26.3)',
+        'World Type: Default',
         () => {}
       );
       this.addButton(
@@ -1374,18 +1455,10 @@ export class UIManager {
         'Leave blank for a random seed',
         'Seed for the World Generator'
       );
-      this.font.drawCentered(
-        this.gui.ctx,
-        '§7Includes 26.3 Dappled Forest, Poplar Groves & 297 Abandoned Camp NBT Structures',
-        centerX,
-        122,
-        '#A0A0A0',
-        true
-      );
     } else {
       // More Tab
       this.addButton(centerX - 104, 54, 208, 20, 'Game Rules...', () => {});
-      this.addButton(centerX - 104, 82, 208, 20, 'Experiments (26.3 Enabled)', () => {});
+      this.addButton(centerX - 104, 82, 208, 20, 'Experiments...', () => {});
       this.addButton(centerX - 104, 110, 208, 20, 'Data Packs...', () => {});
     }
 
@@ -1397,7 +1470,7 @@ export class UIManager {
         id: `world_${Date.now()}`,
         name: this.newWorldName.trim() || 'New World',
         folder: `${(this.newWorldName.trim() || 'New_World').replace(/[^a-zA-Z0-9_-]/g, '_')}`,
-        lastPlayed: `${isHardcore ? 'Hardcore' : this.newWorldMode === 'creative' ? 'Creative' : 'Survival'} Mode, Version: 26.3`,
+        lastPlayed: `${isHardcore ? 'Hardcore' : this.newWorldMode === 'creative' ? 'Creative' : 'Survival'} Mode`,
         gameMode: this.newWorldMode === 'creative' ? 'creative' : 'survival',
         isHardcore,
         seed: finalSeed,
@@ -1693,7 +1766,7 @@ export class UIManager {
     const centerX = Math.floor(sw / 2);
     const opts = OptionsManager.current;
     const inWorld =
-      this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
+      this.optionsReturnState === 'PAUSE' || this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
 
     this.gui.renderMenuBackground(inWorld, 32, sh - 36);
     this.font.drawCentered(this.gui.ctx, 'Options', centerX, 11, '#FFFFFF', true);
@@ -1725,65 +1798,90 @@ export class UIManager {
     });
 
     // Row 3: Video Settings... & Controls...
-    this.addButton(
-      centerX - 155,
-      90,
-      150,
-      20,
-      `Video (${opts.renderDistance} chunks)`,
-      () => {
-        opts.renderDistance = opts.renderDistance >= 8 ? 3 : opts.renderDistance + 1;
-        OptionsManager.save();
-      }
-    );
+    this.addButton(centerX - 155, 90, 150, 20, 'Video Settings...', () => {
+      this.setState('VIDEO_SETTINGS');
+    });
     this.addButton(centerX + 5, 90, 150, 20, 'Controls...', () => {
       this.setState('CONTROLS');
     });
 
-    // Row 4: Clouds & GUI Scale
-    this.addButton(
+    // Row 4: Language... & Chat Settings...
+    this.addButton(centerX - 155, 114, 150, 20, 'Language...', () => {});
+    this.addButton(centerX + 5, 114, 150, 20, 'Chat Settings...', () => {});
+
+    // Row 5: Resource Packs... & Accessibility Settings...
+    this.addButton(centerX - 155, 138, 150, 20, 'Resource Packs...', () => {});
+    this.addButton(centerX + 5, 138, 150, 20, 'Accessibility Settings...', () => {});
+
+    // Row 6: Telemetry Data... & Credits and Attribution...
+    this.addButton(centerX - 155, 162, 150, 20, 'Telemetry Data...', () => {});
+    this.addButton(centerX + 5, 162, 150, 20, 'Credits and Attribution...', () => {});
+
+    this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
+      this.setState(this.optionsReturnState || 'TITLE');
+    });
+  }
+
+  // ============================================================================
+  // 5b. VIDEO SETTINGS SCREEN (VideoSettingsScreen.java)
+  // ============================================================================
+  private renderVideoSettingsScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const opts = OptionsManager.current;
+    const inWorld =
+      this.optionsReturnState === 'PAUSE' || this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
+
+    this.gui.renderMenuBackground(inWorld, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Video Settings', centerX, 11, '#FFFFFF', true);
+
+    // Row 1: Render Distance slider (2..32 chunks) & Simulation Distance
+    const rdNorm = Math.max(0, Math.min(1, (opts.renderDistance - 2) / 30));
+    this.addSlider(
       centerX - 155,
-      114,
+      42,
       150,
       20,
-      `Clouds: ${opts.clouds ? 'Fancy' : 'OFF'}`,
-      () => {
-        opts.clouds = !opts.clouds;
+      `Render Distance: ${opts.renderDistance} chunks`,
+      rdNorm,
+      (n) => {
+        opts.renderDistance = Math.round(2 + n * 30);
         OptionsManager.save();
       }
     );
+    this.addButton(centerX + 5, 42, 150, 20, 'Simulation Distance: 12 chunks', () => {});
 
+    // Row 2: Graphics: Fancy & Smooth Lighting
+    this.addButton(centerX - 155, 66, 150, 20, 'Graphics: Fancy', () => {});
+    this.addButton(centerX + 5, 66, 150, 20, 'Smooth Lighting: Maximum', () => {});
+
+    // Row 3: Max Framerate & View Bobbing
+    this.addButton(centerX - 155, 90, 150, 20, 'Max Framerate: Unlimited', () => {});
+    this.addButton(centerX + 5, 90, 150, 20, 'View Bobbing: ON', () => {});
+
+    // Row 4: GUI Scale & Clouds
     const scaleLabel = opts.guiScale === 0 ? 'GUI Scale: Auto' : `GUI Scale: ${opts.guiScale}x`;
-    this.addButton(centerX + 5, 114, 150, 20, scaleLabel, () => {
+    this.addButton(centerX - 155, 114, 150, 20, scaleLabel, () => {
       opts.guiScale = (opts.guiScale + 1) % 5;
       OptionsManager.save();
     });
-
-    // Row 5: Game Mode & Cycle Time
-    this.addButton(
-      centerX - 155,
-      138,
-      150,
-      20,
-      `Game Mode: ${this.player.gameMode.toUpperCase()}`,
-      () => {
-        this.player.gameMode =
-          this.player.gameMode === 'creative' ? 'survival' : 'creative';
-        if (this.player.gameMode === 'survival') this.player.flying = false;
-      }
-    );
-
-    this.addButton(centerX + 5, 138, 150, 20, 'Cycle Time of Day', () => {
-      this.world.timeOfDay = (this.world.timeOfDay + 6000) % 24000;
+    this.addButton(centerX + 5, 114, 150, 20, `Clouds: ${opts.clouds ? 'Fancy' : 'OFF'}`, () => {
+      opts.clouds = !opts.clouds;
+      OptionsManager.save();
     });
 
-    // Row 6: Renderer backend & Locate Camp
+    // Row 5: Fullscreen & Particles
+    this.addButton(centerX - 155, 138, 150, 20, 'Fullscreen: OFF', () => {});
+    this.addButton(centerX + 5, 138, 150, 20, 'Particles: All', () => {});
+
+    // Row 6: Backend & Entity Shadows
     this.addButton(
       centerX - 155,
       162,
       150,
       20,
-      `Renderer: ${WebGPUContext.active ? 'WebGPU' : 'WebGL2'}`,
+      `Backend: ${WebGPUContext.active ? 'WebGPU' : 'WebGL2'}`,
       () => {
         if (WebGPUContext.supported) {
           WebGPUContext.active = !WebGPUContext.active;
@@ -1793,30 +1891,10 @@ export class UIManager {
         }
       }
     );
-
-    this.addButton(
-      centerX + 5,
-      162,
-      150,
-      20,
-      'Locate Abandoned Camp',
-      () => {
-        const camp = this.world.findNearestAbandonedCamp(
-          this.player.position.x,
-          this.player.position.z
-        );
-        if (camp) {
-          this.player.position.set(camp.x + 0.5, camp.y + 1.5, camp.z + 0.5);
-          this.addChatMessage(
-            `§aTeleported to 26.3 Abandoned Camp at X=${camp.x}, Y=${camp.y}, Z=${camp.z}!`
-          );
-          if (inWorld) this.setState('IN_GAME');
-        }
-      }
-    );
+    this.addButton(centerX + 5, 162, 150, 20, 'Entity Shadows: ON', () => {});
 
     this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
-      this.setState(this.previousState);
+      this.setState('OPTIONS');
     });
   }
 
@@ -2126,6 +2204,7 @@ export class UIManager {
     });
 
     this.addButton(centerX - 102, baseY + 72, 98, 20, 'Options...', () => {
+      this.optionsReturnState = 'PAUSE';
       this.setState('OPTIONS');
     });
     this.addButton(centerX + 4, baseY + 72, 98, 20, 'Open to LAN', () => {
