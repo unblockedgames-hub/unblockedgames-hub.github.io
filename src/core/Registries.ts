@@ -933,6 +933,8 @@ export class Registries {
       ['deepslate_gold_ore', 'natural', 'stone', 4.5],
       ['deepslate_redstone_ore', 'natural', 'stone', 4.5],
       ['deepslate_diamond_ore', 'natural', 'stone', 4.5],
+      ['deepslate_lapis_ore', 'natural', 'stone', 4.5],
+      ['deepslate_emerald_ore', 'natural', 'stone', 4.5],
       ['coal_block', 'building', 'stone', 5.0],
       ['iron_block', 'building', 'stone', 5.0],
       ['gold_block', 'building', 'stone', 3.0],

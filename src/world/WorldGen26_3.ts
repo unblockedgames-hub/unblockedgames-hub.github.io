@@ -423,6 +423,14 @@ export class WorldGen26_3 {
     const goldOreId = Registries.getBlock('gold_ore')?.numId || ironOreId;
     const redstoneOreId = Registries.getBlock('redstone_ore')?.numId || ironOreId;
     const lapisOreId = Registries.getBlock('lapis_ore')?.numId || ironOreId;
+    const gravelId = Registries.getBlock('gravel')?.numId || dirtId;
+    const graniteId = Registries.getBlock('granite')?.numId || stoneId;
+    const dioriteId = Registries.getBlock('diorite')?.numId || stoneId;
+    const andesiteId = Registries.getBlock('andesite')?.numId || stoneId;
+    const tuffId = Registries.getBlock('tuff')?.numId || deepslateId;
+    const deepslateCoalOreId = Registries.getBlock('deepslate_coal_ore')?.numId || coalOreId;
+    const deepslateCopperOreId = Registries.getBlock('deepslate_copper_ore')?.numId || copperOreId;
+    const deepslateLapisOreId = Registries.getBlock('deepslate_lapis_ore')?.numId || lapisOreId;
     const deepslateIronOreId = Registries.getBlock('deepslate_iron_ore')?.numId || ironOreId;
     const deepslateDiamondOreId = Registries.getBlock('deepslate_diamond_ore')?.numId || diamondOreId;
     const deepslateGoldOreId = Registries.getBlock('deepslate_gold_ore')?.numId || goldOreId;
@@ -485,15 +493,32 @@ export class WorldGen26_3 {
       }
     }
 
-    // Authentic Minecraft 3D Multi-Block Ore Vein Clusters
+    // Exact Minecraft 26.3 Ore & Subsurface Feature Distributions
+    // (Extracted verbatim from 26.3.jar data/minecraft/worldgen/feature/ and placed_feature/)
     const oreConfigs = [
-      { regular: coalOreId, deep: coalOreId, count: 12, minY: 20, maxY: 100, radius: 1.8 },
-      { regular: ironOreId, deep: deepslateIronOreId, count: 8, minY: 8, maxY: 68, radius: 1.5 },
-      { regular: copperOreId, deep: copperOreId, count: 5, minY: 24, maxY: 60, radius: 1.4 },
-      { regular: goldOreId, deep: deepslateGoldOreId, count: 4, minY: 6, maxY: 32, radius: 1.3 },
-      { regular: redstoneOreId, deep: deepslateRedstoneOreId, count: 4, minY: 4, maxY: 16, radius: 1.4 },
-      { regular: lapisOreId, deep: lapisOreId, count: 2, minY: 10, maxY: 34, radius: 1.2 },
-      { regular: diamondOreId, deep: deepslateDiamondOreId, count: 2, minY: 3, maxY: 16, radius: 1.2 },
+      // 1. Coal (ore_coal: size 17, ore_coal_lower: count 20, Y=0..128)
+      { regular: coalOreId, deep: deepslateCoalOreId, count: 20, minY: 0, maxY: 128, radius: 2.1 },
+      // 2. Iron Middle (ore_iron: size 9, ore_iron_middle: count 10, Y=8..64)
+      { regular: ironOreId, deep: deepslateIronOreId, count: 10, minY: 8, maxY: 64, radius: 1.6 },
+      // 3. Iron Small (ore_iron_small: size 4, ore_iron_small: count 10, Y=0..72)
+      { regular: ironOreId, deep: deepslateIronOreId, count: 10, minY: 0, maxY: 72, radius: 1.1 },
+      // 4. Copper (ore_copper_large: size 20, ore_copper: count 16, Y=16..100)
+      { regular: copperOreId, deep: deepslateCopperOreId, count: 16, minY: 16, maxY: 100, radius: 2.0 },
+      // 5. Gold (ore_gold: size 9, ore_gold: count 4, Y=4..32)
+      { regular: goldOreId, deep: deepslateGoldOreId, count: 4, minY: 4, maxY: 32, radius: 1.6 },
+      // 6. Redstone (ore_redstone: size 8, ore_redstone: count 8, Y=1..16)
+      { regular: redstoneOreId, deep: deepslateRedstoneOreId, count: 8, minY: 1, maxY: 16, radius: 1.5 },
+      // 7. Diamond (ore_diamond: size 4-8, ore_diamond: count 7, Y=1..16)
+      { regular: diamondOreId, deep: deepslateDiamondOreId, count: 7, minY: 1, maxY: 16, radius: 1.3 },
+      // 8. Lapis (ore_lapis: size 7, ore_lapis: count 4, Y=8..36)
+      { regular: lapisOreId, deep: deepslateLapisOreId, count: 4, minY: 8, maxY: 36, radius: 1.4 },
+      // 9. Underground Dirt & Gravel pockets (ore_dirt, ore_gravel: size 33, count 7 & 14, Y=10..120)
+      { regular: dirtId, deep: dirtId, count: 7, minY: 10, maxY: 120, radius: 2.6 },
+      { regular: gravelId, deep: gravelId, count: 14, minY: 10, maxY: 120, radius: 2.6 },
+      // 10. Granite, Diorite, Andesite pockets (size 33, count 6 each, Y=10..80)
+      { regular: graniteId, deep: tuffId, count: 6, minY: 10, maxY: 80, radius: 2.4 },
+      { regular: dioriteId, deep: tuffId, count: 6, minY: 10, maxY: 80, radius: 2.4 },
+      { regular: andesiteId, deep: tuffId, count: 6, minY: 10, maxY: 80, radius: 2.4 },
     ];
 
     for (let cIdx = 0; cIdx < oreConfigs.length; cIdx++) {
