@@ -43,6 +43,7 @@ export class Player {
   exhaustion = 0.0;
   fallDistance = 0;
   hurtTimer = 0;
+  hurtDirection = 1;
   invulnerableTimer = 0;
   regenTimer = 0;
   toggledSprint = false;
@@ -50,6 +51,8 @@ export class Player {
   lastSprintPressed = false;
   lastSneakPressed = false;
   onPlayerDeath?: () => void;
+  lastDeathCause = '';
+  lastDeathMessage = 'Player died';
   xpLevel = 0;
   xpProgress = 0.0;
 
@@ -195,16 +198,32 @@ export class Player {
     AudioEngine.play('entity.cushion.get_up', 0.85);
   }
 
-  applyDamage(amount: number, _source: string) {
+  applyDamage(amount: number, source: string) {
     if (this.gameMode === 'creative' || this.gameMode === 'spectator') return;
     if (this.invulnerableTimer > 0) return;
 
     this.invulnerableTimer = 0.5;
     this.hurtTimer = 0.45;
+    this.hurtDirection = Math.random() < 0.5 ? -1 : 1;
     this.health = Math.max(0, this.health - amount);
+    this.lastDeathCause = source;
     AudioEngine.play('entity.player.hurt', 0.9);
 
     if (this.health <= 0) {
+      const username = OptionsManager.current.username || 'Player';
+      if (source === 'fall') {
+        this.lastDeathMessage = `${username} fell from a high place`;
+      } else if (source === 'zombie') {
+        this.lastDeathMessage = `${username} was slain by Zombie`;
+      } else if (source === 'starvation') {
+        this.lastDeathMessage = `${username} starved to death`;
+      } else if (source === 'drown') {
+        this.lastDeathMessage = `${username} drowned`;
+      } else if (source === 'void') {
+        this.lastDeathMessage = `${username} fell out of the world`;
+      } else {
+        this.lastDeathMessage = `${username} died`;
+      }
       AudioEngine.play('entity.player.death', 1.0);
       this.onPlayerDeath?.();
     }
@@ -581,7 +600,7 @@ export class Player {
           }
         }
         this.position.y = high;
-        if (!this.onGround && this.fallDistance > 3.0 && this.gameMode === 'survival') {
+        if (this.fallDistance > 3.0 && this.gameMode === 'survival') {
           const fallDmg = Math.floor(this.fallDistance - 3.0);
           if (fallDmg > 0) {
             this.applyDamage(fallDmg, 'fall');
@@ -698,9 +717,17 @@ export class Player {
     const bobY =
       -Math.abs(Math.cos(this.walkBobPhase)) * 0.05 * this.walkBobIntensity;
 
+    // Authentic Minecraft damage camera tilt (bobHurt)
+    let hurtRoll = 0;
+    if (this.hurtTimer > 0) {
+      const hurtRatio = this.hurtTimer / 0.45;
+      hurtRoll = Math.sin(hurtRatio * Math.PI) * (14.0 * Math.PI / 180.0) * this.hurtDirection;
+    }
+
     const euler = new THREE.Euler(0, 0, 0, 'YXZ');
     euler.x = this.pitch;
     euler.y = this.yaw;
+    euler.z = hurtRoll;
     this.camera.quaternion.setFromEuler(euler);
 
     const rightVec = new THREE.Vector3(1, 0, 0).applyQuaternion(

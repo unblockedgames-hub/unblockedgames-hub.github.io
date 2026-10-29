@@ -18,6 +18,19 @@ export interface DroppedItemEntity {
   mesh: THREE.Mesh;
 }
 
+export interface FallingBlockEntity {
+  id: string;
+  blockId: string;
+  blockNumId: number;
+  blockMeta: number;
+  x: number;
+  y: number;
+  z: number;
+  targetY: number;
+  vy: number;
+  mesh: THREE.Mesh;
+}
+
 export interface MobEntity {
   id: string;
   type: 'pig' | 'cow' | 'sheep' | 'remote_player' | 'zombie';
@@ -52,6 +65,7 @@ export class EntityRenderer {
   cushions = new Map<string, { data: CushionEntityData; mesh: THREE.Mesh }>();
   mobs = new Map<string, MobEntity>();
   droppedItems = new Map<string, DroppedItemEntity>();
+  fallingBlocks = new Map<string, FallingBlockEntity>();
   cushionTextures = new Map<string, THREE.Texture>();
   entityImages = new Map<string, HTMLImageElement>();
   textureLoader = new THREE.TextureLoader();
@@ -186,10 +200,10 @@ export class EntityRenderer {
       const faceTexs = [
         this.cropSubTexture(img, u + dz + dx, v + dz, dz, dy, true), // +X (left flank)
         this.cropSubTexture(img, u, v + dz, dz, dy, true), // -X (right flank)
-        this.cropSubTexture(img, u + dz + dx + dz, v + dz, dx, dy), // +Y (top back)
-        this.cropSubTexture(img, u + dz, v + dz, dx, dy), // -Y (belly / udder on bottom)
-        this.cropSubTexture(img, u + dz, v, dx, dz), // +Z (front chest)
-        this.cropSubTexture(img, u + dz + dx, v, dx, dz), // -Z (rear)
+        this.cropSubTexture(img, u + dz, v + dz, dx, dy), // +Y (top back)
+        this.cropSubTexture(img, u + dz + dx + dz, v + dz, dx, dy), // -Y (belly)
+        this.cropSubTexture(img, u + dz + dx, v, dx, dz), // +Z (front chest)
+        this.cropSubTexture(img, u + dz, v, dx, dz), // -Z (rear)
       ];
       for (let i = 0; i < 6; i++) {
         mats[i].map = faceTexs[i];
@@ -387,6 +401,10 @@ export class EntityRenderer {
       const body = this.createQuadrupedBodyMesh(12, 18, 10, 0, 0x6b4c35);
       body.mesh.position.set(0, 17 / 16, -1 / 16);
 
+      // Official Cow udder: texOffs(52, 0) box (-2, 2, -8, 4, 6, 1) under belly towards rear
+      const udder = this.createUprightPartMesh(4, 2, 6, 0, 0xf0a5a2);
+      udder.mesh.position.set(0, 11.2 / 16, -5 / 16);
+
       // Front legs at z = +6/16, Hind legs at z = -7/16, hip pivot at y = 12/16
       const legCoords: Array<[number, number]> = [
         [-4 / 16, 6 / 16],
@@ -403,13 +421,14 @@ export class EntityRenderer {
         return leg;
       });
 
-      group.add(head.mesh, rHorn.mesh, lHorn.mesh, body.mesh);
+      group.add(head.mesh, rHorn.mesh, lHorn.mesh, body.mesh, udder.mesh);
 
       this.loadEntityImage('/assets/minecraft/textures/entity/cow/cow_temperate.png', (img) => {
         head.applyTexture(img, 0, 0);
         rHorn.applyTexture(img, 22, 0);
         lHorn.applyTexture(img, 22, 0);
         body.applyTexture(img, 18, 4);
+        udder.applyTexture(img, 52, 0);
         for (const l of legParts) l.applyTexture(img, 0, 16);
       });
     } else if (type === 'zombie') {
@@ -741,14 +760,79 @@ export class EntityRenderer {
     });
   }
 
+  spawnFallingBlock(
+    bx: number,
+    by: number,
+    bz: number,
+    blockId: string,
+    targetY: number,
+    meta = 0
+  ) {
+    const id = `falling_${bx}_${by}_${bz}_${Date.now()}_${Math.random()}`;
+    const blockDef = Registries.getBlock(blockId);
+    if (!blockDef) return;
+
+    const geo = new THREE.BoxGeometry(1.0, 1.0, 1.0);
+    const topUv = TextureAtlas.getUV(blockDef.textures.top);
+    const sideUv = TextureAtlas.getUV(blockDef.textures.north || blockDef.textures.top);
+    const bottomUv = TextureAtlas.getUV(blockDef.textures.bottom || blockDef.textures.top);
+
+    const uvAttr = geo.attributes.uv as THREE.BufferAttribute;
+    const uvs = [sideUv, sideUv, topUv, bottomUv, sideUv, sideUv];
+    for (let f = 0; f < 6; f++) {
+      const u = uvs[f];
+      const base = f * 4;
+      uvAttr.setXY(base + 0, u.u0, u.v1);
+      uvAttr.setXY(base + 1, u.u1, u.v1);
+      uvAttr.setXY(base + 2, u.u0, u.v0);
+      uvAttr.setXY(base + 3, u.u1, u.v0);
+    }
+    uvAttr.needsUpdate = true;
+
+    const mat = new THREE.MeshLambertMaterial({
+      map: TextureAtlas.texture,
+      color: 0xffffff,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(bx + 0.5, by + 0.5, bz + 0.5);
+    this.scene.add(mesh);
+
+    this.fallingBlocks.set(id, {
+      id,
+      blockId,
+      blockNumId: blockDef.numId,
+      blockMeta: meta,
+      x: bx,
+      y: by,
+      z: bz,
+      targetY,
+      vy: 0,
+      mesh,
+    });
+  }
+
   update(
     dt: number,
     getGroundHeight: (x: number, z: number) => number,
     playerPos?: THREE.Vector3,
     onPickupItem?: (itemId: string, count: number) => boolean,
     isSolidAt?: (bx: number, by: number, bz: number) => boolean,
-    onMobAttackPlayer?: (damage: number, mobType: string) => void
+    onMobAttackPlayer?: (damage: number, mobType: string) => void,
+    onFallingBlockLanded?: (bx: number, by: number, bz: number, numId: number, meta: number, blockId: string) => void
   ) {
+    // Smooth Gravity Physics for Falling Sand & Gravel Entities
+    for (const [id, fb] of this.fallingBlocks) {
+      fb.vy = Math.max(-36.0, fb.vy - 32.0 * dt);
+      fb.y += fb.vy * dt;
+      fb.mesh.position.y = fb.y + 0.5;
+
+      if (fb.y <= fb.targetY + 0.05) {
+        this.scene.remove(fb.mesh);
+        fb.mesh.geometry.dispose();
+        this.fallingBlocks.delete(id);
+        onFallingBlockLanded?.(fb.x, fb.targetY, fb.z, fb.blockNumId, fb.blockMeta, fb.blockId);
+      }
+    }
     // Update bobbing & rotating 3D dropped items + local block floor collision + magnetic pickup
     for (const [id, item] of this.droppedItems) {
       item.age += dt;
@@ -851,13 +935,16 @@ export class EntityRenderer {
       if (mob.type === 'zombie' && playerPos && mob.hurtTimer <= 0) {
         // Aggressive zombie pathing towards player
         const pdx = playerPos.x - mob.x;
+        const pdy = playerPos.y - mob.y;
         const pdz = playerPos.z - mob.z;
-        const pdist = Math.hypot(pdx, pdz);
-        if (pdist < 16) {
+        const distHoriz = Math.hypot(pdx, pdz);
+        const dist3D = Math.hypot(pdx, pdy, pdz);
+        // Only track and attack if within vertical reach (< 4 blocks) and 3D reach!
+        if (distHoriz < 16 && Math.abs(pdy) < 4.0) {
           mob.yaw = Math.atan2(pdx, pdz);
           mob.vx = Math.sin(mob.yaw) * 2.3;
           mob.vz = Math.cos(mob.yaw) * 2.3;
-          if (pdist < 1.35 && onMobAttackPlayer) {
+          if (dist3D < 1.6 && Math.abs(pdy) < 1.8 && onMobAttackPlayer) {
             onMobAttackPlayer(3, 'zombie');
           }
         }

@@ -13,10 +13,13 @@ import { GuiGraphics } from './GuiGraphics';
 import { ItemIconRenderer } from '../render/ItemIconRenderer';
 import { WorldGen26_3 } from '../world/WorldGen26_3';
 import { WebGPUContext } from '../render/WebGPUContext';
+import { TextureAtlas } from '../render/TextureAtlas';
+import { ResourcePackManager } from '../core/ResourcePackManager';
 
 export type UIState =
   | 'TITLE'
   | 'SINGLEPLAYER_SELECT'
+  | 'CONFIRM_DELETE_WORLD'
   | 'CREATE_WORLD'
   | 'MULTIPLAYER_SELECT'
   | 'WISPCRAFT_CONFIG'
@@ -25,6 +28,13 @@ export type UIState =
   | 'CONTROLS'
   | 'SOUND_OPTIONS'
   | 'VIDEO_SETTINGS'
+  | 'SKIN_CUSTOMIZATION'
+  | 'CHAT_SETTINGS'
+  | 'RESOURCE_PACKS'
+  | 'ACCESSIBILITY'
+  | 'LANGUAGE'
+  | 'TELEMETRY'
+  | 'CREDITS'
   | 'GAME_OVER'
   | 'IN_GAME'
   | 'PAUSE'
@@ -837,6 +847,9 @@ export class UIManager {
       case 'SINGLEPLAYER_SELECT':
         this.renderSelectWorldScreen();
         break;
+      case 'CONFIRM_DELETE_WORLD':
+        this.renderConfirmDeleteWorldScreen();
+        break;
       case 'CREATE_WORLD':
         this.renderCreateWorldScreen();
         break;
@@ -860,6 +873,27 @@ export class UIManager {
         break;
       case 'VIDEO_SETTINGS':
         this.renderVideoSettingsScreen();
+        break;
+      case 'SKIN_CUSTOMIZATION':
+        this.renderSkinCustomizationScreen();
+        break;
+      case 'CHAT_SETTINGS':
+        this.renderChatSettingsScreen();
+        break;
+      case 'RESOURCE_PACKS':
+        this.renderResourcePacksScreen();
+        break;
+      case 'ACCESSIBILITY':
+        this.renderAccessibilityScreen();
+        break;
+      case 'LANGUAGE':
+        this.renderLanguageScreen();
+        break;
+      case 'TELEMETRY':
+        this.renderTelemetryScreen();
+        break;
+      case 'CREDITS':
+        this.renderCreditsScreen();
         break;
       case 'GAME_OVER':
         this.renderGameOverScreen();
@@ -1140,18 +1174,11 @@ export class UIManager {
       20,
       'Delete',
       () => {
-        if (this.savedWorlds.length > 1) {
-          const removed = this.savedWorlds.splice(this.selectedWorldIdx, 1)[0];
-          if (removed) {
-            try {
-              localStorage.removeItem(`mc26_3_world_state_${removed.id}`);
-            } catch {}
-          }
-          this.selectedWorldIdx = 0;
-          this.saveWorldsList();
+        if (this.savedWorlds.length > 0) {
+          this.setState('CONFIRM_DELETE_WORLD');
         }
       },
-      this.savedWorlds.length > 1
+      this.savedWorlds.length > 0
     );
     this.addButton(centerX + 4, sh - 28, 72, 20, 'Re-Create', () => {
       const w = this.savedWorlds[this.selectedWorldIdx] || this.savedWorlds[0];
@@ -1165,6 +1192,52 @@ export class UIManager {
     });
     this.addButton(centerX + 82, sh - 28, 72, 20, 'Cancel', () => {
       this.setState('TITLE');
+    });
+  }
+
+  private renderConfirmDeleteWorldScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const centerY = Math.floor(sh / 2);
+
+    this.gui.renderMenuBackground(false);
+    this.font.drawCentered(
+      this.gui.ctx,
+      'Are you sure you want to delete this world?',
+      centerX,
+      centerY - 45,
+      '#FFFFFF',
+      true
+    );
+
+    const w = this.savedWorlds[this.selectedWorldIdx];
+    const worldName = w ? w.name : 'This world';
+    this.font.drawCentered(
+      this.gui.ctx,
+      `'${worldName}' will be lost forever! (A long time!)`,
+      centerX,
+      centerY - 25,
+      '#AAAAAA',
+      true
+    );
+
+    this.addButton(centerX - 105, centerY + 20, 100, 20, 'Delete', () => {
+      if (this.savedWorlds.length > 0) {
+        const removed = this.savedWorlds.splice(this.selectedWorldIdx, 1)[0];
+        if (removed) {
+          try {
+            localStorage.removeItem(`mc26_3_world_state_${removed.id}`);
+          } catch {}
+        }
+        this.selectedWorldIdx = Math.max(0, Math.min(this.selectedWorldIdx, this.savedWorlds.length - 1));
+        this.saveWorldsList();
+      }
+      this.setState('SINGLEPLAYER_SELECT');
+    });
+
+    this.addButton(centerX + 5, centerY + 20, 100, 20, 'Cancel', () => {
+      this.setState('SINGLEPLAYER_SELECT');
     });
   }
 
@@ -1792,7 +1865,9 @@ export class UIManager {
     });
 
     // Row 2: Skin Customization... & Music & Sounds...
-    this.addButton(centerX - 155, 66, 150, 20, 'Skin Customization...', () => {});
+    this.addButton(centerX - 155, 66, 150, 20, 'Skin Customization...', () => {
+      this.setState('SKIN_CUSTOMIZATION');
+    });
     this.addButton(centerX + 5, 66, 150, 20, 'Music & Sounds...', () => {
       this.setState('SOUND_OPTIONS');
     });
@@ -1806,19 +1881,335 @@ export class UIManager {
     });
 
     // Row 4: Language... & Chat Settings...
-    this.addButton(centerX - 155, 114, 150, 20, 'Language...', () => {});
-    this.addButton(centerX + 5, 114, 150, 20, 'Chat Settings...', () => {});
+    this.addButton(centerX - 155, 114, 150, 20, 'Language...', () => {
+      this.setState('LANGUAGE');
+    });
+    this.addButton(centerX + 5, 114, 150, 20, 'Chat Settings...', () => {
+      this.setState('CHAT_SETTINGS');
+    });
 
     // Row 5: Resource Packs... & Accessibility Settings...
-    this.addButton(centerX - 155, 138, 150, 20, 'Resource Packs...', () => {});
-    this.addButton(centerX + 5, 138, 150, 20, 'Accessibility Settings...', () => {});
+    this.addButton(centerX - 155, 138, 150, 20, 'Resource Packs...', () => {
+      this.setState('RESOURCE_PACKS');
+    });
+    this.addButton(centerX + 5, 138, 150, 20, 'Accessibility Settings...', () => {
+      this.setState('ACCESSIBILITY');
+    });
 
     // Row 6: Telemetry Data... & Credits and Attribution...
-    this.addButton(centerX - 155, 162, 150, 20, 'Telemetry Data...', () => {});
-    this.addButton(centerX + 5, 162, 150, 20, 'Credits and Attribution...', () => {});
+    this.addButton(centerX - 155, 162, 150, 20, 'Telemetry Data...', () => {
+      this.setState('TELEMETRY');
+    });
+    this.addButton(centerX + 5, 162, 150, 20, 'Credits and Attribution...', () => {
+      this.setState('CREDITS');
+    });
 
     this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
       this.setState(this.optionsReturnState || 'TITLE');
+    });
+  }
+
+  // ============================================================================
+  // 5a-1. SKIN CUSTOMIZATION SCREEN (SkinCustomizationScreen.java)
+  // ============================================================================
+  private skinLayers = {
+    cape: true,
+    jacket: true,
+    leftSleeve: true,
+    rightSleeve: true,
+    leftPants: true,
+    rightPants: true,
+    hat: true,
+    mainHand: 'Right' as 'Right' | 'Left',
+  };
+
+  private renderSkinCustomizationScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const inWorld = this.optionsReturnState === 'PAUSE' || this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
+
+    this.gui.renderMenuBackground(inWorld, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Skin Customization', centerX, 11, '#FFFFFF', true);
+
+    const s = this.skinLayers;
+    this.addButton(centerX - 155, 42, 150, 20, `Cape: ${s.cape ? 'ON' : 'OFF'}`, () => { s.cape = !s.cape; });
+    this.addButton(centerX + 5, 42, 150, 20, `Jacket: ${s.jacket ? 'ON' : 'OFF'}`, () => { s.jacket = !s.jacket; });
+
+    this.addButton(centerX - 155, 66, 150, 20, `Left Sleeve: ${s.leftSleeve ? 'ON' : 'OFF'}`, () => { s.leftSleeve = !s.leftSleeve; });
+    this.addButton(centerX + 5, 66, 150, 20, `Right Sleeve: ${s.rightSleeve ? 'ON' : 'OFF'}`, () => { s.rightSleeve = !s.rightSleeve; });
+
+    this.addButton(centerX - 155, 90, 150, 20, `Left Pants Leg: ${s.leftPants ? 'ON' : 'OFF'}`, () => { s.leftPants = !s.leftPants; });
+    this.addButton(centerX + 5, 90, 150, 20, `Right Pants Leg: ${s.rightPants ? 'ON' : 'OFF'}`, () => { s.rightPants = !s.rightPants; });
+
+    this.addButton(centerX - 155, 114, 150, 20, `Hat: ${s.hat ? 'ON' : 'OFF'}`, () => { s.hat = !s.hat; });
+    this.addButton(centerX + 5, 114, 150, 20, `Main Hand: ${s.mainHand}`, () => {
+      s.mainHand = s.mainHand === 'Right' ? 'Left' : 'Right';
+    });
+
+    this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
+      this.setState('OPTIONS');
+    });
+  }
+
+  // ============================================================================
+  // 5a-2. CHAT SETTINGS SCREEN (ChatOptionsScreen.java)
+  // ============================================================================
+  private chatSettings = {
+    visibility: 'Shown' as 'Shown' | 'Commands Only' | 'Hidden',
+    colors: true,
+    webLinks: true,
+    promptLinks: true,
+    opacity: 1.0,
+  };
+
+  private renderChatSettingsScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const inWorld = this.optionsReturnState === 'PAUSE' || this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
+
+    this.gui.renderMenuBackground(inWorld, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Chat Settings', centerX, 11, '#FFFFFF', true);
+
+    const c = this.chatSettings;
+    this.addButton(centerX - 155, 42, 150, 20, `Chat: ${c.visibility}`, () => {
+      const order: Array<typeof c.visibility> = ['Shown', 'Commands Only', 'Hidden'];
+      c.visibility = order[(order.indexOf(c.visibility) + 1) % order.length];
+    });
+    this.addButton(centerX + 5, 42, 150, 20, `Colors: ${c.colors ? 'ON' : 'OFF'}`, () => { c.colors = !c.colors; });
+
+    this.addButton(centerX - 155, 66, 150, 20, `Web Links: ${c.webLinks ? 'ON' : 'OFF'}`, () => { c.webLinks = !c.webLinks; });
+    this.addButton(centerX + 5, 66, 150, 20, `Prompt on Links: ${c.promptLinks ? 'ON' : 'OFF'}`, () => { c.promptLinks = !c.promptLinks; });
+
+    this.addSlider(centerX - 155, 90, 150, 20, `Chat Opacity: ${Math.round(c.opacity * 100)}%`, c.opacity, (n) => {
+      c.opacity = Math.max(0.1, Math.round(n * 100) / 100);
+    });
+    this.addButton(centerX + 5, 90, 150, 20, 'Text Background: Everywhere', () => {});
+
+    this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
+      this.setState('OPTIONS');
+    });
+  }
+
+  // ============================================================================
+  // 5a-3. ACCESSIBILITY SETTINGS SCREEN (AccessibilityOptionsScreen.java)
+  // ============================================================================
+  private accessibilitySettings = {
+    subtitles: false,
+    highContrast: false,
+    autoJump: false,
+    sprintToggle: true,
+    sneakToggle: false,
+  };
+
+  private renderAccessibilityScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const inWorld = this.optionsReturnState === 'PAUSE' || this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
+
+    this.gui.renderMenuBackground(inWorld, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Accessibility Settings', centerX, 11, '#FFFFFF', true);
+
+    const a = this.accessibilitySettings;
+    this.addButton(centerX - 155, 42, 150, 20, `Show Subtitles: ${a.subtitles ? 'ON' : 'OFF'}`, () => {
+      a.subtitles = !a.subtitles;
+    });
+    this.addButton(centerX + 5, 42, 150, 20, `High Contrast: ${a.highContrast ? 'ON' : 'OFF'}`, () => {
+      a.highContrast = !a.highContrast;
+    });
+
+    this.addButton(centerX - 155, 66, 150, 20, `Auto-Jump: ${a.autoJump ? 'ON' : 'OFF'}`, () => {
+      a.autoJump = !a.autoJump;
+    });
+    this.addButton(centerX + 5, 66, 150, 20, `Sprint: ${a.sprintToggle ? 'Toggle' : 'Hold'}`, () => {
+      a.sprintToggle = !a.sprintToggle;
+    });
+
+    this.addButton(centerX - 155, 90, 150, 20, `Sneak: ${a.sneakToggle ? 'Toggle' : 'Hold'}`, () => {
+      a.sneakToggle = !a.sneakToggle;
+    });
+    this.addButton(centerX + 5, 90, 150, 20, 'Distortion Effects: 100%', () => {});
+
+    this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
+      this.setState('OPTIONS');
+    });
+  }
+
+  // ============================================================================
+  // 5a-4. LANGUAGE SCREEN (LanguageSelectScreen.java)
+  // ============================================================================
+  private renderLanguageScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const inWorld = this.optionsReturnState === 'PAUSE' || this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
+
+    this.gui.renderMenuBackground(inWorld, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Language', centerX, 11, '#FFFFFF', true);
+
+    // List box
+    const listTop = 36;
+    const listBottom = sh - 40;
+    this.gui.fill(centerX - 150, listTop + 6, centerX + 150, listTop + 36, '#282828');
+    this.font.draw(this.gui.ctx, '§a✔ English (US)', centerX - 140, listTop + 14, '#FFFFFF', true);
+    this.font.draw(this.gui.ctx, '§7Default (en_us)', centerX - 140, listTop + 24, '#AAAAAA', false);
+
+    this.font.drawCentered(
+      this.gui.ctx,
+      '§7(Language translations may not be 100% accurate)',
+      centerX,
+      sh - 52,
+      '#808080',
+      false
+    );
+
+    this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
+      this.setState('OPTIONS');
+    });
+  }
+
+  // ============================================================================
+  // 5a-5. TELEMETRY DATA SETTINGS SCREEN
+  // ============================================================================
+  private renderTelemetryScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const inWorld = this.optionsReturnState === 'PAUSE' || this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
+
+    this.gui.renderMenuBackground(inWorld, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Telemetry Data Settings', centerX, 11, '#FFFFFF', true);
+
+    this.font.drawCentered(this.gui.ctx, '§7Mojang Studios collects gameplay telemetry to improve Minecraft.', centerX, 55, '#AAAAAA', false);
+    this.font.drawCentered(this.gui.ctx, '§aOptional telemetry is disabled.', centerX, 75, '#55FF55', true);
+    this.font.drawCentered(this.gui.ctx, '§7Web port runs 100% client-side with no tracking.', centerX, 95, '#AAAAAA', false);
+
+    this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
+      this.setState('OPTIONS');
+    });
+  }
+
+  // ============================================================================
+  // 5a-6. CREDITS & ATTRIBUTION SCREEN
+  // ============================================================================
+  private renderCreditsScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const inWorld = this.optionsReturnState === 'PAUSE' || this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
+
+    this.gui.renderMenuBackground(inWorld, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Credits & Attribution', centerX, 11, '#FFFFFF', true);
+
+    this.font.drawCentered(this.gui.ctx, '§eMinecraft 26.3 ("Wilderness Bound")', centerX, 48, '#FFFF55', true);
+    this.font.drawCentered(this.gui.ctx, 'Original Game & Assets by Mojang Studios', centerX, 68, '#FFFFFF', true);
+    this.font.drawCentered(this.gui.ctx, '§7Poplar Trees, Autumn Foliage, Cushions & Straw Beds', centerX, 88, '#AAAAAA', false);
+    this.font.drawCentered(this.gui.ctx, '§7Full WebGPU / WebGL2 Client Architecture', centerX, 108, '#AAAAAA', false);
+    this.font.drawCentered(this.gui.ctx, '§7Multiplayer powered by Wispcraft Protocol v2', centerX, 128, '#AAAAAA', false);
+
+    this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
+      this.setState('OPTIONS');
+    });
+  }
+
+  // ============================================================================
+  // 5a-7. OFFICIAL RESOURCE PACKS SCREEN (ResourcePackSelectScreen.java)
+  // Supports uploading .zip packs, extracting textures via JSZip, and saving in IndexedDB!
+  // ============================================================================
+  private renderResourcePacksScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const inWorld = this.optionsReturnState === 'PAUSE' || this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
+
+    this.gui.renderMenuBackground(inWorld, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Select Resource Packs', centerX, 11, '#FFFFFF', true);
+
+    const colW = Math.min(160, Math.floor(sw * 0.44));
+    const leftColX = centerX - colW - 6;
+    const rightColX = centerX + 6;
+
+    this.font.drawCentered(this.gui.ctx, 'Available', leftColX + Math.floor(colW / 2), 34, '#AAAAAA', true);
+    this.font.drawCentered(this.gui.ctx, 'Selected', rightColX + Math.floor(colW / 2), 34, '#AAAAAA', true);
+
+    // 1. Right Column (Selected): Always includes Default 26.3 Pack at top
+    let rightY = 48;
+    this.gui.fill(rightColX, rightY, rightColX + colW, rightY + 36, '#282828');
+    this.gui.blitSprite('/assets/minecraft/textures/gui/sprites/widget/button.png', rightColX + 2, rightY + 2, 32, 32);
+    this.font.draw(this.gui.ctx, 'Default', rightColX + 38, rightY + 6, '#FFFFFF', true);
+    this.font.draw(this.gui.ctx, '§7The default look of MC 26.3', rightColX + 38, rightY + 18, '#888888', false);
+    rightY += 40;
+
+    // Enabled custom packs in Selected column
+    const enabledPacks = ResourcePackManager.availablePacks.filter((p) => p.enabled);
+    for (const pack of enabledPacks) {
+      this.gui.fill(rightColX, rightY, rightColX + colW, rightY + 36, '#333333');
+      if (pack.iconDataUrl) {
+        this.gui.blitSprite(pack.iconDataUrl, rightColX + 2, rightY + 2, 32, 32);
+      }
+      this.font.draw(this.gui.ctx, pack.name.slice(0, 16), rightColX + 38, rightY + 6, '#FFFF55', true);
+      this.font.draw(this.gui.ctx, pack.description.slice(0, 22), rightColX + 38, rightY + 18, '#AAAAAA', false);
+
+      // Disable button (< arrow)
+      this.addButton(rightColX + colW - 22, rightY + 8, 18, 18, '<', async () => {
+        await ResourcePackManager.togglePack(pack.id);
+        await TextureAtlas.build();
+      });
+
+      rightY += 40;
+    }
+
+    // 2. Left Column (Available): Custom packs not enabled
+    let leftY = 48;
+    const disabledPacks = ResourcePackManager.availablePacks.filter((p) => !p.enabled);
+    if (disabledPacks.length === 0) {
+      this.font.drawCentered(this.gui.ctx, '§7No additional packs', leftColX + Math.floor(colW / 2), 70, '#666666', false);
+    } else {
+      for (const pack of disabledPacks) {
+        this.gui.fill(leftColX, leftY, leftColX + colW, leftY + 36, '#222222');
+        if (pack.iconDataUrl) {
+          this.gui.blitSprite(pack.iconDataUrl, leftColX + 2, leftY + 2, 32, 32);
+        }
+        this.font.draw(this.gui.ctx, pack.name.slice(0, 16), leftColX + 38, leftY + 6, '#FFFFFF', true);
+        this.font.draw(this.gui.ctx, pack.description.slice(0, 22), leftColX + 38, leftY + 18, '#888888', false);
+
+        // Enable button (> arrow)
+        this.addButton(leftColX + colW - 40, leftY + 8, 18, 18, '>', async () => {
+          await ResourcePackManager.togglePack(pack.id);
+          await TextureAtlas.build();
+        });
+
+        // Delete pack button (X)
+        this.addButton(leftColX + colW - 20, leftY + 8, 16, 18, '§cX', async () => {
+          await ResourcePackManager.deletePack(pack.id);
+          await TextureAtlas.build();
+        });
+
+        leftY += 40;
+      }
+    }
+
+    // Bottom action buttons: Upload Resource Pack (.zip) & Done
+    this.addButton(centerX - 155, sh - 28, 150, 20, 'Upload Pack (.zip)...', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.zip';
+      input.onchange = async () => {
+        if (input.files && input.files[0]) {
+          await ResourcePackManager.importZipFile(input.files[0]);
+          await ResourcePackManager.refreshActiveOverrides();
+          await TextureAtlas.build();
+        }
+      };
+      input.click();
+    });
+
+    this.addButton(centerX + 5, sh - 28, 150, 20, 'Done', async () => {
+      await ResourcePackManager.refreshActiveOverrides();
+      await TextureAtlas.build();
+      this.setState('OPTIONS');
     });
   }
 
@@ -2147,12 +2538,20 @@ export class UIManager {
         this.setState('TITLE');
       });
     } else {
-      this.font.drawCentered(this.gui.ctx, '§4You died!', centerX, centerY - 45, '#FFFFFF', true);
+      this.font.drawCentered(this.gui.ctx, '§4You died!', centerX, centerY - 50, '#FFFFFF', true);
+      this.font.drawCentered(
+        this.gui.ctx,
+        this.player.lastDeathMessage || 'Player died',
+        centerX,
+        centerY - 32,
+        '#E0E0E0',
+        true
+      );
       this.font.drawCentered(
         this.gui.ctx,
         `Score: §e${this.player.xpLevel * 10}`,
         centerX,
-        centerY - 25,
+        centerY - 16,
         '#FFFFFF',
         true
       );
@@ -2162,6 +2561,7 @@ export class UIManager {
         this.player.hunger = 20;
         this.player.saturation = 5.0;
         this.player.fallDistance = 0;
+        this.player.invulnerableTimer = 1.0;
         this.player.position.set(0, this.world.getTopSolidY(0, 0) + 1.0, 0);
         this.player.velocity.set(0, 0, 0);
         this.setState('IN_GAME');
@@ -2340,6 +2740,12 @@ export class UIManager {
     const centerX = Math.floor(sw / 2);
     const centerY = Math.floor(sh / 2);
 
+    // Red screen hurt vignette flash on damage
+    if (this.player.hurtTimer > 0) {
+      const alpha = Math.min(0.48, (this.player.hurtTimer / 0.45) * 0.48);
+      this.gui.fill(0, 0, sw, sh, `rgba(180, 0, 0, ${alpha.toFixed(3)})`);
+    }
+
     // Crosshair (15x15)
     if (this.state === 'IN_GAME') {
       this.gui.blitSprite(
@@ -2432,27 +2838,31 @@ export class UIManager {
         );
       }
 
-      // 10 Hearts (left side at sh - 39)
+      // 10 Hearts (left side at sh - 39) with damage blinking & shake
       const heartY = sh - 39;
+      const isHurt = this.player.hurtTimer > 0;
+      const isBlinking = this.player.hurtTimer > 0.2;
       const isHardcore = this.activeWorldIsHardcore;
       const containerSprite = isHardcore
-        ? '/assets/minecraft/textures/gui/sprites/hud/heart/container_hardcore.png'
-        : '/assets/minecraft/textures/gui/sprites/hud/heart/container.png';
+        ? (isBlinking ? '/assets/minecraft/textures/gui/sprites/hud/heart/container_hardcore_blinking.png' : '/assets/minecraft/textures/gui/sprites/hud/heart/container_hardcore.png')
+        : (isBlinking ? '/assets/minecraft/textures/gui/sprites/hud/heart/container_blinking.png' : '/assets/minecraft/textures/gui/sprites/hud/heart/container.png');
       const fullSprite = isHardcore
-        ? '/assets/minecraft/textures/gui/sprites/hud/heart/hardcore_full.png'
-        : '/assets/minecraft/textures/gui/sprites/hud/heart/full.png';
+        ? (isBlinking ? '/assets/minecraft/textures/gui/sprites/hud/heart/hardcore_full_blinking.png' : '/assets/minecraft/textures/gui/sprites/hud/heart/hardcore_full.png')
+        : (isBlinking ? '/assets/minecraft/textures/gui/sprites/hud/heart/full_blinking.png' : '/assets/minecraft/textures/gui/sprites/hud/heart/full.png');
       const halfSprite = isHardcore
-        ? '/assets/minecraft/textures/gui/sprites/hud/heart/hardcore_half.png'
-        : '/assets/minecraft/textures/gui/sprites/hud/heart/half.png';
+        ? (isBlinking ? '/assets/minecraft/textures/gui/sprites/hud/heart/hardcore_half_blinking.png' : '/assets/minecraft/textures/gui/sprites/hud/heart/hardcore_half.png')
+        : (isBlinking ? '/assets/minecraft/textures/gui/sprites/hud/heart/half_blinking.png' : '/assets/minecraft/textures/gui/sprites/hud/heart/half.png');
 
       for (let i = 0; i < 10; i++) {
+        const shakeY = isHurt ? (Math.random() > 0.5 ? -1 : 1) : 0;
+        const curY = sh - 39 + shakeY;
         const hx = hbX + i * 8;
-        this.gui.blitSprite(containerSprite, hx, heartY, 9, 9);
+        this.gui.blitSprite(containerSprite, hx, curY, 9, 9);
         const hp = this.player.health - i * 2;
         if (hp >= 2) {
-          this.gui.blitSprite(fullSprite, hx, heartY, 9, 9);
+          this.gui.blitSprite(fullSprite, hx, curY, 9, 9);
         } else if (hp === 1) {
-          this.gui.blitSprite(halfSprite, hx, heartY, 9, 9);
+          this.gui.blitSprite(halfSprite, hx, curY, 9, 9);
         }
       }
 
@@ -3582,37 +3992,37 @@ export class UIManager {
 
     const furnace = ContainerManager.getFurnace(this.activeContainerBlockPos);
 
-    // Animated flame: burn progress
+    // Animated flame: burn progress (bottom-up from lit_progress.png 14x14)
     if (furnace.burnTime > 0 && furnace.maxBurnTime > 0) {
       const burnRatio = Math.min(1, furnace.burnTime / furnace.maxBurnTime);
-      const flameH = Math.round(14 * burnRatio);
+      const flameH = Math.max(1, Math.round(14 * burnRatio));
       this.gui.blit(
-        '/assets/minecraft/textures/gui/container/furnace.png',
+        '/assets/minecraft/textures/gui/sprites/container/furnace/lit_progress.png',
         leftPos + 56,
         topPos + 36 + (14 - flameH),
-        176,
+        0,
         14 - flameH,
         14,
         flameH,
-        256,
-        256
+        14,
+        14
       );
     }
 
-    // Animated arrow: cook progress
+    // Animated arrow: cook progress (left-to-right from burn_progress.png 24x16)
     if (furnace.cookTime > 0) {
       const cookRatio = Math.min(1, furnace.cookTime / 200);
-      const arrowW = Math.round(24 * cookRatio);
+      const arrowW = Math.max(1, Math.round(24 * cookRatio));
       this.gui.blit(
-        '/assets/minecraft/textures/gui/container/furnace.png',
+        '/assets/minecraft/textures/gui/sprites/container/furnace/burn_progress.png',
         leftPos + 79,
         topPos + 34,
-        176,
-        14,
+        0,
+        0,
         arrowW,
-        17,
-        256,
-        256
+        16,
+        24,
+        16
       );
     }
 

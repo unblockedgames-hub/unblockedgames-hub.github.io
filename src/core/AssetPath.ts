@@ -27,7 +27,13 @@ const ASSET_PREFIXES = [
   '/servers.json',
 ];
 
+import { ResourcePackManager } from './ResourcePackManager';
+
 export function resolveAssetUrl(url: string): string {
+  const packOverride = ResourcePackManager.getOverride(url);
+  if (packOverride) {
+    return packOverride;
+  }
   if (!url || BASE_PATH === '/' || url.startsWith(BASE_PATH)) {
     return url;
   }

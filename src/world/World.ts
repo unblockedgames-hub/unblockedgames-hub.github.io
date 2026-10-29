@@ -134,7 +134,12 @@ export class World {
     }
   }
 
-  checkGravity(wx: number, wy: number, wz: number) {
+  checkGravity(
+    wx: number,
+    wy: number,
+    wz: number,
+    onSpawnFalling?: (bx: number, by: number, bz: number, blockId: string, targetY: number, meta: number) => void
+  ) {
     const sandId = Registries.getBlock('sand')?.numId;
     const gravelId = Registries.getBlock('gravel')?.numId;
     if (!sandId && !gravelId) return;
@@ -158,8 +163,13 @@ export class World {
         }
         if (fallY < curY) {
           const meta = this.getMeta(bx, curY, bz);
+          const blockDef = Registries.getBlock(b);
           this.setBlock(bx, curY, bz, 0);
-          this.setBlock(bx, fallY, bz, b, meta);
+          if (onSpawnFalling && blockDef) {
+            onSpawnFalling(bx, curY, bz, blockDef.shortId, fallY, meta);
+          } else {
+            this.setBlock(bx, fallY, bz, b, meta);
+          }
         }
       } else if (b !== 0) {
         const def = Registries.getBlock(b);

@@ -3,6 +3,7 @@ import { Registries } from './core/Registries';
 import { TextureAtlas } from './render/TextureAtlas';
 import { AudioEngine } from './core/AudioEngine';
 import { OptionsManager } from './core/Options';
+import { ResourcePackManager } from './core/ResourcePackManager';
 import { WorldGen26_3 } from './world/WorldGen26_3';
 import { World } from './world/World';
 import { EntityRenderer } from './render/EntityRenderer';
@@ -11,7 +12,7 @@ import { PanoramaRenderer } from './render/PanoramaRenderer';
 import { SkyRenderer } from './render/SkyRenderer';
 import { FirstPersonHand } from './render/FirstPersonHand';
 import { WebGPUContext } from './render/WebGPUContext';
-import { Inventory, ContainerManager } from './gameplay/Inventory';
+import { Inventory, ContainerManager, ItemStack } from './gameplay/Inventory';
 import { Player } from './gameplay/Player';
 import { UIManager } from './ui/UIManager';
 import { MultiplayerManager } from './network/MultiplayerManager';
@@ -99,6 +100,9 @@ export class Game {
     setProgress(25);
     await Registries.init();
 
+    setProgress(45);
+    await ResourcePackManager.init();
+
     setProgress(55);
     await TextureAtlas.build();
 
@@ -113,6 +117,38 @@ export class Game {
     this.inventory = new Inventory();
     this.player = new Player(this.camera, this.world, this.inventory);
     this.player.onPlayerDeath = () => {
+      const px = this.player.position.x;
+      const py = this.player.position.y + 0.5;
+      const pz = this.player.position.z;
+
+      // Keep inventory is OFF by default: Drop all items at death location
+      const dropStack = (s: ItemStack | null) => {
+        if (!s || s.count <= 0) return;
+        const vx = (Math.random() - 0.5) * 2.5;
+        const vy = 2.5 + Math.random() * 2.0;
+        const vz = (Math.random() - 0.5) * 2.5;
+        this.entityRenderer.spawnDroppedItem(px, py, pz, s.item.shortId, s.count, vx, vy, vz);
+      };
+
+      for (let i = 0; i < this.inventory.slots.length; i++) {
+        dropStack(this.inventory.slots[i]);
+        this.inventory.slots[i] = null;
+      }
+      for (let i = 0; i < this.inventory.armorSlots.length; i++) {
+        dropStack(this.inventory.armorSlots[i]);
+        this.inventory.armorSlots[i] = null;
+      }
+      dropStack(this.inventory.offhandSlot);
+      this.inventory.offhandSlot = null;
+      dropStack(this.inventory.cursorStack);
+      this.inventory.cursorStack = null;
+
+      // Reset XP
+      this.player.xpLevel = 0;
+      this.player.xpProgress = 0;
+
+      // Log death message in chat
+      this.ui.addChatMessage(`§c${this.player.lastDeathMessage}`);
       this.ui.setState('GAME_OVER');
     };
     this.firstPersonHand = new FirstPersonHand();
@@ -625,7 +661,9 @@ export class Game {
     }
 
     this.world.setBlock(hit.bx, hit.by, hit.bz, 0);
-    this.world.checkGravity(hit.bx, hit.by + 1, hit.bz);
+    this.world.checkGravity(hit.bx, hit.by + 1, hit.bz, (bx, by, bz, blockId, targetY, meta) => {
+      this.entityRenderer.spawnFallingBlock(bx, by, bz, blockId, targetY, meta);
+    });
     AudioEngine.playBlockSound(blockDef.soundGroup, 'break');
     this.particleSystem.spawnBlockBreakBurst(
       hit.bx,
@@ -853,7 +891,9 @@ export class Game {
       } else {
         this.world.setBlock(placeX, placeY, placeZ, placeDef.numId, facingMeta);
       }
-      this.world.checkGravity(placeX, placeY, placeZ);
+      this.world.checkGravity(placeX, placeY, placeZ, (bx, by, bz, blockId, targetY, meta) => {
+        this.entityRenderer.spawnFallingBlock(bx, by, bz, blockId, targetY, meta);
+      });
 
       AudioEngine.playBlockSound(placeDef.soundGroup, 'place');
       this.player.triggerSwing();
@@ -963,14 +1003,35 @@ export class Game {
           else if (m.type === 'pig' || m.type === 'cow' || m.type === 'sheep') passives++;
         }
 
-        if (isNight && zombies < 6 && OptionsManager.current.difficulty !== 'Peaceful') {
-          const angle = Math.random() * Math.PI * 2;
-          const dist = 24 + Math.random() * 16;
-          const sx = Math.floor(this.player.position.x + Math.cos(angle) * dist);
-          const sz = Math.floor(this.player.position.z + Math.sin(angle) * dist);
-          const sy = this.world.getTopSolidY(sx, sz);
-          if (sy >= 62) {
-            this.entityRenderer.spawnMob(`zombie_${Date.now()}`, 'zombie', sx, sy, sz);
+        // Surface & Underground Cave Zombie Spawning
+        const canSpawnHostile = OptionsManager.current.difficulty !== 'Peaceful' && zombies < 8;
+        if (canSpawnHostile) {
+          const px = Math.floor(this.player.position.x);
+          const py = Math.floor(this.player.position.y);
+          const pz = Math.floor(this.player.position.z);
+
+          if (py < 58) {
+            // Cave spawn candidate in dark hollows near player
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 10 + Math.random() * 14;
+            const cx = Math.floor(px + Math.cos(angle) * dist);
+            const cz = Math.floor(pz + Math.sin(angle) * dist);
+            const cy = Math.max(5, Math.min(py + Math.floor((Math.random() - 0.5) * 8), 55));
+            const curB = this.world.getBlock(cx, cy, cz);
+            const floorB = this.world.getBlock(cx, cy - 1, cz);
+            const ceilB = this.world.getBlock(cx, cy + 1, cz);
+            if (curB === 0 && ceilB === 0 && floorB !== 0 && Registries.getBlock(floorB)?.solid) {
+              this.entityRenderer.spawnMob(`zombie_${Date.now()}`, 'zombie', cx, cy, cz);
+            }
+          } else if (isNight) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 24 + Math.random() * 16;
+            const sx = Math.floor(px + Math.cos(angle) * dist);
+            const sz = Math.floor(pz + Math.sin(angle) * dist);
+            const sy = this.world.getTopSolidY(sx, sz);
+            if (sy >= 62) {
+              this.entityRenderer.spawnMob(`zombie_${Date.now()}`, 'zombie', sx, sy, sz);
+            }
           }
         } else if (!isNight && passives < 12) {
           const angle = Math.random() * Math.PI * 2;
@@ -1025,6 +1086,18 @@ export class Game {
         },
         (dmg, mobType) => {
           this.player.applyDamage(dmg, mobType);
+        },
+        (bx, by, bz, numId, meta, blockId) => {
+          this.world.setBlock(bx, by, bz, numId, meta);
+          const sound = blockId === 'sand' ? 'block.sand.fall' : 'block.gravel.fall';
+          AudioEngine.play(sound, 0.85);
+          this.particleSystem.spawnBlockBreakBurst(
+            bx,
+            by,
+            bz,
+            blockId,
+            blockId === 'sand' ? 0xe3d8a8 : 0x888484
+          );
         }
       );
 

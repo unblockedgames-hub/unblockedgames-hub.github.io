@@ -937,52 +937,57 @@ export class ContainerManager {
     return c;
   }
 
+  static furnaceTickAccumulator = 0;
   static tickFurnaces(dt: number) {
-    const ticks = Math.max(1, Math.round(dt * 20));
-    for (const [, f] of this.furnaces) {
-      if (!f.input) {
-        if (f.burnTime > 0) f.burnTime = Math.max(0, f.burnTime - ticks);
-        f.cookTime = 0;
-        continue;
-      }
-      const recipe = SMELTING_RECIPES[f.input.item.shortId];
-      if (!recipe) {
-        if (f.burnTime > 0) f.burnTime = Math.max(0, f.burnTime - ticks);
-        f.cookTime = 0;
-        continue;
-      }
-      if (f.output && (f.output.item.shortId !== recipe.result || f.output.count >= f.output.item.maxStack)) {
-        continue;
-      }
-
-      if (f.burnTime <= 0) {
-        if (f.fuel && f.fuel.count > 0) {
-          const fuelVal = FUEL_VALUES[f.fuel.item.shortId] || 0;
-          if (fuelVal > 0) {
-            f.burnTime = fuelVal;
-            f.maxBurnTime = fuelVal;
-            f.fuel.count--;
-            if (f.fuel.count <= 0) f.fuel = null;
-          }
-        }
-      }
-
-      if (f.burnTime > 0) {
-        f.burnTime = Math.max(0, f.burnTime - ticks);
-        f.cookTime += ticks;
-        if (f.cookTime >= recipe.cookTicks) {
+    this.furnaceTickAccumulator += dt;
+    // Tick exactly 20 times per second (1 tick per 0.05s) matching authentic Minecraft
+    while (this.furnaceTickAccumulator >= 0.05) {
+      this.furnaceTickAccumulator -= 0.05;
+      for (const [, f] of this.furnaces) {
+        if (!f.input) {
+          if (f.burnTime > 0) f.burnTime = Math.max(0, f.burnTime - 1);
           f.cookTime = 0;
-          f.input.count--;
-          if (f.input.count <= 0) f.input = null;
-          if (!f.output) {
-            const outDef = Registries.getItem(recipe.result);
-            if (outDef) f.output = { item: outDef, count: 1 };
-          } else {
-            f.output.count++;
+          continue;
+        }
+        const recipe = SMELTING_RECIPES[f.input.item.shortId];
+        if (!recipe) {
+          if (f.burnTime > 0) f.burnTime = Math.max(0, f.burnTime - 1);
+          f.cookTime = 0;
+          continue;
+        }
+        if (f.output && (f.output.item.shortId !== recipe.result || f.output.count >= f.output.item.maxStack)) {
+          continue;
+        }
+
+        if (f.burnTime <= 0) {
+          if (f.fuel && f.fuel.count > 0) {
+            const fuelVal = FUEL_VALUES[f.fuel.item.shortId] || 0;
+            if (fuelVal > 0) {
+              f.burnTime = fuelVal;
+              f.maxBurnTime = fuelVal;
+              f.fuel.count--;
+              if (f.fuel.count <= 0) f.fuel = null;
+            }
           }
         }
-      } else {
-        if (f.cookTime > 0) f.cookTime = Math.max(0, f.cookTime - ticks * 2);
+
+        if (f.burnTime > 0) {
+          f.burnTime = Math.max(0, f.burnTime - 1);
+          f.cookTime += 1;
+          if (f.cookTime >= recipe.cookTicks) {
+            f.cookTime = 0;
+            f.input.count--;
+            if (f.input.count <= 0) f.input = null;
+            if (!f.output) {
+              const outDef = Registries.getItem(recipe.result);
+              if (outDef) f.output = { item: outDef, count: 1 };
+            } else {
+              f.output.count++;
+            }
+          }
+        } else {
+          if (f.cookTime > 0) f.cookTime = Math.max(0, f.cookTime - 2);
+        }
       }
     }
   }
