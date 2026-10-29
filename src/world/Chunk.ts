@@ -198,7 +198,8 @@ export class Chunk {
       z1: number,
       def: BlockDefinition,
       biome: BiomeInfo,
-      cullMask = 0x3f
+      cullMask = 0x3f,
+      meta = 0
     ) => {
       const isWater = def.fluid === 'water';
       const getTint = (face: 'top' | 'bottom' | 'side', shade: number): [number, number, number] => {
@@ -260,6 +261,38 @@ export class Chunk {
           b
         );
       }
+      let texNorth = def.textures.north;
+      let texSouth = def.textures.south;
+      let texEast = def.textures.east;
+      let texWest = def.textures.west;
+
+      if (def.shortId === 'furnace' || def.shortId === 'barrel' || def.shortId === 'chest') {
+        const facing = meta & 3;
+        const front = def.textures.north;
+        const side = def.textures.south || def.textures.east || def.textures.west;
+        if (facing === 0) {
+          texNorth = front;
+          texSouth = side;
+          texEast = side;
+          texWest = side;
+        } else if (facing === 1) {
+          texEast = front;
+          texWest = side;
+          texNorth = side;
+          texSouth = side;
+        } else if (facing === 2) {
+          texSouth = front;
+          texNorth = side;
+          texEast = side;
+          texWest = side;
+        } else if (facing === 3) {
+          texWest = front;
+          texEast = side;
+          texNorth = side;
+          texSouth = side;
+        }
+      }
+
       // South (+Z)
       if (cullMask & 4) {
         const [r, g, b] = getTint('side', 0.86);
@@ -272,7 +305,7 @@ export class Chunk {
           0,
           0,
           1,
-          def.textures.south,
+          texSouth,
           r,
           g,
           b,
@@ -291,7 +324,7 @@ export class Chunk {
           0,
           0,
           -1,
-          def.textures.north,
+          texNorth,
           r,
           g,
           b,
@@ -310,7 +343,7 @@ export class Chunk {
           1,
           0,
           0,
-          def.textures.east,
+          texEast,
           r,
           g,
           b,
@@ -329,7 +362,7 @@ export class Chunk {
           -1,
           0,
           0,
-          def.textures.west,
+          texWest,
           r,
           g,
           b,
@@ -378,7 +411,7 @@ export class Chunk {
             if (shouldRenderNeighborFace(def, getWorldBlock(wx + 1, y, wz))) mask |= 16;
             if (shouldRenderNeighborFace(def, getWorldBlock(wx - 1, y, wz))) mask |= 32;
             if (mask !== 0) {
-              pushBox(lx, y, lz, lx + 1, y + 1, lz + 1, def, biome, mask);
+              pushBox(lx, y, lz, lx + 1, y + 1, lz + 1, def, biome, mask, meta);
             }
           } else if (def.shape === 'fluid') {
             let mask = 0;

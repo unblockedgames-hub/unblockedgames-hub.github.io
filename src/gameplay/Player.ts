@@ -60,6 +60,7 @@ export class Player {
   seatedCushion: CushionEntityData | null = null;
 
   // Input & animation state
+  jumpCooldown = 0;
   keys = new Set<string>();
   lastSpacePress = 0;
   lastWPress = 0;
@@ -439,16 +440,22 @@ export class Player {
       this.isSneaking = controlsActive && !this.flying && sneakPressed;
     }
 
+    if (this.jumpCooldown > 0) {
+      this.jumpCooldown -= dt;
+    }
+
     if (OptionsManager.current.toggleSprint) {
       if (controlsActive && sprintPressed && !this.lastSprintPressed) {
         this.toggledSprint = !this.toggledSprint;
       }
       this.lastSprintPressed = sprintPressed;
-      if (forward <= 0 || this.isSneaking || this.hunger <= 6) {
-        this.isSprinting = false;
+      if (this.isSneaking || this.hunger <= 6) {
         this.toggledSprint = false;
-      } else if (this.toggledSprint) {
+        this.isSprinting = false;
+      } else if (this.toggledSprint && forward > 0) {
         this.isSprinting = true;
+      } else {
+        this.isSprinting = false;
       }
     } else {
       if (forward <= 0 || this.isSneaking || this.hunger <= 6) {
@@ -510,13 +517,19 @@ export class Player {
           this.velocity.y = 4.2;
         }
       } else {
-        // Vanilla Gravity (-28 m/s^2) and Jump (8.45 m/s -> 1.252m peak height)
-        this.velocity.y -= 28.0 * dt;
-        this.velocity.y = Math.max(-55.0, this.velocity.y);
+        if (this.onGround) {
+          this.velocity.y = 0;
+          this.fallDistance = 0;
+        } else {
+          // Vanilla Gravity (-28 m/s^2)
+          this.velocity.y -= 28.0 * dt;
+          this.velocity.y = Math.max(-55.0, this.velocity.y);
+        }
 
-        if (controlsActive && this.keys.has('Space') && this.onGround) {
+        if (controlsActive && this.keys.has('Space') && this.onGround && this.jumpCooldown <= 0) {
           this.velocity.y = 8.45;
           this.onGround = false;
+          this.jumpCooldown = 0.5; // 10 ticks cooldown like vanilla Minecraft!
           // Vanilla sprint-jump horizontal impulse (+0.2 blocks/tick)
           if (this.isSprinting && forward > 0) {
             this.velocity.x += -sinYaw * 1.45;
@@ -721,7 +734,7 @@ export class Player {
     let hurtRoll = 0;
     if (this.hurtTimer > 0) {
       const hurtRatio = this.hurtTimer / 0.45;
-      hurtRoll = Math.sin(hurtRatio * Math.PI) * (14.0 * Math.PI / 180.0) * this.hurtDirection;
+      hurtRoll = Math.sin(hurtRatio * Math.PI) * ((3.5 * Math.PI) / 180.0) * this.hurtDirection;
     }
 
     const euler = new THREE.Euler(0, 0, 0, 'YXZ');

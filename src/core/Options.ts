@@ -18,6 +18,7 @@ export interface KeyBinds {
 export interface GameOptions {
   fov: number;
   renderDistance: number;
+  simulationDistance: number;
   mouseSensitivity: number;
   invertMouse: boolean;
   soundVolume: number;
@@ -33,6 +34,10 @@ export interface GameOptions {
   difficulty: 'Peaceful' | 'Easy' | 'Normal' | 'Hard';
   toggleSprint: boolean;
   toggleSneak: boolean;
+  autoJump: boolean;
+  operatorItemsTab: boolean;
+  maxFps: number;
+  smoothLighting: 'off' | 'min' | 'max';
   particles: 'all' | 'decreased' | 'minimal';
   wispServerUrl: string;
   username: string;
@@ -43,6 +48,7 @@ export class OptionsManager {
   static current: GameOptions = {
     fov: 75,
     renderDistance: 6,
+    simulationDistance: 12,
     mouseSensitivity: 0.5,
     invertMouse: false,
     soundVolume: 0.8,
@@ -58,6 +64,10 @@ export class OptionsManager {
     difficulty: 'Normal',
     toggleSprint: false,
     toggleSneak: false,
+    autoJump: false,
+    operatorItemsTab: false,
+    maxFps: 120,
+    smoothLighting: 'max',
     particles: 'all',
     wispServerUrl: `ws://${window.location.host || 'localhost:3000'}/wisp/`,
     username: 'Steve',

@@ -434,18 +434,18 @@ export class EntityRenderer {
     } else if (type === 'zombie') {
       // Zombie Model: Steve humanoid frame with arms permanently held horizontally forward
       const head = this.createUprightPartMesh(8, 8, 8, 0, 0x55aa55);
-      head.mesh.position.set(0, 24 / 16, 0);
+      head.mesh.position.set(0, 28 / 16, 0);
       const body = this.createUprightPartMesh(8, 12, 4, 0, 0x448888);
-      body.mesh.position.set(0, 14 / 16, 0);
+      body.mesh.position.set(0, 18 / 16, 0);
 
       const rArm = this.createUprightPartMesh(4, 12, 4, 0, 0x55aa55);
       rArm.mesh.geometry.translate(0, -6 / 16, 0);
-      rArm.mesh.position.set(-6 / 16, 20 / 16, 0);
+      rArm.mesh.position.set(-6 / 16, 22 / 16, 0);
       rArm.mesh.rotation.x = -Math.PI / 2; // Arms raised forward towards victim
 
       const lArm = this.createUprightPartMesh(4, 12, 4, 0, 0x55aa55);
       lArm.mesh.geometry.translate(0, -6 / 16, 0);
-      lArm.mesh.position.set(6 / 16, 20 / 16, 0);
+      lArm.mesh.position.set(6 / 16, 22 / 16, 0);
       lArm.mesh.rotation.x = -Math.PI / 2; // Arms raised forward towards victim
 
       const rLeg = this.createUprightPartMesh(4, 12, 4, 0, 0x333366);
@@ -509,8 +509,20 @@ export class EntityRenderer {
 
     for (const [, mob] of this.mobs) {
       if (mob.dead) continue;
-      const halfW = mob.type === 'cow' ? 0.55 : 0.48;
-      const height = mob.type === 'cow' ? 1.45 : mob.type === 'sheep' ? 1.35 : 1.05;
+      const halfW =
+        mob.type === 'cow'
+          ? 0.55
+          : mob.type === 'zombie' || mob.type === 'remote_player'
+          ? 0.35
+          : 0.48;
+      const height =
+        mob.type === 'cow'
+          ? 1.45
+          : mob.type === 'sheep'
+          ? 1.35
+          : mob.type === 'zombie' || mob.type === 'remote_player'
+          ? 1.95
+          : 1.05;
       const minX = mob.x - halfW;
       const maxX = mob.x + halfW;
       const minY = mob.y - 0.05;

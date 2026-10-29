@@ -661,6 +661,29 @@ export class Game {
     }
 
     this.world.setBlock(hit.bx, hit.by, hit.bz, 0);
+
+    // Drop container contents if breaking a furnace, chest, or barrel
+    const posKey = `${hit.bx}_${hit.by}_${hit.bz}`;
+    if (blockDef.shortId === 'furnace') {
+      const f = ContainerManager.furnaces.get(posKey);
+      if (f) {
+        if (f.input) this.entityRenderer.spawnDroppedItem(hit.bx, hit.by, hit.bz, f.input.item.shortId, f.input.count);
+        if (f.fuel) this.entityRenderer.spawnDroppedItem(hit.bx, hit.by, hit.bz, f.fuel.item.shortId, f.fuel.count);
+        if (f.output) this.entityRenderer.spawnDroppedItem(hit.bx, hit.by, hit.bz, f.output.item.shortId, f.output.count);
+        ContainerManager.furnaces.delete(posKey);
+      }
+    } else if (blockDef.shortId === 'chest' || blockDef.shortId === 'barrel') {
+      const c = ContainerManager.chests.get(posKey);
+      if (c) {
+        for (const stack of c) {
+          if (stack) {
+            this.entityRenderer.spawnDroppedItem(hit.bx, hit.by, hit.bz, stack.item.shortId, stack.count);
+          }
+        }
+        ContainerManager.chests.delete(posKey);
+      }
+    }
+
     this.world.checkGravity(hit.bx, hit.by + 1, hit.bz, (bx, by, bz, blockId, targetY, meta) => {
       this.entityRenderer.spawnFallingBlock(bx, by, bz, blockId, targetY, meta);
     });
@@ -735,6 +758,50 @@ export class Game {
   private handleRightClickInteractOrPlace() {
     const held = this.inventory.getHeldStack();
 
+    const FOOD_PROPERTIES: Record<string, { hunger: number; saturation: number }> = {
+      apple: { hunger: 4, saturation: 2.4 },
+      bread: { hunger: 5, saturation: 6.0 },
+      cooked_beef: { hunger: 8, saturation: 12.8 },
+      cooked_porkchop: { hunger: 8, saturation: 12.8 },
+      cooked_mutton: { hunger: 6, saturation: 9.6 },
+      raw_beef: { hunger: 3, saturation: 1.8 },
+      raw_porkchop: { hunger: 3, saturation: 1.8 },
+      raw_mutton: { hunger: 2, saturation: 1.2 },
+      rotten_flesh: { hunger: 4, saturation: 0.8 },
+      golden_apple: { hunger: 4, saturation: 9.6 },
+      baked_potato: { hunger: 5, saturation: 6.0 },
+      potato: { hunger: 1, saturation: 0.6 },
+      carrot: { hunger: 3, saturation: 3.6 },
+      sweet_berries: { hunger: 2, saturation: 0.4 },
+      cookie: { hunger: 2, saturation: 0.4 },
+      melon_slice: { hunger: 2, saturation: 1.2 },
+    };
+
+    const hit = this.player.currentHit;
+    const food = held ? FOOD_PROPERTIES[held.item.shortId] : null;
+    const canEat = food && (this.player.hunger < 20 || held!.item.shortId === 'golden_apple');
+
+    // If holding food, check if we should eat (when aiming at air, sneaking, or clicking non-container block)
+    const isClickingContainer =
+      hit &&
+      ['crafting_table', 'furnace', 'chest', 'barrel', 'stonecutter', 'straw_bed', 'straw_bed_head'].includes(
+        Registries.getBlock(hit.blockNumId).shortId
+      );
+
+    if (canEat && (!hit || this.player.isSneaking || !isClickingContainer)) {
+      if (this.player.gameMode === 'survival') {
+        this.inventory.consumeHeld(1);
+      }
+      this.player.hunger = Math.min(20, this.player.hunger + food.hunger);
+      this.player.saturation = Math.min(this.player.hunger, this.player.saturation + food.saturation);
+      this.firstPersonHand.triggerSwing();
+      this.player.triggerSwing();
+      AudioEngine.play('entity.generic.eat', 0.85);
+      setTimeout(() => AudioEngine.play('entity.player.burp', 0.7), 250);
+      this.ui.updateHUDOnly();
+      return;
+    }
+
     if (held && held.item.shortId === 'filled_map') {
       this.firstPersonHand.triggerSwing();
       const camp = this.world.findNearestAbandonedCamp(
@@ -756,7 +823,6 @@ export class Game {
       return;
     }
 
-    const hit = this.player.currentHit;
     if (!hit) return;
 
     // 1. Check if Right-Clicking an existing 26.3 Cushion to sit down!
@@ -870,7 +936,11 @@ export class Game {
       }
 
       const placeDef = Registries.getBlock(held.item.blockNumId);
-      const facingMeta = this.player.getCardinalFacingMeta();
+      let facingMeta = this.player.getCardinalFacingMeta();
+      if (placeDef.shortId === 'furnace' || placeDef.shortId === 'chest' || placeDef.shortId === 'barrel') {
+        // Place directional container blocks facing TOWARDS the player
+        facingMeta = (facingMeta + 2) % 4;
+      }
 
       if (placeDef.shortId === 'straw_bed') {
         const offsets = [
@@ -980,7 +1050,19 @@ export class Game {
       MultiplayerManager.activeSession?.state !== 'PLAY' &&
       (this.ui.state === 'PAUSE' ||
         this.ui.state === 'OPTIONS' ||
-        this.ui.state === 'ADVANCEMENTS');
+        this.ui.state === 'ADVANCEMENTS' ||
+        this.ui.state === 'VIDEO_SETTINGS' ||
+        this.ui.state === 'CONTROLS' ||
+        this.ui.state === 'SOUND_OPTIONS' ||
+        this.ui.state === 'SKIN_CUSTOMIZATION' ||
+        this.ui.state === 'CHAT_SETTINGS' ||
+        this.ui.state === 'RESOURCE_PACKS' ||
+        this.ui.state === 'ACCESSIBILITY' ||
+        this.ui.state === 'LANGUAGE' ||
+        this.ui.state === 'TELEMETRY' ||
+        this.ui.state === 'CREDITS' ||
+        this.ui.state === 'CONFIRM_DELETE_WORLD' ||
+        this.ui.state === 'GAME_OVER');
 
     const controlsActive = this.ui.state === 'IN_GAME';
 
@@ -1072,6 +1154,9 @@ export class Game {
         (x, z) => this.world.getTopSolidY(x, z),
         this.player.position,
         (itemId, count) => {
+          if (this.player.health <= 0 || this.ui.state === 'GAME_OVER') {
+            return false;
+          }
           const added = this.inventory.addItem(itemId, count);
           if (added) {
             AudioEngine.play('entity.item.pickup', 0.55);

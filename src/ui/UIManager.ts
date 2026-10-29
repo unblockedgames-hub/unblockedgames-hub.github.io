@@ -2227,7 +2227,7 @@ export class UIManager {
     this.gui.renderMenuBackground(inWorld, 32, sh - 36);
     this.font.drawCentered(this.gui.ctx, 'Video Settings', centerX, 11, '#FFFFFF', true);
 
-    // Row 1: Render Distance slider (2..32 chunks) & Simulation Distance
+    // Row 1: Render Distance slider (2..32 chunks) & Simulation Distance slider (5..32 chunks)
     const rdNorm = Math.max(0, Math.min(1, (opts.renderDistance - 2) / 30));
     this.addSlider(
       centerX - 155,
@@ -2241,14 +2241,44 @@ export class UIManager {
         OptionsManager.save();
       }
     );
-    this.addButton(centerX + 5, 42, 150, 20, 'Simulation Distance: 12 chunks', () => {});
+
+    const sdNorm = Math.max(0, Math.min(1, ((opts.simulationDistance || 12) - 5) / 27));
+    this.addSlider(
+      centerX + 5,
+      42,
+      150,
+      20,
+      `Simulation Distance: ${opts.simulationDistance || 12} chunks`,
+      sdNorm,
+      (n) => {
+        opts.simulationDistance = Math.round(5 + n * 27);
+        OptionsManager.save();
+      }
+    );
 
     // Row 2: Graphics: Fancy & Smooth Lighting
     this.addButton(centerX - 155, 66, 150, 20, 'Graphics: Fancy', () => {});
-    this.addButton(centerX + 5, 66, 150, 20, 'Smooth Lighting: Maximum', () => {});
+    const slMap = { off: 'OFF', min: 'Minimum', max: 'Maximum' };
+    this.addButton(centerX + 5, 66, 150, 20, `Smooth Lighting: ${slMap[opts.smoothLighting || 'max']}`, () => {
+      opts.smoothLighting = opts.smoothLighting === 'max' ? 'off' : opts.smoothLighting === 'off' ? 'min' : 'max';
+      OptionsManager.save();
+    });
 
     // Row 3: Max Framerate & View Bobbing
-    this.addButton(centerX - 155, 90, 150, 20, 'Max Framerate: Unlimited', () => {});
+    const fpsNorm = Math.max(0, Math.min(1, ((opts.maxFps || 120) - 10) / 250));
+    this.addSlider(
+      centerX - 155,
+      90,
+      150,
+      20,
+      (opts.maxFps || 120) >= 260 ? 'Max Framerate: Unlimited' : `Max Framerate: ${opts.maxFps || 120} fps`,
+      fpsNorm,
+      (n) => {
+        const val = Math.round((10 + n * 250) / 10) * 10;
+        opts.maxFps = val >= 260 ? 260 : val;
+        OptionsManager.save();
+      }
+    );
     this.addButton(centerX + 5, 90, 150, 20, 'View Bobbing: ON', () => {});
 
     // Row 4: GUI Scale & Clouds
@@ -2331,7 +2361,7 @@ export class UIManager {
     // Row 2: Toggle Sprint & Toggle Sneak
     this.addButton(
       centerX - 155,
-      62,
+      60,
       150,
       20,
       `Sprint: ${opts.toggleSprint ? 'Toggle' : 'Hold'}`,
@@ -2343,12 +2373,37 @@ export class UIManager {
 
     this.addButton(
       centerX + 5,
-      62,
+      60,
       150,
       20,
       `Sneak: ${opts.toggleSneak ? 'Toggle' : 'Hold'}`,
       () => {
         opts.toggleSneak = !opts.toggleSneak;
+        OptionsManager.save();
+      }
+    );
+
+    // Row 3: Auto-Jump & Operator Items Tab
+    this.addButton(
+      centerX - 155,
+      82,
+      150,
+      20,
+      `Auto-Jump: ${opts.autoJump ? 'ON' : 'OFF'}`,
+      () => {
+        opts.autoJump = !opts.autoJump;
+        OptionsManager.save();
+      }
+    );
+
+    this.addButton(
+      centerX + 5,
+      82,
+      150,
+      20,
+      `Operator Items Tab: ${opts.operatorItemsTab ? 'ON' : 'OFF'}`,
+      () => {
+        opts.operatorItemsTab = !opts.operatorItemsTab;
         OptionsManager.save();
       }
     );
@@ -2381,7 +2436,7 @@ export class UIManager {
       return code;
     };
 
-    const startY = 88;
+    const startY = 106;
     for (let i = 0; i < Math.min(6, keyActions.length); i++) {
       const act = keyActions[i];
       const y = startY + i * 22;
@@ -2740,9 +2795,9 @@ export class UIManager {
     const centerX = Math.floor(sw / 2);
     const centerY = Math.floor(sh / 2);
 
-    // Red screen hurt vignette flash on damage
+    // Red screen hurt vignette flash on damage (authentic subtle red vignette)
     if (this.player.hurtTimer > 0) {
-      const alpha = Math.min(0.48, (this.player.hurtTimer / 0.45) * 0.48);
+      const alpha = Math.min(0.15, (this.player.hurtTimer / 0.45) * 0.15);
       this.gui.fill(0, 0, sw, sh, `rgba(180, 0, 0, ${alpha.toFixed(3)})`);
     }
 
