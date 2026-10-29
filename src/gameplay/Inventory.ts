@@ -829,4 +829,120 @@ export class Inventory {
     ];
     return recipes;
   }
+
+  dropHeldItem(wholeStack: boolean): ItemStack | null {
+    const held = this.getHeldStack();
+    if (!held || held.count <= 0) return null;
+    const dropCount = wholeStack ? held.count : 1;
+    held.count -= dropCount;
+    const resultItem: ItemStack = { item: held.item, count: dropCount };
+    if (held.count <= 0) {
+      this.slots[this.selectedHotbarSlot] = null;
+    }
+    return resultItem;
+  }
+}
+
+export interface FurnaceData {
+  input: ItemStack | null;
+  fuel: ItemStack | null;
+  output: ItemStack | null;
+  burnTime: number; // remaining burn ticks
+  maxBurnTime: number; // total burn ticks of current fuel
+  cookTime: number; // progress 0..200 ticks
+}
+
+export const SMELTING_RECIPES: Record<string, { result: string; cookTicks: number }> = {
+  raw_beef: { result: 'cooked_beef', cookTicks: 200 },
+  raw_porkchop: { result: 'cooked_porkchop', cookTicks: 200 },
+  raw_mutton: { result: 'cooked_mutton', cookTicks: 200 },
+  cobblestone: { result: 'stone', cookTicks: 200 },
+  sand: { result: 'glass', cookTicks: 200 },
+  oak_log: { result: 'charcoal', cookTicks: 200 },
+  poplar_log: { result: 'charcoal', cookTicks: 200 },
+  raw_iron: { result: 'iron_ingot', cookTicks: 200 },
+};
+
+export const FUEL_VALUES: Record<string, number> = {
+  coal: 1600,
+  charcoal: 1600,
+  oak_log: 300,
+  poplar_log: 300,
+  oak_planks: 300,
+  poplar_planks: 300,
+  stick: 100,
+  straw_bed: 400,
+};
+
+export class ContainerManager {
+  static furnaces = new Map<string, FurnaceData>();
+  static chests = new Map<string, (ItemStack | null)[]>(); // 27 slots per chest/barrel
+
+  static getFurnace(key: string): FurnaceData {
+    let f = this.furnaces.get(key);
+    if (!f) {
+      f = { input: null, fuel: null, output: null, burnTime: 0, maxBurnTime: 0, cookTime: 0 };
+      this.furnaces.set(key, f);
+    }
+    return f;
+  }
+
+  static getChest(key: string): (ItemStack | null)[] {
+    let c = this.chests.get(key);
+    if (!c) {
+      c = new Array(27).fill(null);
+      this.chests.set(key, c);
+    }
+    return c;
+  }
+
+  static tickFurnaces(dt: number) {
+    const ticks = Math.max(1, Math.round(dt * 20));
+    for (const [, f] of this.furnaces) {
+      if (!f.input) {
+        if (f.burnTime > 0) f.burnTime = Math.max(0, f.burnTime - ticks);
+        f.cookTime = 0;
+        continue;
+      }
+      const recipe = SMELTING_RECIPES[f.input.item.shortId];
+      if (!recipe) {
+        if (f.burnTime > 0) f.burnTime = Math.max(0, f.burnTime - ticks);
+        f.cookTime = 0;
+        continue;
+      }
+      if (f.output && (f.output.item.shortId !== recipe.result || f.output.count >= f.output.item.maxStack)) {
+        continue;
+      }
+
+      if (f.burnTime <= 0) {
+        if (f.fuel && f.fuel.count > 0) {
+          const fuelVal = FUEL_VALUES[f.fuel.item.shortId] || 0;
+          if (fuelVal > 0) {
+            f.burnTime = fuelVal;
+            f.maxBurnTime = fuelVal;
+            f.fuel.count--;
+            if (f.fuel.count <= 0) f.fuel = null;
+          }
+        }
+      }
+
+      if (f.burnTime > 0) {
+        f.burnTime = Math.max(0, f.burnTime - ticks);
+        f.cookTime += ticks;
+        if (f.cookTime >= recipe.cookTicks) {
+          f.cookTime = 0;
+          f.input.count--;
+          if (f.input.count <= 0) f.input = null;
+          if (!f.output) {
+            const outDef = Registries.getItem(recipe.result);
+            if (outDef) f.output = { item: outDef, count: 1 };
+          } else {
+            f.output.count++;
+          }
+        }
+      } else {
+        if (f.cookTime > 0) f.cookTime = Math.max(0, f.cookTime - ticks * 2);
+      }
+    }
+  }
 }

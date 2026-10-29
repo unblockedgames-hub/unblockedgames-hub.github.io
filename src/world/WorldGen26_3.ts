@@ -75,6 +75,50 @@ export class WorldGen26_3 {
     return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
   }
 
+  static hash3D(x: number, y: number, z: number, seedOffset = 0): number {
+    let n =
+      Math.imul(x, 374761393) +
+      Math.imul(y, 1013904223) +
+      Math.imul(z, 668265263) +
+      Math.imul(this.seed + seedOffset, 1442695041);
+    n = (n ^ (n >>> 13)) * 1274126177;
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+  }
+
+  static smoothNoise3D(x: number, y: number, z: number, scale: number, seedOffset = 0): number {
+    const sx = x / scale;
+    const sy = y / scale;
+    const sz = z / scale;
+    const ix = Math.floor(sx);
+    const iy = Math.floor(sy);
+    const iz = Math.floor(sz);
+    const fx = sx - ix;
+    const fy = sy - iy;
+    const fz = sz - iz;
+    const u = fx * fx * (3 - 2 * fx);
+    const v = fy * fy * (3 - 2 * fy);
+    const w = fz * fz * (3 - 2 * fz);
+
+    const c000 = this.hash3D(ix, iy, iz, seedOffset);
+    const c100 = this.hash3D(ix + 1, iy, iz, seedOffset);
+    const c010 = this.hash3D(ix, iy + 1, iz, seedOffset);
+    const c110 = this.hash3D(ix + 1, iy + 1, iz, seedOffset);
+    const c001 = this.hash3D(ix, iy, iz + 1, seedOffset);
+    const c101 = this.hash3D(ix + 1, iy, iz + 1, seedOffset);
+    const c011 = this.hash3D(ix, iy + 1, iz + 1, seedOffset);
+    const c111 = this.hash3D(ix + 1, iy + 1, iz + 1, seedOffset);
+
+    const x00 = c000 * (1 - u) + c100 * u;
+    const x10 = c010 * (1 - u) + c110 * u;
+    const x01 = c001 * (1 - u) + c101 * u;
+    const x11 = c011 * (1 - u) + c111 * u;
+
+    const y0 = x00 * (1 - v) + x10 * v;
+    const y1 = x01 * (1 - v) + x11 * v;
+
+    return y0 * (1 - w) + y1 * w;
+  }
+
   static smoothNoise(x: number, z: number, scale: number, seedOffset = 0): number {
     const sx = x / scale;
     const sz = z / scale;
@@ -114,9 +158,16 @@ export class WorldGen26_3 {
     const detail = this.smoothNoise(wx, wz, 22, 30);
     const ridge = 1.0 - Math.abs(this.smoothNoise(wx, wz, 96, 40) * 2.0 - 1.0);
 
-    let height = 56 + continental * 18 + hills * 10 + detail * 4;
+    // River / lake noise creates winding river valleys and water bodies below sea level (62)
+    const river = Math.abs(this.smoothNoise(wx, wz, 190, 88) * 2.0 - 1.0);
+
+    let height = 54 + continental * 18 + hills * 10 + detail * 3;
     if (continental > 0.62) {
-      height += (continental - 0.62) * ridge * 38;
+      height += (continental - 0.62) * ridge * 34;
+    }
+    if (river < 0.11) {
+      const riverDepth = (1.0 - river / 0.11) * 12.0;
+      height -= riverDepth;
     }
     return Math.floor(height);
   }
@@ -415,6 +466,18 @@ export class WorldGen26_3 {
             chunk.setBlock(lx, y, lz, waterId);
           }
         }
+
+        // 3D Cave Carver: carves continuous subterranean caves and breaches hillsides creating natural entrances
+        for (let y = 4; y < h; y++) {
+          const c1 = this.smoothNoise3D(wx, y * 1.3, wz, 15, 333) * 2.0 - 1.0;
+          const c2 = this.smoothNoise3D(wx, y * 1.3, wz, 15, 444) * 2.0 - 1.0;
+          if (c1 * c1 + c2 * c2 < 0.042) {
+            // Keep ocean floor intact under sea level lakes/rivers
+            if (h >= SEA_LEVEL || y > SEA_LEVEL) {
+              chunk.setBlock(lx, y, lz, 0);
+            }
+          }
+        }
       }
     }
 
@@ -422,11 +485,18 @@ export class WorldGen26_3 {
       return { chunk, cushions };
     }
 
-    // Check if this chunk naturally hosts an Abandoned Camp structure based on world seed!
+    // Check if this chunk naturally hosts an Abandoned Camp structure using authentic 32x32 regional spacing
+    const REGION_SIZE = 32;
+    const rx = Math.floor(cx / REGION_SIZE);
+    const rz = Math.floor(cz / REGION_SIZE);
+    const campChunkOffsetX = Math.floor(this.hash2D(rx, rz, 911) * 24) + 4;
+    const campChunkOffsetZ = Math.floor(this.hash2D(rx, rz, 912) * 24) + 4;
+    const targetCx = rx * REGION_SIZE + campChunkOffsetX;
+    const targetCz = rz * REGION_SIZE + campChunkOffsetZ;
     const isWildernessCampChunk =
+      cx === targetCx &&
+      cz === targetCz &&
       (Math.abs(cx) > 1 || Math.abs(cz) > 1) &&
-      Math.abs(cx * 31 + cz * 17) % 11 === 0 &&
-      this.hash2D(cx, cz, 2603) < 0.42 &&
       heightMap[7 * CHUNK_SIZE + 7] > SEA_LEVEL + 2;
 
     if (isWildernessCampChunk) {
@@ -435,12 +505,14 @@ export class WorldGen26_3 {
       const res = this.placeOfficialAbandonedCamp(chunk, 3, centerH, 3, variant);
       cushions.push(...res.cushions);
       camp = res.campPos;
-      return { chunk, cushions, camp };
     }
 
     // Place Trees & Flora based on Biome
     for (let lz = 3; lz < CHUNK_SIZE - 3; lz += 4) {
       for (let lx = 3; lx < CHUNK_SIZE - 3; lx += 4) {
+        if (isWildernessCampChunk && lx >= 1 && lx <= 12 && lz >= 1 && lz <= 12) {
+          continue; // Clear campsite clearing while preserving forest surrounding the camp
+        }
         const wx = cx * CHUNK_SIZE + lx;
         const wz = cz * CHUNK_SIZE + lz;
         const h = heightMap[lz * CHUNK_SIZE + lx];

@@ -39,6 +39,17 @@ export class Player {
   health = 20;
   maxHealth = 20;
   hunger = 20;
+  saturation = 5.0;
+  exhaustion = 0.0;
+  fallDistance = 0;
+  hurtTimer = 0;
+  invulnerableTimer = 0;
+  regenTimer = 0;
+  toggledSprint = false;
+  toggledSneak = false;
+  lastSprintPressed = false;
+  lastSneakPressed = false;
+  onPlayerDeath?: () => void;
   xpLevel = 0;
   xpProgress = 0.0;
 
@@ -156,9 +167,47 @@ export class Player {
 
   dismountCushion() {
     if (!this.seatedCushion) return;
-    this.position.y = this.seatedCushion.blockY + 0.65;
+    const cy = this.seatedCushion.blockY + 1.001;
+    let targetX = this.seatedCushion.x;
+    let targetY = cy;
+    let targetZ = this.seatedCushion.z;
+
+    // Verify dismount space is clear of solid collision
+    if (this.collidesAt(targetX, targetY, targetZ)) {
+      const offsets = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ];
+      for (const [ox, oz] of offsets) {
+        if (!this.collidesAt(targetX + ox, targetY, targetZ + oz)) {
+          targetX += ox;
+          targetZ += oz;
+          break;
+        }
+      }
+    }
+    this.position.set(targetX, targetY, targetZ);
+    this.velocity.set(0, 0, 0);
     this.seatedCushion = null;
+    this.currentEyeHeight = 1.62;
     AudioEngine.play('entity.cushion.get_up', 0.85);
+  }
+
+  applyDamage(amount: number, _source: string) {
+    if (this.gameMode === 'creative' || this.gameMode === 'spectator') return;
+    if (this.invulnerableTimer > 0) return;
+
+    this.invulnerableTimer = 0.5;
+    this.hurtTimer = 0.45;
+    this.health = Math.max(0, this.health - amount);
+    AudioEngine.play('entity.player.hurt', 0.9);
+
+    if (this.health <= 0) {
+      AudioEngine.play('entity.player.death', 1.0);
+      this.onPlayerDeath?.();
+    }
   }
 
   triggerSwing() {
@@ -290,6 +339,9 @@ export class Player {
       this.creativeBreakCooldown = Math.max(0, this.creativeBreakCooldown - dt);
     }
 
+    if (this.hurtTimer > 0) this.hurtTimer -= dt;
+    if (this.invulnerableTimer > 0) this.invulnerableTimer -= dt;
+
     if (this.isSwinging) {
       this.swingProgress += dt * 4.5;
       if (this.swingProgress >= 1) {
@@ -298,12 +350,14 @@ export class Player {
       }
     }
 
-    // Dismount cushion if Shift is pressed
-    if (
-      this.seatedCushion &&
-      controlsActive &&
-      (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'))
-    ) {
+    // Dismount cushion if Sneak is pressed
+    const kb = OptionsManager.current.keyBinds;
+    const sneakPressed =
+      this.keys.has(kb.sneak) ||
+      this.keys.has('ShiftLeft') ||
+      this.keys.has('ShiftRight');
+
+    if (this.seatedCushion && controlsActive && sneakPressed) {
       this.dismountCushion();
     }
 
@@ -318,14 +372,36 @@ export class Player {
       return;
     }
 
+    // 0. Unstick safeguard if embedded inside solid block
+    if (this.collidesAt(this.position.x, this.position.y, this.position.z)) {
+      for (let pop = 0.2; pop <= 2.0; pop += 0.2) {
+        if (!this.collidesAt(this.position.x, this.position.y + pop, this.position.z)) {
+          this.position.y += pop;
+          this.velocity.y = 0;
+          break;
+        }
+      }
+    }
+
     // Input vector in local XZ
     let forward = 0;
     let strafe = 0;
+    const forwardPressed =
+      this.keys.has(kb.forward) || this.keys.has('KeyW') || this.keys.has('ArrowUp');
+    const backPressed =
+      this.keys.has(kb.back) || this.keys.has('KeyS') || this.keys.has('ArrowDown');
+    const leftPressed =
+      this.keys.has(kb.left) || this.keys.has('KeyA') || this.keys.has('ArrowLeft');
+    const rightPressed =
+      this.keys.has(kb.right) || this.keys.has('KeyD') || this.keys.has('ArrowRight');
+    const sprintPressed =
+      this.keys.has(kb.sprint) || this.keys.has('ControlLeft') || this.keys.has('KeyR');
+
     if (controlsActive) {
-      if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) forward += 1;
-      if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) forward -= 1;
-      if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) strafe -= 1;
-      if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) strafe += 1;
+      if (forwardPressed) forward += 1;
+      if (backPressed) forward -= 1;
+      if (leftPressed) strafe -= 1;
+      if (rightPressed) strafe += 1;
     }
 
     const len = Math.hypot(forward, strafe);
@@ -334,15 +410,33 @@ export class Player {
       strafe /= len;
     }
 
-    this.isSneaking =
-      controlsActive &&
-      !this.flying &&
-      (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'));
+    if (OptionsManager.current.toggleSneak) {
+      if (controlsActive && sneakPressed && !this.lastSneakPressed) {
+        this.toggledSneak = !this.toggledSneak;
+      }
+      this.lastSneakPressed = sneakPressed;
+      this.isSneaking = controlsActive && !this.flying && this.toggledSneak;
+    } else {
+      this.isSneaking = controlsActive && !this.flying && sneakPressed;
+    }
 
-    if (forward <= 0 || this.isSneaking) {
-      this.isSprinting = false;
-    } else if (this.keys.has('ControlLeft') || this.keys.has('KeyR')) {
-      this.isSprinting = true;
+    if (OptionsManager.current.toggleSprint) {
+      if (controlsActive && sprintPressed && !this.lastSprintPressed) {
+        this.toggledSprint = !this.toggledSprint;
+      }
+      this.lastSprintPressed = sprintPressed;
+      if (forward <= 0 || this.isSneaking || this.hunger <= 6) {
+        this.isSprinting = false;
+        this.toggledSprint = false;
+      } else if (this.toggledSprint) {
+        this.isSprinting = true;
+      }
+    } else {
+      if (forward <= 0 || this.isSneaking || this.hunger <= 6) {
+        this.isSprinting = false;
+      } else if (sprintPressed && this.hunger > 6) {
+        this.isSprinting = true;
+      }
     }
 
     // Vanilla Minecraft Movement Speeds:
@@ -487,6 +581,13 @@ export class Player {
           }
         }
         this.position.y = high;
+        if (!this.onGround && this.fallDistance > 3.0 && this.gameMode === 'survival') {
+          const fallDmg = Math.floor(this.fallDistance - 3.0);
+          if (fallDmg > 0) {
+            this.applyDamage(fallDmg, 'fall');
+          }
+        }
+        this.fallDistance = 0;
         this.onGround = true;
         if (this.flying && this.gameMode !== 'spectator') {
           this.flying = false; // Touching ground disables flying just like Minecraft!
@@ -495,9 +596,52 @@ export class Player {
       this.velocity.y = 0;
     }
 
+    if (!this.onGround && !this.flying && !this.inWater) {
+      if (this.velocity.y < 0) {
+        this.fallDistance += -this.velocity.y * dt;
+      }
+    } else {
+      this.fallDistance = 0;
+    }
+
     // Footstep sound & View Bobbing distance
     const movedDist = Math.hypot(this.position.x - oldX, this.position.z - oldZ);
     const isWalkingOnGround = this.onGround && !this.flying && movedDist > 0.0005;
+
+    // Survival Hunger & Exhaustion System
+    if (this.gameMode === 'survival') {
+      if (isWalkingOnGround) {
+        this.exhaustion += movedDist * (this.isSprinting ? 0.08 : 0.01);
+      }
+      if (this.exhaustion >= 4.0) {
+        this.exhaustion -= 4.0;
+        if (this.saturation > 0) {
+          this.saturation = Math.max(0, this.saturation - 1.0);
+        } else if (this.hunger > 0) {
+          this.hunger = Math.max(0, this.hunger - 1);
+        }
+      }
+
+      this.regenTimer += dt;
+      if (this.hunger >= 18 && this.health < this.maxHealth) {
+        if (this.regenTimer >= 4.0) {
+          this.regenTimer = 0;
+          this.health = Math.min(this.maxHealth, this.health + 1);
+          this.exhaustion += 3.0;
+        }
+      } else if (this.hunger === 0) {
+        if (this.regenTimer >= 4.0) {
+          this.regenTimer = 0;
+          const diff = OptionsManager.current.difficulty;
+          const minHealth = diff === 'Easy' ? 10 : diff === 'Normal' ? 1 : 0;
+          if (this.health > minHealth) {
+            this.applyDamage(1, 'starvation');
+          }
+        }
+      } else {
+        if (this.regenTimer > 4.0) this.regenTimer = 0;
+      }
+    }
 
     if (isWalkingOnGround) {
       this.walkBobPhase += movedDist * 3.6;

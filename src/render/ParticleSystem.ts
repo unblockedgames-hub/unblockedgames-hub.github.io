@@ -171,23 +171,35 @@ export class ParticleSystem {
     }
   }
 
+  private materialCache = new Map<number, THREE.MeshBasicMaterial>();
+
+  private getMaterial(hexColor: number): THREE.MeshBasicMaterial {
+    let m = this.materialCache.get(hexColor);
+    if (!m) {
+      m = new THREE.MeshBasicMaterial({ color: hexColor });
+      this.materialCache.set(hexColor, m);
+    }
+    return m;
+  }
+
   spawnBlockBreakBurst(x: number, y: number, z: number, hexColor = 0xa07855) {
-    const mat = new THREE.MeshBasicMaterial({ color: hexColor });
-    for (let i = 0; i < 14; i++) {
+    const mat = this.getMaterial(hexColor);
+    const count = 8;
+    for (let i = 0; i < count; i++) {
       const mesh = new THREE.Mesh(this.sharedGeo, mat);
       mesh.position.set(
-        x + 0.2 + Math.random() * 0.6,
-        y + 0.2 + Math.random() * 0.6,
-        z + 0.2 + Math.random() * 0.6
+        x + 0.25 + Math.random() * 0.5,
+        y + 0.25 + Math.random() * 0.5,
+        z + 0.25 + Math.random() * 0.5
       );
       this.scene.add(mesh);
       this.particles.push({
         mesh,
-        vx: (Math.random() - 0.5) * 3.2,
-        vy: 1.5 + Math.random() * 2.5,
-        vz: (Math.random() - 0.5) * 3.2,
+        vx: (Math.random() - 0.5) * 2.5,
+        vy: 1.2 + Math.random() * 1.8,
+        vz: (Math.random() - 0.5) * 2.5,
         life: 0,
-        maxLife: 0.55 + Math.random() * 0.25,
+        maxLife: 0.32 + Math.random() * 0.12,
         swayFreq: 0,
       });
     }

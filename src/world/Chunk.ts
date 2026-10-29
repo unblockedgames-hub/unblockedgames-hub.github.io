@@ -18,7 +18,7 @@ export const BIOMES_26_3: Record<string, BiomeInfo> = {
     id: 'minecraft:dappled_forest',
     name: 'Dappled Forest',
     grassColor: [0.64, 0.76, 0.34], // Warm autumn-tinted grass
-    foliageColor: [0.88, 0.58, 0.22],
+    foliageColor: [0.42, 0.68, 0.24],
     waterColor: [0.24, 0.48, 0.89],
   },
   'minecraft:plains': {
@@ -413,9 +413,11 @@ export class Chunk {
               pushBox(lx, y + 0.5, lz, lx + 0.5, y + 1, lz + 1, def, biome, 0x3f);
             }
           } else if (def.shape === 'bed_foot' || def.shape === 'bed_head') {
-            // 26.3 Straw Bed low-profile 4/16 height mattress + straw edge
-            const h = def.shape === 'bed_head' ? 0.32 : 0.26;
-            pushBox(lx + 0.02, y, lz + 0.02, lx + 0.98, y + h, lz + 0.98, def, biome, 0x3f);
+            // 26.3 Straw Bed 9/16 (0.5625) height wilderness bed
+            pushBox(lx + 0.001, y, lz + 0.001, lx + 0.999, y + 0.5625, lz + 0.999, def, biome, 0x3f);
+          } else if (def.shape === 'path') {
+            // 15/16 height path block - eliminates side-wall x-ray culling bugs
+            pushBox(lx, y, lz, lx + 1, y + 0.9375, lz + 1, def, biome, 0x3f);
           } else if (def.shape === 'carpet') {
             if (def.shortId === 'leaf_litter') {
               // template_leaf_litter_1.json: flat 0.25/16 ground quad with dry autumn foliage tint (0xA37542)
@@ -461,7 +463,28 @@ export class Chunk {
               pushBox(lx + 0.625, y + 0.75, lz + 0.4375, lx + 1, y + 0.9375, lz + 0.5625, def, biome, 0x3f);
             }
           } else if (def.shape === 'campfire') {
-            pushBox(lx + 0.1, y, lz + 0.1, lx + 0.9, y + 0.44, lz + 0.9, def, biome, 0x3f);
+            // Official Minecraft template_campfire.json model: 4 logs + ash bed + intersecting fire quads
+            // Log 1: bottom log Z (1/16..5/16, 0..4/16, 0..1)
+            pushBox(lx + 0.0625, y, lz, lx + 0.3125, y + 0.25, lz + 1.0, def, biome, 0x3f);
+            // Log 2: bottom log Z (11/16..15/16, 0..4/16, 0..1)
+            pushBox(lx + 0.6875, y, lz, lx + 0.9375, y + 0.25, lz + 1.0, def, biome, 0x3f);
+            // Log 3: top cross log X (0..1, 3/16..7/16, 1/16..5/16)
+            pushBox(lx, y + 0.1875, lz + 0.0625, lx + 1.0, y + 0.4375, lz + 0.3125, def, biome, 0x3f);
+            // Log 4: top cross log X (0..1, 3/16..7/16, 11/16..15/16)
+            pushBox(lx, y + 0.1875, lz + 0.6875, lx + 1.0, y + 0.4375, lz + 0.9375, def, biome, 0x3f);
+            // Ash coal bed (5/16..11/16, 0..1/16, 0..1)
+            pushBox(lx + 0.3125, y, lz, lx + 0.6875, y + 0.0625, lz + 1.0, def, biome, 0x3f);
+            // 2 Intersecting 45-degree campfire fire quads (double-sided)
+            const fx0 = lx + 0.08;
+            const fx1 = lx + 0.92;
+            const fz0 = lz + 0.08;
+            const fz1 = lz + 0.92;
+            const fy0 = y + 0.08;
+            const fy1 = y + 0.95;
+            pushQuad(false, [fx0, fy0, fz0], [fx1, fy0, fz1], [fx1, fy1, fz1], [fx0, fy1, fz0], 0, 1, 0, 'campfire_fire', 1, 1, 1);
+            pushQuad(false, [fx1, fy0, fz1], [fx0, fy0, fz0], [fx0, fy1, fz0], [fx1, fy1, fz1], 0, 1, 0, 'campfire_fire', 1, 1, 1);
+            pushQuad(false, [fx0, fy0, fz1], [fx1, fy0, fz0], [fx1, fy1, fz0], [fx0, fy1, fz1], 0, 1, 0, 'campfire_fire', 1, 1, 1);
+            pushQuad(false, [fx1, fy0, fz0], [fx0, fy0, fz1], [fx0, fy1, fz1], [fx1, fy1, fz0], 0, 1, 0, 'campfire_fire', 1, 1, 1);
           } else if (def.shape === 'torch') {
             pushBox(lx + 0.4375, y, lz + 0.4375, lx + 0.5625, y + 0.625, lz + 0.5625, def, biome, 0x3f);
           } else if (def.shape === 'cross') {

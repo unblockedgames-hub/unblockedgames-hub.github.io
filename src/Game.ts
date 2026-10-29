@@ -11,7 +11,7 @@ import { PanoramaRenderer } from './render/PanoramaRenderer';
 import { SkyRenderer } from './render/SkyRenderer';
 import { FirstPersonHand } from './render/FirstPersonHand';
 import { WebGPUContext } from './render/WebGPUContext';
-import { Inventory } from './gameplay/Inventory';
+import { Inventory, ContainerManager } from './gameplay/Inventory';
 import { Player } from './gameplay/Player';
 import { UIManager } from './ui/UIManager';
 import { MultiplayerManager } from './network/MultiplayerManager';
@@ -41,6 +41,7 @@ export class Game {
   fpsTimer = 0;
   ambientTickTimer = 0;
   autoSaveTimer = 0;
+  mobSpawnTimer = 0;
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
     this.canvas = canvas;
@@ -111,6 +112,9 @@ export class Game {
     this.world = new World(this.scene, this.entityRenderer, this.particleSystem);
     this.inventory = new Inventory();
     this.player = new Player(this.camera, this.world, this.inventory);
+    this.player.onPlayerDeath = () => {
+      this.ui.setState('GAME_OVER');
+    };
     this.firstPersonHand = new FirstPersonHand();
     this.ui = new UIManager(uiRoot, this.player, this.inventory, this.world);
 
@@ -244,6 +248,26 @@ export class Game {
           this.ui.setState('IN_GAME');
           return;
         }
+      }
+
+      const kb = OptionsManager.current.keyBinds;
+      const dropKey = kb?.drop || 'KeyQ';
+      if (e.code === dropKey && this.ui.state === 'IN_GAME') {
+        e.preventDefault();
+        const dropped = this.inventory.dropHeldItem(e.ctrlKey);
+        if (dropped) {
+          this.firstPersonHand.triggerSwing();
+          const sinYaw = Math.sin(this.player.yaw);
+          const cosYaw = Math.cos(this.player.yaw);
+          this.entityRenderer.spawnDroppedItem(
+            this.player.position.x - sinYaw * 0.4,
+            this.player.position.y + 1.2,
+            this.player.position.z - cosYaw * 0.4,
+            dropped.item.shortId
+          );
+          this.ui.updateHUDOnly();
+        }
+        return;
       }
 
       if (
@@ -581,7 +605,12 @@ export class Game {
 
     this.world.setBlock(hit.bx, hit.by, hit.bz, 0);
     AudioEngine.playBlockSound(blockDef.soundGroup, 'break');
-    this.particleSystem.spawnBlockBreakBurst(hit.bx, hit.by, hit.bz, 0x8b6f47);
+    this.particleSystem.spawnBlockBreakBurst(
+      hit.bx,
+      hit.by,
+      hit.bz,
+      this.getBlockParticleColor(blockDef)
+    );
 
     // Spawn 3D Dropped Item in Survival Mode (respecting tool harvest requirements!)
     if (this.player.gameMode === 'survival') {
@@ -618,6 +647,28 @@ export class Game {
 
     this.player.updateRaycast();
     this.ui.updateHUDOnly();
+  }
+
+  private getBlockParticleColor(def: { shortId: string; soundGroup: string }): number {
+    if (def.soundGroup === 'grass') {
+      return def.shortId.includes('path') ? 0x866043 : 0x5d9134;
+    }
+    if (def.soundGroup === 'stone') {
+      return def.shortId.includes('deepslate') ? 0x484848 : 0x828282;
+    }
+    if (def.soundGroup === 'wood') return 0x9d7f57;
+    if (def.soundGroup === 'sand') return 0xd8cb9d;
+    if (def.soundGroup === 'gravel') return 0x736d6c;
+    if (def.soundGroup === 'wool') return 0xdedede;
+    if (def.soundGroup === 'glass') return 0xc0e4ea;
+    if (def.soundGroup === 'poplar_leaves') {
+      if (def.shortId.includes('orange')) return 0xdf7a28;
+      if (def.shortId.includes('yellow')) return 0xe5b230;
+      if (def.shortId.includes('red')) return 0xb8332a;
+      return 0x42772a;
+    }
+    if (def.soundGroup === 'straw_bed') return 0xd4a558;
+    return 0x888888;
   }
 
   private handleRightClickInteractOrPlace() {
@@ -684,12 +735,28 @@ export class Game {
       return;
     }
 
-    // 3. Check if Right-Clicking Crafting Table or Stonecutter (when not sneaking)
+    // 3. Check if Right-Clicking Crafting Table, Furnace, Chest, Barrel, or Stonecutter
     if (!this.player.isSneaking) {
       if (targetDef.shortId === 'crafting_table') {
         this.player.isMining = false;
         this.player.resetMining();
         this.ui.activeContainerTab = 'crafting';
+        this.ui.setState('INVENTORY');
+        return;
+      }
+      if (targetDef.shortId === 'furnace') {
+        this.player.isMining = false;
+        this.player.resetMining();
+        this.ui.activeContainerBlockPos = `${hit.bx}_${hit.by}_${hit.bz}`;
+        this.ui.activeContainerTab = 'furnace';
+        this.ui.setState('INVENTORY');
+        return;
+      }
+      if (targetDef.shortId === 'chest' || targetDef.shortId === 'barrel') {
+        this.player.isMining = false;
+        this.player.resetMining();
+        this.ui.activeContainerBlockPos = `${hit.bx}_${hit.by}_${hit.bz}`;
+        this.ui.activeContainerTab = targetDef.shortId as any;
         this.ui.setState('INVENTORY');
         return;
       }
@@ -787,24 +854,24 @@ export class Game {
   }
 
   private updateDayNightCycle(dt: number) {
-    this.world.timeOfDay = (this.world.timeOfDay + dt * 12) % 24000;
+    this.world.timeOfDay = (this.world.timeOfDay + dt * 20) % 24000;
     const t = this.world.timeOfDay;
 
     let daylight = 1.0;
-    if (t >= 12000 && t < 14000) {
-      daylight = 1.0 - ((t - 12000) / 2000) * 0.78;
-    } else if (t >= 14000 && t < 22000) {
-      daylight = 0.22;
-    } else if (t >= 22000) {
-      daylight = 0.22 + ((t - 22000) / 2000) * 0.78;
+    if (t >= 12000 && t < 13500) {
+      daylight = 1.0 - ((t - 12000) / 1500) * 0.85;
+    } else if (t >= 13500 && t < 22500) {
+      daylight = 0.15;
+    } else if (t >= 22500) {
+      daylight = 0.15 + ((t - 22500) / 1500) * 0.85;
     }
 
     this.skyColor.setRGB(0.47 * daylight, 0.65 * daylight, 1.0 * daylight);
     if (this.scene.fog instanceof THREE.FogExp2) {
       this.scene.fog.color.copy(this.skyColor);
     }
-    this.ambientLight.intensity = 0.35 + 0.45 * daylight;
-    this.sunLight.intensity = 0.85 * daylight;
+    this.ambientLight.intensity = 0.18 + 0.62 * daylight;
+    this.sunLight.intensity = 0.95 * daylight;
 
     this.skyRenderer.update(
       dt,
@@ -859,6 +926,42 @@ export class Game {
     );
 
     if (!isSingleplayerPaused) {
+      ContainerManager.tickFurnaces(dt);
+
+      this.mobSpawnTimer += dt;
+      if (this.mobSpawnTimer >= 2.5) {
+        this.mobSpawnTimer = 0;
+        const isNight = this.world.timeOfDay >= 13000 && this.world.timeOfDay < 23000;
+        let zombies = 0;
+        let passives = 0;
+        for (const [, m] of this.entityRenderer.mobs) {
+          if (m.type === 'zombie') zombies++;
+          else if (m.type === 'pig' || m.type === 'cow' || m.type === 'sheep') passives++;
+        }
+
+        if (isNight && zombies < 6 && OptionsManager.current.difficulty !== 'Peaceful') {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = 24 + Math.random() * 16;
+          const sx = Math.floor(this.player.position.x + Math.cos(angle) * dist);
+          const sz = Math.floor(this.player.position.z + Math.sin(angle) * dist);
+          const sy = this.world.getTopSolidY(sx, sz);
+          if (sy >= 62) {
+            this.entityRenderer.spawnMob(`zombie_${Date.now()}`, 'zombie', sx, sy, sz);
+          }
+        } else if (!isNight && passives < 12) {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = 18 + Math.random() * 18;
+          const sx = Math.floor(this.player.position.x + Math.cos(angle) * dist);
+          const sz = Math.floor(this.player.position.z + Math.sin(angle) * dist);
+          const sy = this.world.getTopSolidY(sx, sz);
+          if (sy >= 62) {
+            const types: ('sheep' | 'cow' | 'pig')[] = ['sheep', 'cow', 'pig'];
+            const t = types[Math.floor(Math.random() * types.length)];
+            this.entityRenderer.spawnMob(`${t}_${Date.now()}`, t, sx, sy, sz);
+          }
+        }
+      }
+
       this.player.update(dt, controlsActive);
       if (controlsActive) {
         this.updateMining(dt);
@@ -895,6 +998,9 @@ export class Game {
         (bx, by, bz) => {
           const b = this.world.getBlock(bx, by, bz);
           return b !== 0 && Registries.getBlock(b).solid;
+        },
+        (dmg, mobType) => {
+          this.player.applyDamage(dmg, mobType);
         }
       );
 

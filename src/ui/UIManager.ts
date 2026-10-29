@@ -2,7 +2,7 @@
 // Renders 100% of screens, containers, buttons, sliders, HUD, and bitmap text onto a crisp GuiGraphics Canvas.
 
 import { Player } from '../gameplay/Player';
-import { Inventory, ItemStack } from '../gameplay/Inventory';
+import { Inventory, ItemStack, ContainerManager } from '../gameplay/Inventory';
 import { World } from '../world/World';
 import { Registries, ItemDefinition } from '../core/Registries';
 import { OptionsManager } from '../core/Options';
@@ -22,6 +22,9 @@ export type UIState =
   | 'WISPCRAFT_CONFIG'
   | 'CONNECTING'
   | 'OPTIONS'
+  | 'CONTROLS'
+  | 'SOUND_OPTIONS'
+  | 'GAME_OVER'
   | 'IN_GAME'
   | 'PAUSE'
   | 'INVENTORY'
@@ -62,6 +65,7 @@ interface SavedWorldEntry {
   folder: string;
   lastPlayed: string;
   gameMode: 'creative' | 'survival';
+  isHardcore?: boolean;
   seed: string;
 }
 
@@ -77,7 +81,10 @@ export class UIManager {
 
   public state: UIState = 'TITLE';
   public previousState: UIState = 'TITLE';
-  public activeContainerTab: 'inventory' | 'crafting' | 'stonecutter' = 'inventory';
+  public activeWorldIsHardcore = false;
+  public activeContainerTab: 'inventory' | 'crafting' | 'stonecutter' | 'furnace' | 'chest' | 'barrel' = 'inventory';
+  public activeContainerBlockPos: string = '';
+  public rebindingKey: keyof typeof OptionsManager.current.keyBinds | null = null;
 
   // Creative Inventory Tab state
   public creativeTab:
@@ -119,28 +126,11 @@ export class UIManager {
   private worldSearchText = '';
   private newWorldName = 'New World';
   private newWorldSeed = '';
-  private newWorldMode: 'creative' | 'survival' | 'spectator' = 'survival';
+  private newWorldMode: 'survival' | 'hardcore' | 'creative' = 'survival';
   private newWorldDifficulty: 'Peaceful' | 'Easy' | 'Normal' | 'Hard' = 'Normal';
   private createWorldTab: 0 | 1 | 2 = 0;
 
-  private savedWorlds: SavedWorldEntry[] = [
-    {
-      id: 'world_survival_random',
-      name: 'New World',
-      folder: 'New_World (10/28/26, 9:20 PM)',
-      lastPlayed: 'Survival Mode, Version: 26.3',
-      gameMode: 'survival',
-      seed: String(Math.floor(Math.random() * 0x7fffffff)),
-    },
-    {
-      id: 'world_creative_random',
-      name: '26.3 Creative World',
-      folder: '26_3_Creative (10/28/26, 9:20 PM)',
-      lastPlayed: 'Creative Mode, Cheats, Version: 26.3',
-      gameMode: 'creative',
-      seed: String(Math.floor(Math.random() * 0x7fffffff)),
-    },
-  ];
+  private savedWorlds: SavedWorldEntry[] = [];
   private selectedWorldIdx = 0;
 
   // Multiplayer state
@@ -184,8 +174,13 @@ export class UIManager {
       const savedList = localStorage.getItem('mc26_3_saved_worlds_v1');
       if (savedList) {
         const parsed = JSON.parse(savedList);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          this.savedWorlds = parsed;
+        if (Array.isArray(parsed)) {
+          this.savedWorlds = parsed.filter(
+            (w: SavedWorldEntry) =>
+              !w.folder?.includes('10/28/26') &&
+              w.id !== 'world_survival_random' &&
+              w.id !== 'world_creative_random'
+          );
         }
       }
     } catch {}
@@ -481,13 +476,25 @@ export class UIManager {
         }
       }
 
-      // Click outside container window drops cursor item into inventory
+      // Click outside container window drops cursor item into the world as a 3D dropped item entity!
       if (this.state === 'INVENTORY' && this.inventory.cursorStack) {
-        this.inventory.addItem(
-          this.inventory.cursorStack.item.shortId,
-          this.inventory.cursorStack.count
-        );
-        this.inventory.cursorStack = null;
+        const dropCount = e.button === 2 ? 1 : this.inventory.cursorStack.count;
+        const dropId = this.inventory.cursorStack.item.shortId;
+        this.inventory.cursorStack.count -= dropCount;
+        if (this.inventory.cursorStack.count <= 0) {
+          this.inventory.cursorStack = null;
+        }
+        for (let k = 0; k < dropCount; k++) {
+          const sinYaw = Math.sin(this.player.yaw);
+          const cosYaw = Math.cos(this.player.yaw);
+          this.world.entityRenderer.spawnDroppedItem(
+            this.player.position.x - sinYaw * 0.5,
+            this.player.position.y + 1.2,
+            this.player.position.z - cosYaw * 0.5,
+            dropId
+          );
+        }
+        AudioEngine.play('ui.button.click', 0.5);
       }
     });
 
@@ -516,6 +523,15 @@ export class UIManager {
     });
 
     window.addEventListener('keydown', (e) => {
+      if (this.rebindingKey) {
+        e.preventDefault();
+        if (e.code !== 'Escape') {
+          OptionsManager.current.keyBinds[this.rebindingKey] = e.code;
+          OptionsManager.save();
+        }
+        this.rebindingKey = null;
+        return;
+      }
       // Number keys 1..9 in Container/Inventory screens swap hovered slot with Hotbar slot 0..8
       if (
         this.state === 'INVENTORY' &&
@@ -758,6 +774,15 @@ export class UIManager {
         break;
       case 'OPTIONS':
         this.renderOptionsScreen();
+        break;
+      case 'CONTROLS':
+        this.renderControlsScreen();
+        break;
+      case 'SOUND_OPTIONS':
+        this.renderSoundOptionsScreen();
+        break;
+      case 'GAME_OVER':
+        this.renderGameOverScreen();
         break;
       case 'IN_GAME':
         this.renderHUD(false);
@@ -1206,7 +1231,12 @@ export class UIManager {
 
   private launchSelectedWorld(): void {
     const w = this.savedWorlds[this.selectedWorldIdx] || this.savedWorlds[0];
+    if (!w) return;
     this.activeWorldId = w.id;
+    this.activeWorldIsHardcore = !!w.isHardcore;
+    if (w.isHardcore) {
+      OptionsManager.current.difficulty = 'Hard';
+    }
     this.player.gameMode = w.gameMode;
     this.player.flying = false;
     this.inventory.clearAll();
@@ -1269,25 +1299,41 @@ export class UIManager {
       const modeLabel =
         this.newWorldMode === 'creative'
           ? 'Game Mode: Creative'
-          : this.newWorldMode === 'survival'
-          ? 'Game Mode: Survival'
-          : 'Game Mode: Spectator';
-      this.addButton(centerX - 104, 84, 208, 20, modeLabel, () => {
+          : this.newWorldMode === 'hardcore'
+          ? 'Game Mode: Hardcore'
+          : 'Game Mode: Survival';
+      this.addButton(centerX - 104, 82, 208, 20, modeLabel, () => {
         this.newWorldMode =
-          this.newWorldMode === 'creative'
-            ? 'survival'
-            : this.newWorldMode === 'survival'
-            ? 'spectator'
-            : 'creative';
+          this.newWorldMode === 'survival'
+            ? 'hardcore'
+            : this.newWorldMode === 'hardcore'
+            ? 'creative'
+            : 'survival';
+        if (this.newWorldMode === 'hardcore') {
+          this.newWorldDifficulty = 'Hard';
+        }
       });
 
+      const modeDesc =
+        this.newWorldMode === 'hardcore'
+          ? '§7Same as survival mode, locked at hardest difficulty, and one life only'
+          : this.newWorldMode === 'creative'
+          ? '§7Unlimited resources, free flying and destroy blocks instantly'
+          : '§7Search for resources, crafting, gain levels, health and hunger';
+      this.font.drawCentered(this.gui.ctx, modeDesc, centerX, 106, '#808080', true);
+
+      const diffLabel =
+        this.newWorldMode === 'hardcore'
+          ? 'Difficulty: Hard'
+          : `Difficulty: ${this.newWorldDifficulty}`;
       this.addButton(
         centerX - 104,
-        112,
+        118,
         208,
         20,
-        `Difficulty: ${this.newWorldDifficulty}`,
+        diffLabel,
         () => {
+          if (this.newWorldMode === 'hardcore') return;
           const order: Array<UIManager['newWorldDifficulty']> = [
             'Peaceful',
             'Easy',
@@ -1299,7 +1345,7 @@ export class UIManager {
         }
       );
 
-      this.addButton(centerX - 104, 140, 208, 20, 'Allow Commands: ON', () => {});
+      this.addButton(centerX - 104, 144, 208, 20, 'Allow Commands: ON', () => {});
     } else if (this.createWorldTab === 1) {
       // World Tab
       this.addButton(
@@ -1346,12 +1392,14 @@ export class UIManager {
     this.addButton(centerX - 154, sh - 28, 150, 20, 'Create New World', () => {
       const randomSeed = String(Math.floor(Math.random() * 0x7fffffff));
       const finalSeed = this.newWorldSeed.trim() || randomSeed;
+      const isHardcore = this.newWorldMode === 'hardcore';
       const created: SavedWorldEntry = {
         id: `world_${Date.now()}`,
-        name: this.newWorldName || 'New World',
-        folder: `${(this.newWorldName || 'New_World').replace(/\s+/g, '_')} (Just now)`,
-        lastPlayed: `${this.newWorldMode === 'creative' ? 'Creative' : 'Survival'} Mode, Version: 26.3`,
-        gameMode: this.newWorldMode === 'survival' ? 'survival' : 'creative',
+        name: this.newWorldName.trim() || 'New World',
+        folder: `${(this.newWorldName.trim() || 'New_World').replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+        lastPlayed: `${isHardcore ? 'Hardcore' : this.newWorldMode === 'creative' ? 'Creative' : 'Survival'} Mode, Version: 26.3`,
+        gameMode: this.newWorldMode === 'creative' ? 'creative' : 'survival',
+        isHardcore,
         seed: finalSeed,
       };
       this.savedWorlds.unshift(created);
@@ -1650,7 +1698,7 @@ export class UIManager {
     this.gui.renderMenuBackground(inWorld, 32, sh - 36);
     this.font.drawCentered(this.gui.ctx, 'Options', centerX, 11, '#FFFFFF', true);
 
-    // Row 1: FOV Slider & Render Distance Slider
+    // Row 1: FOV Slider & Difficulty Toggle
     const fovNorm = (opts.fov - 30) / 80;
     const fovText = opts.fov === 70 ? 'FOV: Normal' : opts.fov === 110 ? 'FOV: Quake Pro' : `FOV: ${opts.fov}`;
     this.addSlider(centerX - 155, 42, 150, 20, fovText, fovNorm, (n) => {
@@ -1660,57 +1708,42 @@ export class UIManager {
       OptionsManager.save();
     });
 
-    const rdNorm = (opts.renderDistance - 2) / 10;
-    this.addSlider(
-      centerX + 5,
-      42,
-      150,
-      20,
-      `Render Distance: ${opts.renderDistance} chunks`,
-      rdNorm,
-      (n) => {
-        opts.renderDistance = Math.round(2 + n * 10);
-        OptionsManager.save();
-      }
-    );
-
-    // Row 2: Master Volume Slider & Mouse Sensitivity Slider
-    this.addSlider(
-      centerX - 155,
-      66,
-      150,
-      20,
-      `Master Volume: ${Math.round(opts.soundVolume * 100)}%`,
-      opts.soundVolume,
-      (n) => {
-        opts.soundVolume = Math.round(n * 100) / 100;
-        OptionsManager.save();
-      }
-    );
-
-    this.addSlider(
-      centerX + 5,
-      66,
-      150,
-      20,
-      `Sensitivity: ${Math.round(opts.mouseSensitivity * 200)}%`,
-      opts.mouseSensitivity,
-      (n) => {
-        opts.mouseSensitivity = Math.max(0.05, Math.round(n * 100) / 100);
-        OptionsManager.save();
-      }
-    );
-
-    // Row 3: GUI Scale & Clouds
-    const scaleLabel = opts.guiScale === 0 ? 'GUI Scale: Auto' : `GUI Scale: ${opts.guiScale}x`;
-    this.addButton(centerX - 155, 96, 150, 20, scaleLabel, () => {
-      opts.guiScale = (opts.guiScale + 1) % 5;
+    const diffLabel = this.activeWorldIsHardcore
+      ? 'Difficulty: Hard'
+      : `Difficulty: ${opts.difficulty}`;
+    this.addButton(centerX + 5, 42, 150, 20, diffLabel, () => {
+      if (this.activeWorldIsHardcore) return;
+      const order: Array<typeof opts.difficulty> = ['Peaceful', 'Easy', 'Normal', 'Hard'];
+      opts.difficulty = order[(order.indexOf(opts.difficulty) + 1) % order.length];
       OptionsManager.save();
     });
 
+    // Row 2: Skin Customization... & Music & Sounds...
+    this.addButton(centerX - 155, 66, 150, 20, 'Skin Customization...', () => {});
+    this.addButton(centerX + 5, 66, 150, 20, 'Music & Sounds...', () => {
+      this.setState('SOUND_OPTIONS');
+    });
+
+    // Row 3: Video Settings... & Controls...
     this.addButton(
-      centerX + 5,
-      96,
+      centerX - 155,
+      90,
+      150,
+      20,
+      `Video (${opts.renderDistance} chunks)`,
+      () => {
+        opts.renderDistance = opts.renderDistance >= 8 ? 3 : opts.renderDistance + 1;
+        OptionsManager.save();
+      }
+    );
+    this.addButton(centerX + 5, 90, 150, 20, 'Controls...', () => {
+      this.setState('CONTROLS');
+    });
+
+    // Row 4: Clouds & GUI Scale
+    this.addButton(
+      centerX - 155,
+      114,
       150,
       20,
       `Clouds: ${opts.clouds ? 'Fancy' : 'OFF'}`,
@@ -1720,10 +1753,16 @@ export class UIManager {
       }
     );
 
-    // Row 4: Game Mode & Time of Day
+    const scaleLabel = opts.guiScale === 0 ? 'GUI Scale: Auto' : `GUI Scale: ${opts.guiScale}x`;
+    this.addButton(centerX + 5, 114, 150, 20, scaleLabel, () => {
+      opts.guiScale = (opts.guiScale + 1) % 5;
+      OptionsManager.save();
+    });
+
+    // Row 5: Game Mode & Cycle Time
     this.addButton(
       centerX - 155,
-      120,
+      138,
       150,
       20,
       `Game Mode: ${this.player.gameMode.toUpperCase()}`,
@@ -1734,14 +1773,14 @@ export class UIManager {
       }
     );
 
-    this.addButton(centerX + 5, 120, 150, 20, 'Cycle Time of Day', () => {
+    this.addButton(centerX + 5, 138, 150, 20, 'Cycle Time of Day', () => {
       this.world.timeOfDay = (this.world.timeOfDay + 6000) % 24000;
     });
 
-    // Row 5: WebGPU Graphics Backend Toggle & Locate Abandoned Camp
+    // Row 6: Renderer backend & Locate Camp
     this.addButton(
       centerX - 155,
-      144,
+      162,
       150,
       20,
       `Renderer: ${WebGPUContext.active ? 'WebGPU' : 'WebGL2'}`,
@@ -1757,7 +1796,7 @@ export class UIManager {
 
     this.addButton(
       centerX + 5,
-      144,
+      162,
       150,
       20,
       'Locate Abandoned Camp',
@@ -1779,6 +1818,281 @@ export class UIManager {
     this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
       this.setState(this.previousState);
     });
+  }
+
+  // ============================================================================
+  // 5a. CONTROLS SCREEN (Keybinds, Toggle Sprint/Sneak, Mouse Settings)
+  // ============================================================================
+  private renderControlsScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const opts = OptionsManager.current;
+    const inWorld = this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
+
+    this.gui.renderMenuBackground(inWorld, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Controls', centerX, 11, '#FFFFFF', true);
+
+    // Row 1: Mouse Sensitivity & Invert Mouse
+    this.addSlider(
+      centerX - 155,
+      38,
+      150,
+      20,
+      `Sensitivity: ${Math.round(opts.mouseSensitivity * 200)}%`,
+      opts.mouseSensitivity,
+      (n) => {
+        opts.mouseSensitivity = Math.max(0.05, Math.round(n * 100) / 100);
+        OptionsManager.save();
+      }
+    );
+
+    this.addButton(
+      centerX + 5,
+      38,
+      150,
+      20,
+      `Invert Mouse: ${opts.invertMouse ? 'ON' : 'OFF'}`,
+      () => {
+        opts.invertMouse = !opts.invertMouse;
+        OptionsManager.save();
+      }
+    );
+
+    // Row 2: Toggle Sprint & Toggle Sneak
+    this.addButton(
+      centerX - 155,
+      62,
+      150,
+      20,
+      `Sprint: ${opts.toggleSprint ? 'Toggle' : 'Hold'}`,
+      () => {
+        opts.toggleSprint = !opts.toggleSprint;
+        OptionsManager.save();
+      }
+    );
+
+    this.addButton(
+      centerX + 5,
+      62,
+      150,
+      20,
+      `Sneak: ${opts.toggleSneak ? 'Toggle' : 'Hold'}`,
+      () => {
+        opts.toggleSneak = !opts.toggleSneak;
+        OptionsManager.save();
+      }
+    );
+
+    // Keybind list
+    const keyActions: Array<{ key: keyof typeof opts.keyBinds; label: string }> = [
+      { key: 'forward', label: 'Walk Forward' },
+      { key: 'back', label: 'Walk Backward' },
+      { key: 'left', label: 'Strafe Left' },
+      { key: 'right', label: 'Strafe Right' },
+      { key: 'jump', label: 'Jump' },
+      { key: 'sneak', label: 'Sneak' },
+      { key: 'sprint', label: 'Sprint' },
+      { key: 'drop', label: 'Drop Selected Item' },
+      { key: 'inventory', label: 'Open/Close Inventory' },
+      { key: 'chat', label: 'Open Chat' },
+      { key: 'command', label: 'Open Command' },
+    ];
+
+    const formatKey = (code: string) => {
+      if (!code) return 'None';
+      if (code.startsWith('Key')) return code.slice(3);
+      if (code.startsWith('Digit')) return code.slice(5);
+      if (code === 'Space') return 'SPACE';
+      if (code === 'ShiftLeft') return 'LSHIFT';
+      if (code === 'ShiftRight') return 'RSHIFT';
+      if (code === 'ControlLeft') return 'LCTRL';
+      if (code === 'ControlRight') return 'RCTRL';
+      if (code === 'Slash') return '/';
+      return code;
+    };
+
+    const startY = 88;
+    for (let i = 0; i < Math.min(6, keyActions.length); i++) {
+      const act = keyActions[i];
+      const y = startY + i * 22;
+      this.font.draw(this.gui.ctx, act.label, centerX - 155, y + 6, '#FFFFFF', true);
+      const isRebinding = this.rebindingKey === act.key;
+      const btnText = isRebinding ? '§e> ??? <' : formatKey(opts.keyBinds[act.key]);
+      this.addButton(centerX + 35, y, 120, 20, btnText, () => {
+        this.rebindingKey = act.key;
+      });
+    }
+
+    this.addButton(centerX - 155, sh - 28, 150, 20, 'Reset Keys', () => {
+      opts.keyBinds = {
+        forward: 'KeyW',
+        back: 'KeyS',
+        left: 'KeyA',
+        right: 'KeyD',
+        jump: 'Space',
+        sneak: 'ShiftLeft',
+        sprint: 'ControlLeft',
+        drop: 'KeyQ',
+        inventory: 'KeyE',
+        chat: 'KeyT',
+        command: 'Slash',
+      };
+      OptionsManager.save();
+    });
+
+    this.addButton(centerX + 5, sh - 28, 150, 20, 'Done', () => {
+      this.rebindingKey = null;
+      this.setState('OPTIONS');
+    });
+  }
+
+  // ============================================================================
+  // 5b. SOUND OPTIONS SCREEN
+  // ============================================================================
+  private renderSoundOptionsScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const opts = OptionsManager.current;
+    const inWorld = this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
+
+    this.gui.renderMenuBackground(inWorld, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Music & Sounds', centerX, 11, '#FFFFFF', true);
+
+    this.addSlider(
+      centerX - 155,
+      48,
+      310,
+      20,
+      `Master Volume: ${Math.round(opts.soundVolume * 100)}%`,
+      opts.soundVolume,
+      (n) => {
+        opts.soundVolume = Math.round(n * 100) / 100;
+        OptionsManager.save();
+      }
+    );
+
+    this.addSlider(
+      centerX - 155,
+      76,
+      150,
+      20,
+      `Music: ${Math.round(opts.musicVolume * 100)}%`,
+      opts.musicVolume,
+      (n) => {
+        opts.musicVolume = Math.round(n * 100) / 100;
+        OptionsManager.save();
+      }
+    );
+
+    this.addSlider(
+      centerX + 5,
+      76,
+      150,
+      20,
+      `Blocks: ${Math.round(opts.blocksVolume * 100)}%`,
+      opts.blocksVolume,
+      (n) => {
+        opts.blocksVolume = Math.round(n * 100) / 100;
+        OptionsManager.save();
+      }
+    );
+
+    this.addSlider(
+      centerX - 155,
+      102,
+      150,
+      20,
+      `Hostile Creatures: ${Math.round(opts.hostileVolume * 100)}%`,
+      opts.hostileVolume,
+      (n) => {
+        opts.hostileVolume = Math.round(n * 100) / 100;
+        OptionsManager.save();
+      }
+    );
+
+    this.addSlider(
+      centerX + 5,
+      102,
+      150,
+      20,
+      `Friendly Creatures: ${Math.round(opts.friendlyVolume * 100)}%`,
+      opts.friendlyVolume,
+      (n) => {
+        opts.friendlyVolume = Math.round(n * 100) / 100;
+        OptionsManager.save();
+      }
+    );
+
+    this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
+      this.setState('OPTIONS');
+    });
+  }
+
+  // ============================================================================
+  // 5c. GAME OVER SCREEN (Survival vs. Hardcore)
+  // ============================================================================
+  private renderGameOverScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const centerY = Math.floor(sh / 2);
+
+    this.gui.fill(0, 0, sw, sh, 'rgba(100, 10, 10, 0.72)');
+
+    if (this.activeWorldIsHardcore) {
+      this.font.drawCentered(this.gui.ctx, '§4Game Over!', centerX, centerY - 45, '#FFFFFF', true);
+      this.font.drawCentered(
+        this.gui.ctx,
+        '§eYou cannot respawn in hardcore mode!',
+        centerX,
+        centerY - 25,
+        '#AAAAAA',
+        true
+      );
+
+      this.addButton(centerX - 100, centerY + 10, 200, 20, 'Spectate World', () => {
+        this.player.gameMode = 'spectator';
+        this.player.flying = true;
+        this.player.health = 20;
+        this.setState('IN_GAME');
+      });
+
+      this.addButton(centerX - 100, centerY + 36, 200, 20, 'Delete World', () => {
+        if (this.activeWorldId) {
+          const idx = this.savedWorlds.findIndex((w) => w.id === this.activeWorldId);
+          if (idx >= 0) this.savedWorlds.splice(idx, 1);
+          localStorage.removeItem(`mc26_3_world_state_${this.activeWorldId}`);
+          this.saveWorldsList();
+        }
+        this.setState('TITLE');
+      });
+    } else {
+      this.font.drawCentered(this.gui.ctx, '§4You died!', centerX, centerY - 45, '#FFFFFF', true);
+      this.font.drawCentered(
+        this.gui.ctx,
+        `Score: §e${this.player.xpLevel * 10}`,
+        centerX,
+        centerY - 25,
+        '#FFFFFF',
+        true
+      );
+
+      this.addButton(centerX - 100, centerY + 10, 200, 20, 'Respawn', () => {
+        this.player.health = 20;
+        this.player.hunger = 20;
+        this.player.saturation = 5.0;
+        this.player.fallDistance = 0;
+        this.player.position.set(0, this.world.getTopSolidY(0, 0) + 1.0, 0);
+        this.player.velocity.set(0, 0, 0);
+        this.setState('IN_GAME');
+      });
+
+      this.addButton(centerX - 100, centerY + 36, 200, 20, 'Title Screen', () => {
+        this.setState('TITLE');
+      });
+    }
   }
 
   // ============================================================================
@@ -1846,38 +2160,92 @@ export class UIManager {
     const wx = centerX - Math.floor(winW / 2);
     const wy = centerY - Math.floor(winH / 2);
 
+    // Official Advancements window background texture
     this.gui.blitTiled(
       '/assets/minecraft/textures/gui/menu_list_background.png',
-      wx + 8,
-      wy + 16,
-      winW - 16,
-      winH - 24,
+      wx + 9,
+      wy + 18,
+      winW - 18,
+      winH - 27,
       16,
       16
     );
-    this.gui.fill(wx, wy, wx + winW, wy + 16, '#C6C6C6');
-    this.font.draw(this.gui.ctx, 'Advancements - Minecraft 26.3 ("Wilderness Bound")', wx + 8, wy + 5, '#404040', false);
 
-    const nodes = [
-      { x: wx + 32, y: wy + 55, item: 'poplar_log', title: 'Wilderness Bound', desc: 'Enter a Dappled Forest or Poplar Grove' },
-      { x: wx + 92, y: wy + 38, item: 'straw_bed', title: 'Sweet Wilderness Dreams', desc: 'Rest on a 26.3 Straw Bed at an Abandoned Camp' },
-      { x: wx + 92, y: wy + 78, item: 'orange_cushion', title: 'Take a Seat!', desc: 'Place and sit on a 26.3 Colored Cushion' },
-      { x: wx + 158, y: wy + 55, item: 'cyan_concrete_stairs', title: 'Modern Architect', desc: 'Craft Concrete or Wool Stairs & Slabs' },
+    const nodes: Array<{
+      id: string;
+      parentId?: string;
+      x: number;
+      y: number;
+      item: string;
+      frame: 'task' | 'goal' | 'challenge';
+      title: string;
+      desc: string;
+    }> = [
+      { id: 'root', x: wx + 20, y: wy + 55, item: 'grass_block', frame: 'task', title: 'Minecraft', desc: 'The heart and story of the game' },
+      { id: 'stone_age', parentId: 'root', x: wx + 58, y: wy + 32, item: 'wooden_pickaxe', frame: 'task', title: 'Stone Age', desc: 'Mine stone with your new pickaxe' },
+      { id: 'upgrade', parentId: 'stone_age', x: wx + 96, y: wy + 32, item: 'stone_pickaxe', frame: 'task', title: 'Getting an Upgrade', desc: 'Construct a better pickaxe' },
+      { id: 'acquire_hardware', parentId: 'upgrade', x: wx + 134, y: wy + 32, item: 'iron_ingot', frame: 'task', title: 'Acquire Hardware', desc: 'Smelt an iron ingot in a furnace' },
+      { id: 'suit_up', parentId: 'acquire_hardware', x: wx + 172, y: wy + 22, item: 'iron_chestplate', frame: 'task', title: 'Suit Up', desc: 'Protect yourself with a piece of iron armor' },
+      { id: 'hot_stuff', parentId: 'acquire_hardware', x: wx + 172, y: wy + 44, item: 'cobblestone', frame: 'task', title: 'Hot Stuff', desc: 'Construct a furnace with stone' },
+      { id: 'monster_hunter', parentId: 'root', x: wx + 58, y: wy + 78, item: 'iron_sword', frame: 'task', title: 'Monster Hunter', desc: 'Attack and defeat a hostile zombie' },
+      { id: 'wilderness', parentId: 'root', x: wx + 96, y: wy + 78, item: 'poplar_log', frame: 'task', title: 'Wilderness Bound', desc: 'Fell a Poplar tree in a Dappled Forest' },
+      { id: 'canopy', parentId: 'wilderness', x: wx + 134, y: wy + 78, item: 'orange_poplar_leaves', frame: 'goal', title: 'Autumn Canopy', desc: 'Collect vibrant autumnal leaves' },
+      { id: 'straw_dreams', parentId: 'canopy', x: wx + 172, y: wy + 68, item: 'straw_bed', frame: 'task', title: 'Sweet Wilderness Dreams', desc: 'Rest on a 26.3 Straw Bed at an Abandoned Camp' },
+      { id: 'take_a_seat', parentId: 'canopy', x: wx + 172, y: wy + 92, item: 'orange_cushion', frame: 'task', title: 'Take a Seat!', desc: 'Place and sit on a 26.3 Colored Cushion' },
+      { id: 'architect', parentId: 'take_a_seat', x: wx + 210, y: wy + 80, item: 'poplar_planks', frame: 'challenge', title: 'Wilderness Architect', desc: 'Craft Poplar wood, stairs and slabs' },
     ];
 
+    // Connecting branches
     for (const n of nodes) {
-      this.gui.fill(n.x - 1, n.y - 1, n.x + 25, n.y + 25, '#AA8800');
-      this.gui.fill(n.x, n.y, n.x + 24, n.y + 24, '#333333');
+      if (n.parentId) {
+        const p = nodes.find((node) => node.id === n.parentId);
+        if (p) {
+          this.gui.ctx.strokeStyle = '#000000';
+          this.gui.ctx.lineWidth = 3;
+          this.gui.ctx.beginPath();
+          this.gui.ctx.moveTo(p.x + 13, p.y + 13);
+          this.gui.ctx.lineTo(n.x + 13, n.y + 13);
+          this.gui.ctx.stroke();
+
+          this.gui.ctx.strokeStyle = '#A0A0A0';
+          this.gui.ctx.lineWidth = 1;
+          this.gui.ctx.beginPath();
+          this.gui.ctx.moveTo(p.x + 13, p.y + 13);
+          this.gui.ctx.lineTo(n.x + 13, n.y + 13);
+          this.gui.ctx.stroke();
+        }
+      }
+    }
+
+    // Advancement Nodes
+    for (const n of nodes) {
+      const frameUrl = `/assets/minecraft/textures/gui/sprites/advancements/${n.frame}_frame_obtained.png`;
+      this.gui.blitSprite(frameUrl, n.x, n.y, 26, 26);
       const def = Registries.getItem(n.item) || null;
-      this.gui.renderItem(def, 1, n.x + 4, n.y + 4);
+      this.gui.renderItem(def, 1, n.x + 5, n.y + 5);
       this.interactiveRects.push({
         x: n.x,
         y: n.y,
-        w: 24,
-        h: 24,
+        w: 26,
+        h: 26,
         tooltip: [`§e${n.title}`, `§7${n.desc}`],
       });
     }
+
+    // Outer window border frame
+    this.gui.blit(
+      '/assets/minecraft/textures/gui/advancements/window.png',
+      wx,
+      wy,
+      0,
+      0,
+      winW,
+      winH,
+      256,
+      256
+    );
+
+    this.font.draw(this.gui.ctx, 'Advancements', wx + 9, wy + 6, '#404040', false);
 
     this.addButton(centerX - 50, wy + winH + 8, 100, 20, 'Done', () => {
       this.setState('PAUSE');
@@ -1987,32 +2355,25 @@ export class UIManager {
 
       // 10 Hearts (left side at sh - 39)
       const heartY = sh - 39;
+      const isHardcore = this.activeWorldIsHardcore;
+      const containerSprite = isHardcore
+        ? '/assets/minecraft/textures/gui/sprites/hud/heart/container_hardcore.png'
+        : '/assets/minecraft/textures/gui/sprites/hud/heart/container.png';
+      const fullSprite = isHardcore
+        ? '/assets/minecraft/textures/gui/sprites/hud/heart/hardcore_full.png'
+        : '/assets/minecraft/textures/gui/sprites/hud/heart/full.png';
+      const halfSprite = isHardcore
+        ? '/assets/minecraft/textures/gui/sprites/hud/heart/hardcore_half.png'
+        : '/assets/minecraft/textures/gui/sprites/hud/heart/half.png';
+
       for (let i = 0; i < 10; i++) {
         const hx = hbX + i * 8;
-        this.gui.blitSprite(
-          '/assets/minecraft/textures/gui/sprites/hud/heart/container.png',
-          hx,
-          heartY,
-          9,
-          9
-        );
+        this.gui.blitSprite(containerSprite, hx, heartY, 9, 9);
         const hp = this.player.health - i * 2;
         if (hp >= 2) {
-          this.gui.blitSprite(
-            '/assets/minecraft/textures/gui/sprites/hud/heart/full.png',
-            hx,
-            heartY,
-            9,
-            9
-          );
+          this.gui.blitSprite(fullSprite, hx, heartY, 9, 9);
         } else if (hp === 1) {
-          this.gui.blitSprite(
-            '/assets/minecraft/textures/gui/sprites/hud/heart/half.png',
-            hx,
-            heartY,
-            9,
-            9
-          );
+          this.gui.blitSprite(halfSprite, hx, heartY, 9, 9);
         }
       }
 
@@ -2225,6 +2586,10 @@ export class UIManager {
       this.renderCraftingTableScreen();
     } else if (this.activeContainerTab === 'stonecutter') {
       this.renderStonecutterScreen();
+    } else if (this.activeContainerTab === 'furnace') {
+      this.renderFurnaceScreen();
+    } else if (this.activeContainerTab === 'chest' || this.activeContainerTab === 'barrel') {
+      this.renderChestScreen();
     } else if (this.player.gameMode === 'creative') {
       this.renderCreativeInventoryScreen();
     } else {
@@ -3111,6 +3476,139 @@ export class UIManager {
         }
       },
     });
+
+    this.drawPlayerInventorySlots(leftPos, topPos);
+  }
+
+  private renderFurnaceScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const leftPos = Math.floor((sw - 176) / 2);
+    const topPos = Math.floor((sh - 166) / 2);
+
+    this.gui.blit(
+      '/assets/minecraft/textures/gui/container/furnace.png',
+      leftPos,
+      topPos,
+      0,
+      0,
+      176,
+      166,
+      256,
+      256
+    );
+
+    this.font.draw(this.gui.ctx, 'Furnace', leftPos + 60, topPos + 6, '#404040', false);
+    this.font.draw(this.gui.ctx, 'Inventory', leftPos + 8, topPos + 72, '#404040', false);
+
+    const furnace = ContainerManager.getFurnace(this.activeContainerBlockPos);
+
+    // Animated flame: burn progress
+    if (furnace.burnTime > 0 && furnace.maxBurnTime > 0) {
+      const burnRatio = Math.min(1, furnace.burnTime / furnace.maxBurnTime);
+      const flameH = Math.round(14 * burnRatio);
+      this.gui.blit(
+        '/assets/minecraft/textures/gui/container/furnace.png',
+        leftPos + 56,
+        topPos + 36 + (14 - flameH),
+        176,
+        14 - flameH,
+        14,
+        flameH,
+        256,
+        256
+      );
+    }
+
+    // Animated arrow: cook progress
+    if (furnace.cookTime > 0) {
+      const cookRatio = Math.min(1, furnace.cookTime / 200);
+      const arrowW = Math.round(24 * cookRatio);
+      this.gui.blit(
+        '/assets/minecraft/textures/gui/container/furnace.png',
+        leftPos + 79,
+        topPos + 34,
+        176,
+        14,
+        arrowW,
+        17,
+        256,
+        256
+      );
+    }
+
+    // Input slot (56, 17)
+    this.drawInteractiveSlot(
+      leftPos + 56,
+      topPos + 17,
+      () => furnace.input,
+      (s) => {
+        furnace.input = s;
+      }
+    );
+
+    // Fuel slot (56, 53)
+    this.drawInteractiveSlot(
+      leftPos + 56,
+      topPos + 53,
+      () => furnace.fuel,
+      (s) => {
+        furnace.fuel = s;
+      }
+    );
+
+    // Output slot (116, 35)
+    this.drawInteractiveSlot(
+      leftPos + 116,
+      topPos + 35,
+      () => furnace.output,
+      (s) => {
+        furnace.output = s;
+      }
+    );
+
+    this.drawPlayerInventorySlots(leftPos, topPos);
+  }
+
+  private renderChestScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const leftPos = Math.floor((sw - 176) / 2);
+    const topPos = Math.floor((sh - 166) / 2);
+
+    this.gui.blit(
+      '/assets/minecraft/textures/gui/container/generic_54.png',
+      leftPos,
+      topPos,
+      0,
+      0,
+      176,
+      166,
+      256,
+      256
+    );
+
+    const title = this.activeContainerTab === 'barrel' ? 'Barrel' : 'Chest';
+    this.font.draw(this.gui.ctx, title, leftPos + 8, topPos + 6, '#404040', false);
+    this.font.draw(this.gui.ctx, 'Inventory', leftPos + 8, topPos + 72, '#404040', false);
+
+    const chestSlots = ContainerManager.getChest(this.activeContainerBlockPos);
+
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 9; c++) {
+        const idx = r * 9 + c;
+        const sx = leftPos + 8 + c * 18;
+        const sy = topPos + 18 + r * 18;
+        this.drawInteractiveSlot(
+          sx,
+          sy,
+          () => chestSlots[idx],
+          (s) => {
+            chestSlots[idx] = s;
+          }
+        );
+      }
+    }
 
     this.drawPlayerInventorySlots(leftPos, topPos);
   }

@@ -44,6 +44,7 @@ export class TextureAtlas {
     }
     neededTextures.add('grass_block_side_overlay');
     neededTextures.add('straw_bed');
+    neededTextures.add('campfire_fire');
     for (let i = 0; i < 10; i++) {
       neededTextures.add(`destroy_stage_${i}`);
     }

@@ -11,6 +11,7 @@ export type BlockShapeType =
   | 'bed_foot'
   | 'bed_head'
   | 'campfire'
+  | 'path'
   | 'torch'
   | 'fluid'
   | 'door_bottom'
@@ -274,8 +275,8 @@ export class Registries {
     });
     this.registerBlock({
       shortId: 'dirt_path',
-      shape: 'cube',
-      transparent: false,
+      shape: 'path',
+      transparent: true,
       solid: true,
       lightEmission: 0,
       hardness: 0.65,

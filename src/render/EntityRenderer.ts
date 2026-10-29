@@ -18,7 +18,7 @@ export interface DroppedItemEntity {
 
 export interface MobEntity {
   id: string;
-  type: 'pig' | 'cow' | 'sheep' | 'remote_player';
+  type: 'pig' | 'cow' | 'sheep' | 'remote_player' | 'zombie';
   name?: string;
   x: number;
   y: number;
@@ -219,20 +219,20 @@ export class EntityRenderer {
   addCushion(data: CushionEntityData) {
     if (this.cushions.has(data.id)) return;
 
-    const geo = new THREE.BoxGeometry(0.875, 0.375, 0.875);
-    const mat = this.getCushionMaterial(data.color);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(data.x, data.blockY + 0.1875, data.z);
+    // Official 26.3 CushionModel (net.minecraft.client.model.object.cushion.CushionModel)
+    // 16x4x16 box at y=0..4, texture 64x64 at (0, 0)
+    const part = this.createUprightPartMesh(16, 4, 16, 0, DYE_HEX_MAP[data.color] || 0xf9801d);
+    const mesh = part.mesh;
+    mesh.position.set(data.x, data.blockY + 0.125, data.z);
     mesh.rotation.y = (data.rotation * Math.PI) / 180;
     mesh.userData = { isCushion: true, cushionId: data.id };
 
-    const tuftGeo = new THREE.BoxGeometry(0.16, 0.05, 0.16);
-    const tuftMat = new THREE.MeshLambertMaterial({
-      color: DYE_HEX_MAP[data.color] || 0xf9801d,
-    });
-    const tuft = new THREE.Mesh(tuftGeo, tuftMat);
-    tuft.position.set(0, 0.2, 0);
-    mesh.add(tuft);
+    this.loadEntityImage(
+      `/assets/minecraft/textures/entity/cushion/${data.color}_cushion.png`,
+      (img) => {
+        part.applyTexture(img, 0, 0);
+      }
+    );
 
     this.scene.add(mesh);
     this.cushions.set(data.id, { data, mesh });
@@ -371,7 +371,7 @@ export class EntityRenderer {
         body.applyTexture(img, 28, 8);
         for (const l of legParts) l.applyTexture(img, 0, 16);
       });
-    } else {
+    } else if (type === 'cow') {
       // CowModel (cow/cow_temperate.png 64x64)
       // Neck offset (0, 4, -8) => y = 20/16, z = +8/16.
       // Head addBox(-4, -4, -6, 8, 8, 6) => center (0, 20/16, 11/16)
@@ -410,9 +410,45 @@ export class EntityRenderer {
         body.applyTexture(img, 18, 4);
         for (const l of legParts) l.applyTexture(img, 0, 16);
       });
+    } else if (type === 'zombie') {
+      // Zombie Model: Steve humanoid frame with arms permanently held horizontally forward
+      const head = this.createUprightPartMesh(8, 8, 8, 0, 0x55aa55);
+      head.mesh.position.set(0, 24 / 16, 0);
+      const body = this.createUprightPartMesh(8, 12, 4, 0, 0x448888);
+      body.mesh.position.set(0, 14 / 16, 0);
+
+      const rArm = this.createUprightPartMesh(4, 12, 4, 0, 0x55aa55);
+      rArm.mesh.geometry.translate(0, -6 / 16, 0);
+      rArm.mesh.position.set(-6 / 16, 20 / 16, 0);
+      rArm.mesh.rotation.x = -Math.PI / 2; // Arms raised forward towards victim
+
+      const lArm = this.createUprightPartMesh(4, 12, 4, 0, 0x55aa55);
+      lArm.mesh.geometry.translate(0, -6 / 16, 0);
+      lArm.mesh.position.set(6 / 16, 20 / 16, 0);
+      lArm.mesh.rotation.x = -Math.PI / 2; // Arms raised forward towards victim
+
+      const rLeg = this.createUprightPartMesh(4, 12, 4, 0, 0x333366);
+      rLeg.mesh.geometry.translate(0, -6 / 16, 0);
+      rLeg.mesh.position.set(-2 / 16, 12 / 16, 0);
+
+      const lLeg = this.createUprightPartMesh(4, 12, 4, 0, 0x333366);
+      lLeg.mesh.geometry.translate(0, -6 / 16, 0);
+      lLeg.mesh.position.set(2 / 16, 12 / 16, 0);
+
+      legs.push(rLeg.mesh, lLeg.mesh);
+      group.add(head.mesh, body.mesh, rArm.mesh, lArm.mesh, rLeg.mesh, lLeg.mesh);
+
+      this.loadEntityImage('/assets/minecraft/textures/entity/zombie/zombie.png', (img) => {
+        head.applyTexture(img, 0, 0);
+        body.applyTexture(img, 16, 16);
+        rArm.applyTexture(img, 40, 16);
+        lArm.applyTexture(img, 40, 16);
+        rLeg.applyTexture(img, 0, 16);
+        lLeg.applyTexture(img, 0, 16);
+      });
     }
 
-    const maxHealth = type === 'sheep' ? 8 : 10;
+    const maxHealth = type === 'zombie' ? 20 : type === 'sheep' ? 8 : 10;
     group.position.set(x, y, z);
     this.scene.add(group);
     this.mobs.set(id, {
@@ -579,6 +615,14 @@ export class EntityRenderer {
         for (let i = 0; i < leatherCount; i++) {
           this.spawnDroppedItem(bx, by, bz, 'leather');
         }
+      } else if (mob.type === 'zombie') {
+        const fleshCount = 1 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < fleshCount; i++) {
+          this.spawnDroppedItem(bx, by, bz, 'rotten_flesh');
+        }
+        if (Math.random() < 0.08) {
+          this.spawnDroppedItem(bx, by, bz, 'iron_ingot');
+        }
       }
       return { hit: true, killed: true, mob };
     }
@@ -688,7 +732,8 @@ export class EntityRenderer {
     getGroundHeight: (x: number, z: number) => number,
     playerPos?: THREE.Vector3,
     onPickupItem?: (itemId: string) => boolean,
-    isSolidAt?: (bx: number, by: number, bz: number) => boolean
+    isSolidAt?: (bx: number, by: number, bz: number) => boolean,
+    onMobAttackPlayer?: (damage: number, mobType: string) => void
   ) {
     // Update bobbing & rotating 3D dropped items + local block floor collision + magnetic pickup
     for (const [id, item] of this.droppedItems) {
@@ -788,7 +833,20 @@ export class EntityRenderer {
       }
 
       mob.aiTimer -= dt;
-      if (mob.aiTimer <= 0 && mob.hurtTimer <= 0) {
+      if (mob.type === 'zombie' && playerPos && mob.hurtTimer <= 0) {
+        // Aggressive zombie pathing towards player
+        const pdx = playerPos.x - mob.x;
+        const pdz = playerPos.z - mob.z;
+        const pdist = Math.hypot(pdx, pdz);
+        if (pdist < 16) {
+          mob.yaw = Math.atan2(pdx, pdz);
+          mob.vx = Math.sin(mob.yaw) * 2.3;
+          mob.vz = Math.cos(mob.yaw) * 2.3;
+          if (pdist < 1.35 && onMobAttackPlayer) {
+            onMobAttackPlayer(3, 'zombie');
+          }
+        }
+      } else if (mob.aiTimer <= 0 && mob.hurtTimer <= 0) {
         if (mob.panicTimer > 0) {
           mob.aiTimer = 0.35 + Math.random() * 0.45;
           mob.yaw += (Math.random() - 0.5) * 2.4;
@@ -823,12 +881,15 @@ export class EntityRenderer {
         mob.walkPhase *= 0.85;
       }
 
+      const swing = isWalking ? Math.sin(mob.walkPhase) * 0.55 : 0;
       if (mob.legs && mob.legs.length >= 4) {
-        const swing = isWalking ? Math.sin(mob.walkPhase) * 0.55 : 0;
         mob.legs[0].rotation.x = swing;
         mob.legs[1].rotation.x = -swing;
         mob.legs[2].rotation.x = -swing;
         mob.legs[3].rotation.x = swing;
+      } else if (mob.legs && mob.legs.length === 2) {
+        mob.legs[0].rotation.x = swing;
+        mob.legs[1].rotation.x = -swing;
       }
 
       mob.x += mob.vx * dt;
