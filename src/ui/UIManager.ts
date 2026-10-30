@@ -15,6 +15,7 @@ import { WorldGen26_3 } from '../world/WorldGen26_3';
 import { WebGPUContext } from '../render/WebGPUContext';
 import { TextureAtlas } from '../render/TextureAtlas';
 import { ResourcePackManager } from '../core/ResourcePackManager';
+import { CommandEngine } from '../gameplay/CommandEngine';
 
 export type UIState =
   | 'TITLE'
@@ -160,7 +161,14 @@ export class UIManager {
   public fps = 60;
   public splashText = SPLASH_TEXTS[0];
   public chatHistory: Array<{ text: string; time: number }> = [];
-  private chatInputText = '';
+  public chatInputText = '';
+  public commandSuggestions: string[] = [];
+  public commandSuggestionIndex = 0;
+  public commandSuggestionHint = '';
+  public commandTokenStart = 0;
+  public commandTokenEnd = 0;
+  private commandHistory: string[] = [];
+  private commandHistoryIdx = -1;
   private heldItemTooltipTimer = 0;
   private lastHeldItemId = '';
 
@@ -270,9 +278,16 @@ export class UIManager {
         this.saveActiveWorldState();
       } else if (newState === 'CHAT') {
         this.focusedEditBox = 'chat';
+        this.updateCommandAutofill();
       } else if (newState === 'INVENTORY' && this.creativeTab === 'search' && this.player.gameMode === 'creative') {
         this.focusedEditBox = 'creative_search';
       }
+    }
+
+    if (newState !== 'CHAT') {
+      this.commandSuggestions = [];
+      this.commandSuggestionHint = '';
+      this.commandSuggestionIndex = 0;
     }
 
     this.render();
@@ -420,6 +435,46 @@ export class UIManager {
         this.leftDragItem = null;
         this.leftDragTotalCount = 0;
         this.leftDragSlots = [];
+      }
+
+      // Check click on Command Suggestion item if chat is open
+      if (this.state === 'CHAT' && this.commandSuggestions.length > 0 && e.button === 0) {
+        const sh = this.gui.scaledHeight;
+        const maxVisible = Math.min(10, this.commandSuggestions.length);
+        let startIdx = 0;
+        if (this.commandSuggestionIndex >= maxVisible) {
+          startIdx = this.commandSuggestionIndex - maxVisible + 1;
+        }
+        const boxH = maxVisible * 12 + 4;
+        const boxY = sh - 16 - boxH;
+        let maxTextW = 120;
+        for (let i = 0; i < maxVisible; i++) {
+          const s = this.commandSuggestions[startIdx + i];
+          if (s) {
+            const w = this.font.width(s);
+            if (w > maxTextW) maxTextW = w;
+          }
+        }
+        const boxW = Math.min(this.gui.scaledWidth - 20, maxTextW + 16);
+        if (
+          this.mouseX >= 2 &&
+          this.mouseX <= 2 + boxW &&
+          this.mouseY >= boxY &&
+          this.mouseY <= boxY + boxH
+        ) {
+          const clickedRow = Math.floor((this.mouseY - (boxY + 2)) / 12);
+          const targetIdx = startIdx + clickedRow;
+          if (targetIdx >= 0 && targetIdx < this.commandSuggestions.length) {
+            const selected = this.commandSuggestions[targetIdx];
+            if (selected && !selected.startsWith('<')) {
+              const before = this.chatInputText.slice(0, this.commandTokenStart);
+              this.chatInputText = before + selected + ' ';
+              this.updateCommandAutofill();
+              AudioEngine.play('ui.button.click', 0.6);
+            }
+          }
+          return;
+        }
       }
 
       for (let i = this.interactiveRects.length - 1; i >= 0; i--) {
@@ -577,8 +632,13 @@ export class UIManager {
       // Escape always closes Chat or releases focused EditBox
       if (e.key === 'Escape') {
         if (this.state === 'CHAT') {
-          this.chatInputText = '';
-          this.setState('IN_GAME');
+          if (this.commandSuggestions.length > 0) {
+            this.commandSuggestions = [];
+            this.commandSuggestionHint = '';
+          } else {
+            this.chatInputText = '';
+            this.setState('IN_GAME');
+          }
           return;
         } else if (this.focusedEditBox) {
           this.focusedEditBox = null;
@@ -586,9 +646,54 @@ export class UIManager {
         }
       }
 
-      // Prevent Tab key from causing browser focus loss when in Chat
+      // Tab key autocompletes selected command suggestion
       if (this.state === 'CHAT' && e.key === 'Tab') {
         e.preventDefault();
+        if (this.commandSuggestions.length > 0) {
+          const selected = this.commandSuggestions[this.commandSuggestionIndex];
+          if (selected && !selected.startsWith('<')) {
+            const before = this.chatInputText.slice(0, this.commandTokenStart);
+            this.chatInputText = before + selected + ' ';
+            this.updateCommandAutofill();
+          }
+        }
+        return;
+      }
+
+      // Arrow keys navigate command suggestions or history
+      if (this.state === 'CHAT' && e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (this.commandSuggestions.length > 0) {
+          this.commandSuggestionIndex =
+            (this.commandSuggestionIndex - 1 + this.commandSuggestions.length) %
+            this.commandSuggestions.length;
+        } else if (this.commandHistory.length > 0) {
+          if (this.commandHistoryIdx === -1) {
+            this.commandHistoryIdx = this.commandHistory.length - 1;
+          } else if (this.commandHistoryIdx > 0) {
+            this.commandHistoryIdx--;
+          }
+          this.chatInputText = this.commandHistory[this.commandHistoryIdx] || '';
+          this.updateCommandAutofill();
+        }
+        return;
+      }
+
+      if (this.state === 'CHAT' && e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (this.commandSuggestions.length > 0) {
+          this.commandSuggestionIndex =
+            (this.commandSuggestionIndex + 1) % this.commandSuggestions.length;
+        } else if (this.commandHistoryIdx !== -1) {
+          if (this.commandHistoryIdx < this.commandHistory.length - 1) {
+            this.commandHistoryIdx++;
+            this.chatInputText = this.commandHistory[this.commandHistoryIdx] || '';
+          } else {
+            this.commandHistoryIdx = -1;
+            this.chatInputText = '';
+          }
+          this.updateCommandAutofill();
+        }
         return;
       }
 
@@ -681,7 +786,15 @@ export class UIManager {
         if (this.state === 'CHAT') {
           const msg = this.chatInputText.trim();
           this.chatInputText = '';
-          if (msg) this.handleChatSubmit(msg);
+          this.commandSuggestions = [];
+          this.commandSuggestionHint = '';
+          this.commandHistoryIdx = -1;
+          if (msg) {
+            if (this.commandHistory[this.commandHistory.length - 1] !== msg) {
+              this.commandHistory.push(msg);
+            }
+            this.handleChatSubmit(msg);
+          }
           this.setState('IN_GAME');
           return;
         } else {
@@ -729,7 +842,25 @@ export class UIManager {
         break;
       case 'chat':
         this.chatInputText = fn(this.chatInputText);
+        this.updateCommandAutofill();
         break;
+    }
+  }
+
+  public updateCommandAutofill(): void {
+    if (this.chatInputText.startsWith('/')) {
+      const res = CommandEngine.getSuggestions(this.chatInputText);
+      this.commandSuggestions = res.suggestions;
+      this.commandTokenStart = res.tokenStart;
+      this.commandTokenEnd = res.tokenEnd;
+      this.commandSuggestionHint = res.hint;
+      if (this.commandSuggestionIndex >= this.commandSuggestions.length) {
+        this.commandSuggestionIndex = 0;
+      }
+    } else {
+      this.commandSuggestions = [];
+      this.commandSuggestionHint = '';
+      this.commandSuggestionIndex = 0;
     }
   }
 
@@ -3277,7 +3408,67 @@ export class UIManager {
     }
 
     if (chatOpen) {
+      // 1. Suggestions popup box if typing a command and suggestions are available
+      if (this.commandSuggestions.length > 0) {
+        const maxVisible = Math.min(10, this.commandSuggestions.length);
+        let startIdx = 0;
+        if (this.commandSuggestionIndex >= maxVisible) {
+          startIdx = this.commandSuggestionIndex - maxVisible + 1;
+        }
+        const visibleList = this.commandSuggestions.slice(startIdx, startIdx + maxVisible);
+        const boxH = maxVisible * 12 + 4;
+        let maxTextW = 120;
+        for (const s of visibleList) {
+          const w = this.font.width(s);
+          if (w > maxTextW) maxTextW = w;
+        }
+        const boxW = Math.min(sw - 20, maxTextW + 16);
+        const boxY = sh - 16 - boxH;
+
+        // Background box
+        this.gui.fill(2, boxY, 2 + boxW, boxY + boxH, 'rgba(12, 12, 18, 0.94)');
+        this.gui.ctx.strokeStyle = '#202028';
+        this.gui.ctx.strokeRect(2, boxY, boxW, boxH);
+
+        // Render each suggestion
+        for (let i = 0; i < visibleList.length; i++) {
+          const actualIdx = startIdx + i;
+          const isSelected = actualIdx === this.commandSuggestionIndex;
+          const itemY = boxY + 2 + i * 12;
+          const s = visibleList[i];
+
+          if (isSelected) {
+            this.gui.fill(3, itemY - 1, 2 + boxW - 1, itemY + 11, 'rgba(50, 75, 130, 0.9)');
+            this.font.draw(this.gui.ctx, s, 6, itemY + 1, '#FFFF55', true);
+          } else {
+            this.font.draw(
+              this.gui.ctx,
+              s,
+              6,
+              itemY + 1,
+              s.startsWith('<') ? '#808080' : '#CCCCCC',
+              true
+            );
+          }
+        }
+      }
+
+      // 2. Chat Input Bar
       this.gui.fill(2, sh - 14, sw - 2, sh - 2, 'rgba(0, 0, 0, 0.75)');
+
+      // Inline Ghost Text / Brigadier Hint
+      if (this.commandSuggestionHint) {
+        const textW = this.font.width(this.chatInputText);
+        this.font.draw(
+          this.gui.ctx,
+          this.commandSuggestionHint,
+          4 + textW,
+          sh - 12,
+          '#808080',
+          true
+        );
+      }
+
       const cursor = Math.floor(now / 300) % 2 === 0 ? '_' : '';
       this.font.draw(
         this.gui.ctx,
@@ -4427,130 +4618,19 @@ export class UIManager {
   }
 
   // ============================================================================
-  // 9. CHAT COMMAND HANDLER (/gamemode, /time, /weather, /give, /tp, /kill, /clear, /seed, /locate, /difficulty, /help)
+  // 9. CHAT COMMAND HANDLER (Brigadier Command Engine with all 94 commands)
   // ============================================================================
   private handleChatSubmit(msg: string): void {
     if (msg.startsWith('/')) {
-      const trimmed = msg.slice(1).trim();
-      const parts = trimmed.split(/\s+/);
-      const cmd = parts[0].toLowerCase();
-
-      if (cmd === 'gamemode') {
-        const m = (parts[1] || '').toLowerCase();
-        if (m === 'c' || m === 'creative' || m === '1') {
-          this.player.gameMode = 'creative';
-          this.player.flying = false;
-          this.addChatMessage('§eSet own game mode to §aCreative Mode');
-          this.saveActiveWorldState();
-        } else if (m === 's' || m === 'survival' || m === '0') {
-          this.player.gameMode = 'survival';
-          this.player.flying = false;
-          this.addChatMessage('§eSet own game mode to §aSurvival Mode');
-          this.saveActiveWorldState();
-        } else if (m === 'sp' || m === 'spectator' || m === '3') {
-          this.player.gameMode = 'spectator';
-          this.player.flying = true;
-          this.addChatMessage('§eSet own game mode to §aSpectator Mode');
-          this.saveActiveWorldState();
-        } else {
-          this.addChatMessage('§cUsage: /gamemode <creative|survival|spectator>');
-        }
-      } else if (cmd === 'time') {
-        const sub = (parts[1] || '').toLowerCase();
-        if (sub === 'set') {
-          const val = (parts[2] || '').toLowerCase();
-          if (val === 'day') this.world.timeOfDay = 1000;
-          else if (val === 'noon') this.world.timeOfDay = 6000;
-          else if (val === 'night') this.world.timeOfDay = 13000;
-          else if (val === 'midnight') this.world.timeOfDay = 18000;
-          else {
-            const parsed = parseInt(val, 10);
-            this.world.timeOfDay = isNaN(parsed) ? 1000 : ((parsed % 24000) + 24000) % 24000;
-          }
-          this.addChatMessage(`§eSet the time to §a${Math.floor(this.world.timeOfDay)}`);
-        } else if (sub === 'query') {
-          this.addChatMessage(`§eThe time is §a${Math.floor(this.world.timeOfDay)}`);
-        } else {
-          this.addChatMessage('§cUsage: /time set <day|noon|night|midnight|<ticks>> or /time query daytime');
-        }
-      } else if (cmd === 'weather') {
-        const type = (parts[1] || 'clear').toLowerCase();
-        this.addChatMessage(`§eSet the weather to §a${type}`);
-      } else if (cmd === 'give') {
-        let rawItem = parts[1] || '';
-        let rawCount = parts[2] || '1';
-        if (rawItem === '@p' || rawItem === '@s' || rawItem === '@a' || rawItem === MultiplayerManager.username) {
-          rawItem = parts[2] || '';
-          rawCount = parts[3] || '1';
-        }
-        const shortName = rawItem.replace('minecraft:', '').toLowerCase();
-        const count = Math.max(1, Math.min(64, parseInt(rawCount, 10) || 1));
-        const itemDef = Registries.getItem(shortName);
-        if (itemDef) {
-          this.inventory.addItem(shortName, count);
-          this.addChatMessage(`§aGave ${count} [${itemDef.displayName}] to ${MultiplayerManager.username}`);
-          AudioEngine.play('entity.item.pickup', 0.6);
-          this.updateHUDOnly();
-        } else {
-          this.addChatMessage(`§cUnknown item: ${rawItem}`);
-        }
-      } else if (cmd === 'tp' || cmd === 'teleport') {
-        let pOffset = 1;
-        if (parts[1] === '@p' || parts[1] === '@s' || parts[1] === MultiplayerManager.username) {
-          pOffset = 2;
-        }
-        const x = parseFloat(parts[pOffset]);
-        const y = parseFloat(parts[pOffset + 1]);
-        const z = parseFloat(parts[pOffset + 2]);
-        if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
-          this.player.position.set(x, y, z);
-          this.addChatMessage(`§eTeleported ${MultiplayerManager.username} to ${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}`);
-        } else {
-          this.addChatMessage('§cUsage: /tp [target] <x> <y> <z>');
-        }
-      } else if (cmd === 'kill') {
-        this.player.applyDamage(1000, `${MultiplayerManager.username} fell out of the world`);
-      } else if (cmd === 'clear') {
-        this.inventory.clearAll();
-        this.addChatMessage(`§eCleared the inventory of ${MultiplayerManager.username}`);
-        this.updateHUDOnly();
-      } else if (cmd === 'seed') {
-        this.addChatMessage(`§eSeed: [${WorldGen26_3.seed || '263000'}]`);
-      } else if (cmd === 'locate') {
-        const camp = this.world.findNearestAbandonedCamp(
-          this.player.position.x,
-          this.player.position.z
-        );
-        if (camp) {
-          this.addChatMessage(
-            `§aThe nearest §eminecraft:abandoned_camp§a is at §b[${camp.x}, ${camp.y}, ${camp.z}]`
-          );
-        } else {
-          this.addChatMessage('§cCould not find requested structure nearby');
-        }
-      } else if (cmd === 'difficulty') {
-        const d = (parts[1] || '').toLowerCase();
-        if (d.startsWith('p')) {
-          OptionsManager.current.difficulty = 'Peaceful';
-        } else if (d.startsWith('e')) {
-          OptionsManager.current.difficulty = 'Easy';
-        } else if (d.startsWith('n')) {
-          OptionsManager.current.difficulty = 'Normal';
-        } else if (d.startsWith('h')) {
-          OptionsManager.current.difficulty = 'Hard';
-        }
-        OptionsManager.save();
-        this.addChatMessage(`§eThe difficulty has been set to §a${OptionsManager.current.difficulty}`);
-      } else if (cmd === 'help') {
-        this.addChatMessage('§6--- Available Commands ---');
-        this.addChatMessage('§e/gamemode <creative|survival|spectator>');
-        this.addChatMessage('§e/time set <day|noon|night|midnight|<ticks>>');
-        this.addChatMessage('§e/give [player] <item> [amount]');
-        this.addChatMessage('§e/tp <x> <y> <z>');
-        this.addChatMessage('§e/kill, /clear, /seed, /locate <camp>, /difficulty');
-      } else {
-        this.addChatMessage(`§cUnknown or incomplete command: /${cmd}. Type /help for help.`);
-      }
+      CommandEngine.execute(
+        msg,
+        this.player,
+        this.inventory,
+        this.world,
+        (m) => this.addChatMessage(m),
+        () => this.saveActiveWorldState()
+      );
+      this.updateHUDOnly();
       return;
     }
 
