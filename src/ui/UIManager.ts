@@ -75,7 +75,7 @@ interface SavedWorldEntry {
   name: string;
   folder: string;
   lastPlayed: string;
-  gameMode: 'creative' | 'survival';
+  gameMode: 'creative' | 'survival' | 'spectator';
   isHardcore?: boolean;
   seed: string;
 }
@@ -164,6 +164,7 @@ export class UIManager {
   private activeToast: { title: string; subtitle: string; item: ItemDefinition | null; startTime: number } | null = null;
 
   public activeWorldId = 'world_survival_random';
+  public unlockedAdvancements = new Set<string>(['root']);
   public onStartGame?: (isMultiplayer: boolean) => void;
   public onQuitToTitle?: () => void;
 
@@ -1034,7 +1035,8 @@ export class UIManager {
       15,
       15,
       () => {
-        this.setState('OPTIONS');
+        this.optionsReturnState = 'TITLE';
+        this.setState('LANGUAGE');
       },
       ['Language...']
     );
@@ -1057,7 +1059,8 @@ export class UIManager {
       15,
       15,
       () => {
-        this.setState('OPTIONS');
+        this.optionsReturnState = 'TITLE';
+        this.setState('ACCESSIBILITY');
       },
       ['Accessibility Settings...']
     );
@@ -1256,14 +1259,15 @@ export class UIManager {
         const dateStr = now.toLocaleDateString([], { month: '2-digit', day: '2-digit', year: '2-digit' });
         const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
         w.folder = `${w.name.replace(/\s+/g, '_')} (${dateStr}, ${timeStr})`;
-        w.gameMode = this.player.gameMode === 'creative' ? 'creative' : 'survival';
-        w.lastPlayed = `${dateStr}, ${timeStr} - ${w.isHardcore ? 'Hardcore' : w.gameMode === 'creative' ? 'Creative' : 'Survival'} Mode`;
+        w.gameMode = this.player.gameMode;
+        w.lastPlayed = `${dateStr}, ${timeStr} - ${w.isHardcore ? 'Hardcore' : w.gameMode === 'creative' ? 'Creative' : w.gameMode === 'spectator' ? 'Spectator' : 'Survival'} Mode`;
         this.saveWorldsList();
       }
 
       const payload = {
         timeOfDay: this.world.timeOfDay,
         blockDiffs: Array.from(this.world.blockDiffs.entries()),
+        unlockedAdvancements: Array.from(this.unlockedAdvancements),
         player: {
           x: this.player.position.x,
           y: this.player.position.y,
@@ -1326,11 +1330,17 @@ export class UIManager {
         }
       }
 
+      if (Array.isArray(data.unlockedAdvancements)) {
+        this.unlockedAdvancements = new Set(data.unlockedAdvancements);
+      } else {
+        this.unlockedAdvancements = new Set(['root']);
+      }
+
       this.player.position.set(data.player.x, data.player.y, data.player.z);
       this.player.yaw = data.player.yaw || 0;
       this.player.pitch = data.player.pitch || 0;
-      this.player.gameMode = data.player.gameMode === 'creative' ? 'creative' : 'survival';
-      this.player.flying = !!data.player.flying;
+      this.player.gameMode = data.player.gameMode || 'survival';
+      this.player.flying = !!data.player.flying || this.player.gameMode === 'spectator';
       if (typeof data.player.health === 'number') this.player.health = data.player.health;
       if (typeof data.player.hunger === 'number') this.player.hunger = data.player.hunger;
 
@@ -2030,10 +2040,35 @@ export class UIManager {
     this.addButton(centerX - 155, 90, 150, 20, `Sneak: ${a.sneakToggle ? 'Toggle' : 'Hold'}`, () => {
       a.sneakToggle = !a.sneakToggle;
     });
-    this.addButton(centerX + 5, 90, 150, 20, 'Distortion Effects: 100%', () => {});
+    this.addButton(
+      centerX + 5,
+      90,
+      150,
+      20,
+      `Distortion Effects: ${Math.round(OptionsManager.current.distortionEffects * 100)}%`,
+      () => {
+        let cur = Math.round(OptionsManager.current.distortionEffects * 100);
+        cur = (cur + 25) % 125;
+        OptionsManager.current.distortionEffects = cur / 100;
+        OptionsManager.save();
+      }
+    );
+    this.addButton(
+      centerX - 155,
+      114,
+      150,
+      20,
+      `Text Background: ${Math.round(OptionsManager.current.textBackground * 100)}%`,
+      () => {
+        let cur = Math.round(OptionsManager.current.textBackground * 100);
+        cur = (cur + 25) % 125;
+        OptionsManager.current.textBackground = cur / 100;
+        OptionsManager.save();
+      }
+    );
 
     this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
-      this.setState('OPTIONS');
+      this.setState(this.optionsReturnState || 'OPTIONS');
     });
   }
 
@@ -2066,7 +2101,7 @@ export class UIManager {
     );
 
     this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
-      this.setState('OPTIONS');
+      this.setState(this.optionsReturnState || 'OPTIONS');
     });
   }
 
@@ -2103,14 +2138,16 @@ export class UIManager {
     this.gui.renderMenuBackground(inWorld, 32, sh - 36);
     this.font.drawCentered(this.gui.ctx, 'Credits & Attribution', centerX, 11, '#FFFFFF', true);
 
-    this.font.drawCentered(this.gui.ctx, '§eMinecraft 26.3 ("Wilderness Bound")', centerX, 48, '#FFFF55', true);
-    this.font.drawCentered(this.gui.ctx, 'Original Game & Assets by Mojang Studios', centerX, 68, '#FFFFFF', true);
-    this.font.drawCentered(this.gui.ctx, '§7Poplar Trees, Autumn Foliage, Cushions & Straw Beds', centerX, 88, '#AAAAAA', false);
-    this.font.drawCentered(this.gui.ctx, '§7Full WebGPU / WebGL2 Client Architecture', centerX, 108, '#AAAAAA', false);
-    this.font.drawCentered(this.gui.ctx, '§7Multiplayer powered by Wispcraft Protocol v2', centerX, 128, '#AAAAAA', false);
+    this.font.drawCentered(this.gui.ctx, '§eMinecraft 26.3 ("Wilderness Bound")', centerX, 44, '#FFFF55', true);
+    this.font.drawCentered(this.gui.ctx, '§6Official Web Port & Engine by BroChilllz', centerX, 62, '#FFAA00', true);
+    this.font.drawCentered(this.gui.ctx, 'Original Game & Assets by Mojang Studios', centerX, 80, '#FFFFFF', true);
+    this.font.drawCentered(this.gui.ctx, '§7Poplar Trees, Autumn Foliage, Cushions & Straw Beds', centerX, 98, '#AAAAAA', false);
+    this.font.drawCentered(this.gui.ctx, '§7Full WebGPU / WebGL2 Three.js Client Architecture', centerX, 116, '#AAAAAA', false);
+    this.font.drawCentered(this.gui.ctx, '§7Multiplayer powered by Wispcraft Protocol v2 & Wisp Relays', centerX, 134, '#AAAAAA', false);
+    this.font.drawCentered(this.gui.ctx, '§aSpecial thanks to community playtesters & contributors!', centerX, 152, '#55FF55', false);
 
     this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
-      this.setState('OPTIONS');
+      this.setState(this.optionsReturnState || 'OPTIONS');
     });
   }
 
@@ -2257,7 +2294,10 @@ export class UIManager {
     );
 
     // Row 2: Graphics: Fancy & Smooth Lighting
-    this.addButton(centerX - 155, 66, 150, 20, 'Graphics: Fancy', () => {});
+    this.addButton(centerX - 155, 66, 150, 20, `Graphics: ${opts.graphics === 'fancy' ? 'Fancy' : 'Fast'}`, () => {
+      opts.graphics = opts.graphics === 'fancy' ? 'fast' : 'fancy';
+      OptionsManager.save();
+    });
     const slMap = { off: 'OFF', min: 'Minimum', max: 'Maximum' };
     this.addButton(centerX + 5, 66, 150, 20, `Smooth Lighting: ${slMap[opts.smoothLighting || 'max']}`, () => {
       opts.smoothLighting = opts.smoothLighting === 'max' ? 'off' : opts.smoothLighting === 'off' ? 'min' : 'max';
@@ -2279,7 +2319,10 @@ export class UIManager {
         OptionsManager.save();
       }
     );
-    this.addButton(centerX + 5, 90, 150, 20, 'View Bobbing: ON', () => {});
+    this.addButton(centerX + 5, 90, 150, 20, `View Bobbing: ${opts.viewBobbing ? 'ON' : 'OFF'}`, () => {
+      opts.viewBobbing = !opts.viewBobbing;
+      OptionsManager.save();
+    });
 
     // Row 4: GUI Scale & Clouds
     const scaleLabel = opts.guiScale === 0 ? 'GUI Scale: Auto' : `GUI Scale: ${opts.guiScale}x`;
@@ -2293,8 +2336,26 @@ export class UIManager {
     });
 
     // Row 5: Fullscreen & Particles
-    this.addButton(centerX - 155, 138, 150, 20, 'Fullscreen: OFF', () => {});
-    this.addButton(centerX + 5, 138, 150, 20, 'Particles: All', () => {});
+    const isFs = typeof document !== 'undefined' && (!!document.fullscreenElement || opts.fullscreen);
+    this.addButton(centerX - 155, 138, 150, 20, `Fullscreen: ${isFs ? 'ON' : 'OFF'}`, () => {
+      if (typeof document !== 'undefined') {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen?.().catch(() => {});
+          opts.fullscreen = true;
+        } else {
+          document.exitFullscreen?.().catch(() => {});
+          opts.fullscreen = false;
+        }
+      } else {
+        opts.fullscreen = !opts.fullscreen;
+      }
+      OptionsManager.save();
+    });
+    const partLabels = { all: 'All', decreased: 'Decreased', minimal: 'Minimal' };
+    this.addButton(centerX + 5, 138, 150, 20, `Particles: ${partLabels[opts.particles || 'all']}`, () => {
+      opts.particles = opts.particles === 'all' ? 'decreased' : opts.particles === 'decreased' ? 'minimal' : 'all';
+      OptionsManager.save();
+    });
 
     // Row 6: Backend & Entity Shadows
     this.addButton(
@@ -2312,10 +2373,13 @@ export class UIManager {
         }
       }
     );
-    this.addButton(centerX + 5, 162, 150, 20, 'Entity Shadows: ON', () => {});
+    this.addButton(centerX + 5, 162, 150, 20, `Entity Shadows: ${opts.entityShadows ? 'ON' : 'OFF'}`, () => {
+      opts.entityShadows = !opts.entityShadows;
+      OptionsManager.save();
+    });
 
     this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
-      this.setState('OPTIONS');
+      this.setState(this.optionsReturnState || 'OPTIONS');
     });
   }
 
@@ -2753,16 +2817,27 @@ export class UIManager {
 
     // Advancement Nodes
     for (const n of nodes) {
-      const frameUrl = `/assets/minecraft/textures/gui/sprites/advancements/${n.frame}_frame_obtained.png`;
+      const isUnlocked = this.unlockedAdvancements.has(n.id);
+      const frameUrl = `/assets/minecraft/textures/gui/sprites/advancements/${n.frame}_frame_${isUnlocked ? 'obtained' : 'unobtained'}.png`;
       this.gui.blitSprite(frameUrl, n.x, n.y, 26, 26);
       const def = Registries.getItem(n.item) || null;
-      this.gui.renderItem(def, 1, n.x + 5, n.y + 5);
+      if (isUnlocked) {
+        this.gui.renderItem(def, 1, n.x + 5, n.y + 5);
+      } else {
+        this.gui.ctx.save();
+        this.gui.ctx.globalAlpha = 0.4;
+        this.gui.renderItem(def, 1, n.x + 5, n.y + 5);
+        this.gui.ctx.restore();
+      }
       this.interactiveRects.push({
         x: n.x,
         y: n.y,
         w: 26,
         h: 26,
-        tooltip: [`§e${n.title}`, `§7${n.desc}`],
+        tooltip: [
+          isUnlocked ? `§e${n.title}` : `§8${n.title}`,
+          isUnlocked ? `§7${n.desc}` : `§8${n.desc}`,
+        ],
       });
     }
 
@@ -2784,6 +2859,32 @@ export class UIManager {
     this.addButton(centerX - 50, wy + winH + 8, 100, 20, 'Done', () => {
       this.setState('PAUSE');
     });
+  }
+
+  public unlockAdvancement(id: string): void {
+    if (this.unlockedAdvancements.has(id)) return;
+    this.unlockedAdvancements.add(id);
+    const titles: Record<string, { title: string; desc: string; icon: string }> = {
+      root: { title: 'Minecraft', desc: 'The heart and story of the game', icon: 'grass_block' },
+      stone_age: { title: 'Stone Age', desc: 'Mine stone with your new pickaxe', icon: 'wooden_pickaxe' },
+      upgrade: { title: 'Getting an Upgrade', desc: 'Construct a better pickaxe', icon: 'stone_pickaxe' },
+      acquire_hardware: { title: 'Acquire Hardware', desc: 'Smelt an iron ingot in a furnace', icon: 'iron_ingot' },
+      suit_up: { title: 'Suit Up', desc: 'Protect yourself with a piece of iron armor', icon: 'iron_chestplate' },
+      hot_stuff: { title: 'Hot Stuff', desc: 'Construct a furnace with stone', icon: 'cobblestone' },
+      monster_hunter: { title: 'Monster Hunter', desc: 'Attack and defeat a hostile zombie', icon: 'iron_sword' },
+      wilderness: { title: 'Wilderness Bound', desc: 'Fell a Poplar tree in a Dappled Forest', icon: 'poplar_log' },
+      canopy: { title: 'Autumn Canopy', desc: 'Collect vibrant autumnal leaves', icon: 'orange_poplar_leaves' },
+      straw_dreams: { title: 'Sweet Wilderness Dreams', desc: 'Rest on a 26.3 Straw Bed at an Abandoned Camp', icon: 'straw_bed' },
+      take_a_seat: { title: 'Take a Seat!', desc: 'Place and sit on a 26.3 Colored Cushion', icon: 'orange_cushion' },
+      architect: { title: 'Wilderness Architect', desc: 'Craft Poplar wood, stairs and slabs', icon: 'poplar_planks' },
+    };
+    const adv = titles[id];
+    if (adv) {
+      this.showToast('Advancement Made!', adv.title, adv.icon);
+      this.addChatMessage(`§a${MultiplayerManager.username} has made the advancement §e[${adv.title}]`);
+      AudioEngine.play('ui.toast.challenge_complete', 0.9);
+    }
+    this.saveActiveWorldState();
   }
 
   // ============================================================================
@@ -4158,34 +4259,95 @@ export class UIManager {
   }
 
   // ============================================================================
-  // 9. CHAT COMMAND HANDLER (/gamemode, /time, /locate, /give, /tp)
+  // 9. CHAT COMMAND HANDLER (/gamemode, /time, /weather, /give, /tp, /kill, /clear, /seed, /locate, /difficulty, /help)
   // ============================================================================
   private handleChatSubmit(msg: string): void {
     if (msg.startsWith('/')) {
-      const parts = msg.slice(1).split(/\s+/);
+      const trimmed = msg.slice(1).trim();
+      const parts = trimmed.split(/\s+/);
       const cmd = parts[0].toLowerCase();
 
       if (cmd === 'gamemode') {
         const m = (parts[1] || '').toLowerCase();
-        if (m.startsWith('c')) {
+        if (m === 'c' || m === 'creative' || m === '1') {
           this.player.gameMode = 'creative';
+          this.player.flying = false;
           this.addChatMessage('§eSet own game mode to §aCreative Mode');
-        } else if (m.startsWith('s') && m !== 'spectator') {
+          this.saveActiveWorldState();
+        } else if (m === 's' || m === 'survival' || m === '0') {
           this.player.gameMode = 'survival';
           this.player.flying = false;
           this.addChatMessage('§eSet own game mode to §aSurvival Mode');
-        } else if (m === 'spectator' || m === 'sp') {
+          this.saveActiveWorldState();
+        } else if (m === 'sp' || m === 'spectator' || m === '3') {
           this.player.gameMode = 'spectator';
           this.player.flying = true;
           this.addChatMessage('§eSet own game mode to §aSpectator Mode');
+          this.saveActiveWorldState();
+        } else {
+          this.addChatMessage('§cUsage: /gamemode <creative|survival|spectator>');
         }
       } else if (cmd === 'time') {
-        const sub = parts[2] || parts[1] || 'day';
-        if (sub === 'day') this.world.timeOfDay = 1000;
-        else if (sub === 'noon') this.world.timeOfDay = 6000;
-        else if (sub === 'night') this.world.timeOfDay = 14000;
-        else this.world.timeOfDay = parseInt(sub, 10) || 1000;
-        this.addChatMessage(`§eSet the time to §a${this.world.timeOfDay}`);
+        const sub = (parts[1] || '').toLowerCase();
+        if (sub === 'set') {
+          const val = (parts[2] || '').toLowerCase();
+          if (val === 'day') this.world.timeOfDay = 1000;
+          else if (val === 'noon') this.world.timeOfDay = 6000;
+          else if (val === 'night') this.world.timeOfDay = 13000;
+          else if (val === 'midnight') this.world.timeOfDay = 18000;
+          else {
+            const parsed = parseInt(val, 10);
+            this.world.timeOfDay = isNaN(parsed) ? 1000 : ((parsed % 24000) + 24000) % 24000;
+          }
+          this.addChatMessage(`§eSet the time to §a${Math.floor(this.world.timeOfDay)}`);
+        } else if (sub === 'query') {
+          this.addChatMessage(`§eThe time is §a${Math.floor(this.world.timeOfDay)}`);
+        } else {
+          this.addChatMessage('§cUsage: /time set <day|noon|night|midnight|<ticks>> or /time query daytime');
+        }
+      } else if (cmd === 'weather') {
+        const type = (parts[1] || 'clear').toLowerCase();
+        this.addChatMessage(`§eSet the weather to §a${type}`);
+      } else if (cmd === 'give') {
+        let rawItem = parts[1] || '';
+        let rawCount = parts[2] || '1';
+        if (rawItem === '@p' || rawItem === '@s' || rawItem === '@a' || rawItem === MultiplayerManager.username) {
+          rawItem = parts[2] || '';
+          rawCount = parts[3] || '1';
+        }
+        const shortName = rawItem.replace('minecraft:', '').toLowerCase();
+        const count = Math.max(1, Math.min(64, parseInt(rawCount, 10) || 1));
+        const itemDef = Registries.getItem(shortName);
+        if (itemDef) {
+          this.inventory.addItem(shortName, count);
+          this.addChatMessage(`§aGave ${count} [${itemDef.displayName}] to ${MultiplayerManager.username}`);
+          AudioEngine.play('entity.item.pickup', 0.6);
+          this.updateHUDOnly();
+        } else {
+          this.addChatMessage(`§cUnknown item: ${rawItem}`);
+        }
+      } else if (cmd === 'tp' || cmd === 'teleport') {
+        let pOffset = 1;
+        if (parts[1] === '@p' || parts[1] === '@s' || parts[1] === MultiplayerManager.username) {
+          pOffset = 2;
+        }
+        const x = parseFloat(parts[pOffset]);
+        const y = parseFloat(parts[pOffset + 1]);
+        const z = parseFloat(parts[pOffset + 2]);
+        if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
+          this.player.position.set(x, y, z);
+          this.addChatMessage(`§eTeleported ${MultiplayerManager.username} to ${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}`);
+        } else {
+          this.addChatMessage('§cUsage: /tp [target] <x> <y> <z>');
+        }
+      } else if (cmd === 'kill') {
+        this.player.applyDamage(1000, `${MultiplayerManager.username} fell out of the world`);
+      } else if (cmd === 'clear') {
+        this.inventory.clearAll();
+        this.addChatMessage(`§eCleared the inventory of ${MultiplayerManager.username}`);
+        this.updateHUDOnly();
+      } else if (cmd === 'seed') {
+        this.addChatMessage(`§eSeed: [${WorldGen26_3.seed || '263000'}]`);
       } else if (cmd === 'locate') {
         const camp = this.world.findNearestAbandonedCamp(
           this.player.position.x,
@@ -4195,27 +4357,31 @@ export class UIManager {
           this.addChatMessage(
             `§aThe nearest §eminecraft:abandoned_camp§a is at §b[${camp.x}, ${camp.y}, ${camp.z}]`
           );
-        }
-      } else if (cmd === 'tp' || cmd === 'teleport') {
-        if (parts.length >= 4) {
-          const x = parseFloat(parts[1]);
-          const y = parseFloat(parts[2]);
-          const z = parseFloat(parts[3]);
-          if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
-            this.player.position.set(x, y, z);
-            this.addChatMessage(`§eTeleported to ${x}, ${y}, ${z}`);
-          }
-        }
-      } else if (cmd === 'give') {
-        const itemName = (parts[2] || parts[1] || 'orange_cushion').replace('minecraft:', '');
-        const count = parseInt(parts[3] || '1', 10) || 1;
-        if (this.inventory.addItem(itemName, count)) {
-          this.addChatMessage(`§aGave ${count} [${itemName}] to ${MultiplayerManager.username}`);
         } else {
-          this.addChatMessage(`§cUnknown item: ${itemName}`);
+          this.addChatMessage('§cCould not find requested structure nearby');
         }
+      } else if (cmd === 'difficulty') {
+        const d = (parts[1] || '').toLowerCase();
+        if (d.startsWith('p')) {
+          OptionsManager.current.difficulty = 'Peaceful';
+        } else if (d.startsWith('e')) {
+          OptionsManager.current.difficulty = 'Easy';
+        } else if (d.startsWith('n')) {
+          OptionsManager.current.difficulty = 'Normal';
+        } else if (d.startsWith('h')) {
+          OptionsManager.current.difficulty = 'Hard';
+        }
+        OptionsManager.save();
+        this.addChatMessage(`§eThe difficulty has been set to §a${OptionsManager.current.difficulty}`);
+      } else if (cmd === 'help') {
+        this.addChatMessage('§6--- Available Commands ---');
+        this.addChatMessage('§e/gamemode <creative|survival|spectator>');
+        this.addChatMessage('§e/time set <day|noon|night|midnight|<ticks>>');
+        this.addChatMessage('§e/give [player] <item> [amount]');
+        this.addChatMessage('§e/tp <x> <y> <z>');
+        this.addChatMessage('§e/kill, /clear, /seed, /locate <camp>, /difficulty');
       } else {
-        this.addChatMessage(`§eExecuted command: /${cmd}`);
+        this.addChatMessage(`§cUnknown or incomplete command: /${cmd}. Type /help for help.`);
       }
       return;
     }

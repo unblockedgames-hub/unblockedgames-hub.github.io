@@ -963,6 +963,8 @@ export class Registries {
         const tex =
           shortId === 'bookshelf'
             ? this.topBottomSide('oak_planks', 'oak_planks', 'bookshelf')
+            : shortId === 'deepslate'
+            ? this.topBottomSide('deepslate_top', 'deepslate_top', 'deepslate')
             : this.allFaces(shortId);
         this.registerBlock({
           shortId,

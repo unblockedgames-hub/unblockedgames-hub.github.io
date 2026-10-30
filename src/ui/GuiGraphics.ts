@@ -567,15 +567,15 @@ export class GuiGraphics {
     const neckY = Math.floor((boxY1 + boxY2) * 0.5) - 6;
     const eyeY = neckY - 6;
 
-    // Exact Minecraft InventoryScreen atan angles
+    // Exact Minecraft InventoryScreen atan angles: both body AND head rotate towards mouse
     const atanX = Math.atan((mouseX - cx) / 40.0);
     const atanY = Math.atan((mouseY - eyeY) / 40.0);
 
-    // Body rotates partially toward cursor; Head rotates further in 3D around neck pivot (0, 0, 0)
-    const bodyYaw = atanX * (22 * Math.PI / 180);
-    const bodyPitch = atanY * (8 * Math.PI / 180);
-    const headYaw = atanX * (42 * Math.PI / 180);
-    const headPitch = atanY * (24 * Math.PI / 180);
+    // Body rotates noticeably with cursor (~25°), Head rotates further (~45°)
+    const bodyYaw = atanX * 0.45;
+    const bodyPitch = atanY * 0.20;
+    const headYaw = atanX * 0.82;
+    const headPitch = atanY * 0.50;
 
     const scale = 1.48;
 
@@ -754,18 +754,18 @@ export class GuiGraphics {
     addBox3D(-4, -24, -2, 0, -12, 2, 0, 16, 4, 12, 4, bodyYaw, bodyPitch);
     addBox3D(0, -24, -2, 4, -12, 2, 16, 48, 4, 12, 4, bodyYaw, bodyPitch);
 
-    // 2. Torso (-4..4, -12..0, -2..2) + Jacket layer
-    addBox3D(-4, -12, -2, 4, 0, 2, 16, 16, 8, 12, 4, bodyYaw, bodyPitch);
-    addBox3D(-4.15, -12.15, -2.15, 4.15, 0.15, 2.15, 16, 32, 8, 12, 4, bodyYaw, bodyPitch, 0.1, true);
+    // 2. Torso (-4..4, -12..0.5, -2..2) + Jacket layer (overlaps neck collar seamlessly)
+    addBox3D(-4, -12, -2, 4, 0.5, 2, 16, 16, 8, 12, 4, bodyYaw, bodyPitch);
+    addBox3D(-4.15, -12.15, -2.15, 4.15, 0.65, 2.15, 16, 32, 8, 12, 4, bodyYaw, bodyPitch, 0.1, true);
 
     // 3. Right Arm (-8..-4, -12..0, -2..2) & Left Arm (4..8, -12..0, -2..2)
     addBox3D(-8, -12, -2, -4, 0, 2, 40, 16, 4, 12, 4, bodyYaw, bodyPitch);
     addBox3D(4, -12, -2, 8, 0, 2, 32, 48, 4, 12, 4, bodyYaw, bodyPitch);
 
-    // 4. 3D Head (-4..4, 0..8, -4..4) + 3D Hat overlay (-4.3..4.3, -0.3..8.3, -4.3..4.3)
-    // Bias head Z slightly forward (+6) when above shoulders so chin overlaps top of torso naturally
-    addBox3D(-4, 0, -4, 4, 8, 4, 0, 0, 8, 8, 8, headYaw, headPitch, 6.0);
-    addBox3D(-4.35, -0.35, -4.35, 4.35, 8.35, 4.35, 32, 0, 8, 8, 8, headYaw, headPitch, 6.2, true);
+    // 4. 3D Head (-4..4, -0.5..7.5, -4..4) + 3D Hat overlay (-4.35..4.35, -0.85..7.85, -4.35..4.35)
+    // Anchored firmly to neck collar so head tilting never creates a gap or floating head
+    addBox3D(-4, -0.5, -4, 4, 7.5, 4, 0, 0, 8, 8, 8, headYaw, headPitch, 0.5);
+    addBox3D(-4.35, -0.85, -4.35, 4.35, 7.85, 4.35, 32, 0, 8, 8, 8, headYaw, headPitch, 0.7, true);
 
     // Sort all visible 3D faces back-to-front (Painter's Algorithm)
     facesToDraw.sort((a, b) => a.avgZ - b.avgZ);

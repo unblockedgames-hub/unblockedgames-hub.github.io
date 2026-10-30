@@ -36,6 +36,11 @@ export interface GameOptions {
   toggleSneak: boolean;
   autoJump: boolean;
   operatorItemsTab: boolean;
+  viewBobbing: boolean;
+  entityShadows: boolean;
+  distortionEffects: number;
+  textBackground: number;
+  chatOpacity: number;
   maxFps: number;
   smoothLighting: 'off' | 'min' | 'max';
   particles: 'all' | 'decreased' | 'minimal';
@@ -66,10 +71,18 @@ export class OptionsManager {
     toggleSneak: false,
     autoJump: false,
     operatorItemsTab: false,
+    viewBobbing: true,
+    entityShadows: true,
+    distortionEffects: 1.0,
+    textBackground: 0.5,
+    chatOpacity: 1.0,
     maxFps: 120,
     smoothLighting: 'max',
     particles: 'all',
-    wispServerUrl: `ws://${window.location.host || 'localhost:3000'}/wisp/`,
+    wispServerUrl:
+      typeof window !== 'undefined' && window.location.protocol === 'https:'
+        ? 'wss://anura.pro/'
+        : `ws://${(typeof window !== 'undefined' && window.location.host) || 'localhost:3000'}/wisp/`,
     username: 'Steve',
     keyBinds: {
       forward: 'KeyW',

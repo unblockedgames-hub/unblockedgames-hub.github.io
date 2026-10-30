@@ -61,6 +61,7 @@ export class Player {
 
   // Input & animation state
   jumpCooldown = 0;
+  suffocationTimer = 0;
   keys = new Set<string>();
   lastSpacePress = 0;
   lastWPress = 0;
@@ -216,6 +217,8 @@ export class Player {
         this.lastDeathMessage = `${username} fell from a high place`;
       } else if (source === 'zombie') {
         this.lastDeathMessage = `${username} was slain by Zombie`;
+      } else if (source === 'suffocation') {
+        this.lastDeathMessage = `${username} suffocated in a wall`;
       } else if (source === 'starvation') {
         this.lastDeathMessage = `${username} starved to death`;
       } else if (source === 'drown') {
@@ -636,6 +639,25 @@ export class Player {
       this.fallDistance = 0;
     }
 
+    // Survival Suffocation Damage (1 damage per second when inside solid opaque full blocks)
+    if (this.gameMode === 'survival') {
+      const eyeBlock = this.world.getBlock(
+        Math.floor(this.position.x),
+        Math.floor(this.position.y + 1.62),
+        Math.floor(this.position.z)
+      );
+      const eyeDef = Registries.getBlock(eyeBlock);
+      if (eyeDef && eyeDef.solid && !eyeDef.transparent && eyeDef.shape === 'cube') {
+        this.suffocationTimer += dt;
+        if (this.suffocationTimer >= 1.0) {
+          this.suffocationTimer = 0;
+          this.applyDamage(1, 'suffocation');
+        }
+      } else {
+        this.suffocationTimer = 0;
+      }
+    }
+
     // Footstep sound & View Bobbing distance
     const movedDist = Math.hypot(this.position.x - oldX, this.position.z - oldZ);
     const isWalkingOnGround = this.onGround && !this.flying && movedDist > 0.0005;
@@ -724,11 +746,14 @@ export class Player {
       this.camera.updateProjectionMatrix();
     }
 
-    // Vanilla View Bobbing offset
-    const bobX =
-      Math.sin(this.walkBobPhase) * 0.045 * this.walkBobIntensity;
-    const bobY =
-      -Math.abs(Math.cos(this.walkBobPhase)) * 0.05 * this.walkBobIntensity;
+    // Vanilla View Bobbing offset (enabled by View Bobbing setting)
+    const bobActive = OptionsManager.current.viewBobbing ?? true;
+    const bobX = bobActive
+      ? Math.sin(this.walkBobPhase) * 0.045 * this.walkBobIntensity
+      : 0;
+    const bobY = bobActive
+      ? -Math.abs(Math.cos(this.walkBobPhase)) * 0.05 * this.walkBobIntensity
+      : 0;
 
     // Authentic Minecraft damage camera tilt (bobHurt)
     let hurtRoll = 0;

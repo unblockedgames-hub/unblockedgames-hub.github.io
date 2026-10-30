@@ -139,16 +139,24 @@ export class WorldGen26_3 {
 
   static getBiomeAt(wx: number, wz: number): string {
     if (this.worldType === 'dappled_showcase') return 'minecraft:dappled_forest';
-    const temp = this.smoothNoise(wx, wz, 160, 777);
-    const humid = this.smoothNoise(wx, wz, 160, 1337);
-    if (temp < 0.34) return 'minecraft:plains';
-    if (temp < 0.56) {
-      return humid < 0.5 ? 'minecraft:forest' : 'minecraft:dappled_forest';
+    const temp = this.smoothNoise(wx, wz, 180, 777);
+    const humid = this.smoothNoise(wx, wz, 180, 1337);
+
+    if (temp < 0.22) {
+      return 'minecraft:snowy_plains';
     }
-    if (temp < 0.78) {
-      return humid < 0.5 ? 'minecraft:birch_forest' : 'minecraft:dappled_forest';
+    if (temp < 0.42) {
+      return humid < 0.45 ? 'minecraft:plains' : 'minecraft:birch_forest';
     }
-    return 'minecraft:cherry_grove';
+    if (temp < 0.70) {
+      if (humid < 0.35) return 'minecraft:forest';
+      if (humid < 0.65) return 'minecraft:dappled_forest';
+      return 'minecraft:poplar_grove';
+    }
+    if (temp < 0.85) {
+      return humid < 0.4 ? 'minecraft:savanna' : 'minecraft:cherry_grove';
+    }
+    return humid < 0.35 ? 'minecraft:desert' : 'minecraft:badlands';
   }
 
   static getTerrainHeight(wx: number, wz: number): number {
@@ -451,18 +459,28 @@ export class WorldGen26_3 {
 
         chunk.setBlock(lx, 0, lz, bedrockId);
 
+        // Staggered deepslate transition between Y=6 and Y=14 (blended with 3D noise/dither)
+        const deepslateTransition = 8 + Math.round(this.smoothNoise(wx, wz, 18, 555) * 5);
+
         for (let y = 1; y <= h; y++) {
-          if (y < 18) {
+          const dither = (this.hash2D(wx ^ (y * 31), wz ^ (y * 17), 1337) - 0.5) * 2.5;
+          const isDeepslate = y + dither < deepslateTransition;
+
+          if (isDeepslate) {
             chunk.setBlock(lx, y, lz, deepslateId);
           } else if (y < h - 3) {
             chunk.setBlock(lx, y, lz, stoneId);
           } else if (y < h) {
-            chunk.setBlock(lx, y, lz, h <= SEA_LEVEL + 1 ? sandId : dirtId);
+            if (biomeId === 'minecraft:desert' || biomeId === 'minecraft:badlands') {
+              chunk.setBlock(lx, y, lz, sandId);
+            } else {
+              chunk.setBlock(lx, y, lz, h <= SEA_LEVEL + 1 ? sandId : dirtId);
+            }
           } else {
-            if (h <= SEA_LEVEL + 1) {
+            if (biomeId === 'minecraft:desert' || biomeId === 'minecraft:badlands' || h <= SEA_LEVEL + 1) {
               chunk.setBlock(lx, y, lz, sandId);
             } else if (
-              biomeId === 'minecraft:dappled_forest' &&
+              (biomeId === 'minecraft:dappled_forest' || biomeId === 'minecraft:poplar_grove') &&
               this.hash2D(wx, wz, 42) < 0.12
             ) {
               chunk.setBlock(lx, y, lz, podzolId);
@@ -494,31 +512,31 @@ export class WorldGen26_3 {
     }
 
     // Exact Minecraft 26.3 Ore & Subsurface Feature Distributions
-    // (Extracted verbatim from 26.3.jar data/minecraft/worldgen/feature/ and placed_feature/)
+    // Balanced ore distributions matching vanilla Minecraft
     const oreConfigs = [
-      // 1. Coal (ore_coal: size 17, ore_coal_lower: count 20, Y=0..128)
-      { regular: coalOreId, deep: deepslateCoalOreId, count: 20, minY: 0, maxY: 128, radius: 2.1 },
-      // 2. Iron Middle (ore_iron: size 9, ore_iron_middle: count 10, Y=8..64)
-      { regular: ironOreId, deep: deepslateIronOreId, count: 10, minY: 8, maxY: 64, radius: 1.6 },
-      // 3. Iron Small (ore_iron_small: size 4, ore_iron_small: count 10, Y=0..72)
-      { regular: ironOreId, deep: deepslateIronOreId, count: 10, minY: 0, maxY: 72, radius: 1.1 },
-      // 4. Copper (ore_copper_large: size 20, ore_copper: count 16, Y=16..100)
-      { regular: copperOreId, deep: deepslateCopperOreId, count: 16, minY: 16, maxY: 100, radius: 2.0 },
-      // 5. Gold (ore_gold: size 9, ore_gold: count 4, Y=4..32)
-      { regular: goldOreId, deep: deepslateGoldOreId, count: 4, minY: 4, maxY: 32, radius: 1.6 },
-      // 6. Redstone (ore_redstone: size 8, ore_redstone: count 8, Y=1..16)
-      { regular: redstoneOreId, deep: deepslateRedstoneOreId, count: 8, minY: 1, maxY: 16, radius: 1.5 },
-      // 7. Diamond (ore_diamond: size 4-8, ore_diamond: count 7, Y=1..16)
-      { regular: diamondOreId, deep: deepslateDiamondOreId, count: 7, minY: 1, maxY: 16, radius: 1.3 },
-      // 8. Lapis (ore_lapis: size 7, ore_lapis: count 4, Y=8..36)
-      { regular: lapisOreId, deep: deepslateLapisOreId, count: 4, minY: 8, maxY: 36, radius: 1.4 },
-      // 9. Underground Dirt & Gravel pockets (ore_dirt, ore_gravel: size 33, count 7 & 14, Y=10..120)
-      { regular: dirtId, deep: dirtId, count: 7, minY: 10, maxY: 120, radius: 2.6 },
-      { regular: gravelId, deep: gravelId, count: 14, minY: 10, maxY: 120, radius: 2.6 },
-      // 10. Granite, Diorite, Andesite pockets (size 33, count 6 each, Y=10..80)
-      { regular: graniteId, deep: tuffId, count: 6, minY: 10, maxY: 80, radius: 2.4 },
-      { regular: dioriteId, deep: tuffId, count: 6, minY: 10, maxY: 80, radius: 2.4 },
-      { regular: andesiteId, deep: tuffId, count: 6, minY: 10, maxY: 80, radius: 2.4 },
+      // 1. Coal (Y=0..128)
+      { regular: coalOreId, deep: deepslateCoalOreId, count: 12, minY: 0, maxY: 128, radius: 1.6 },
+      // 2. Iron Middle (Y=8..64)
+      { regular: ironOreId, deep: deepslateIronOreId, count: 5, minY: 8, maxY: 64, radius: 1.3 },
+      // 3. Iron Small (Y=0..72)
+      { regular: ironOreId, deep: deepslateIronOreId, count: 5, minY: 0, maxY: 72, radius: 1.0 },
+      // 4. Copper (Y=16..100)
+      { regular: copperOreId, deep: deepslateCopperOreId, count: 6, minY: 16, maxY: 100, radius: 1.5 },
+      // 5. Gold (Y=4..32)
+      { regular: goldOreId, deep: deepslateGoldOreId, count: 3, minY: 4, maxY: 32, radius: 1.2 },
+      // 6. Redstone (Y=1..16)
+      { regular: redstoneOreId, deep: deepslateRedstoneOreId, count: 4, minY: 1, maxY: 16, radius: 1.2 },
+      // 7. Diamond (Y=1..16)
+      { regular: diamondOreId, deep: deepslateDiamondOreId, count: 3, minY: 1, maxY: 16, radius: 1.0 },
+      // 8. Lapis (Y=8..36)
+      { regular: lapisOreId, deep: deepslateLapisOreId, count: 2, minY: 8, maxY: 36, radius: 1.1 },
+      // 9. Underground Dirt & Gravel pockets (Y=10..120)
+      { regular: dirtId, deep: dirtId, count: 4, minY: 10, maxY: 120, radius: 2.0 },
+      { regular: gravelId, deep: gravelId, count: 6, minY: 10, maxY: 120, radius: 2.0 },
+      // 10. Granite, Diorite, Andesite pockets (Y=10..80)
+      { regular: graniteId, deep: tuffId, count: 3, minY: 10, maxY: 80, radius: 1.8 },
+      { regular: dioriteId, deep: tuffId, count: 3, minY: 10, maxY: 80, radius: 1.8 },
+      { regular: andesiteId, deep: tuffId, count: 3, minY: 10, maxY: 80, radius: 1.8 },
     ];
 
     for (let cIdx = 0; cIdx < oreConfigs.length; cIdx++) {
@@ -595,7 +613,10 @@ export class WorldGen26_3 {
         const biomeId = chunk.biomes[lz * CHUNK_SIZE + lx];
         const treeRoll = this.hash2D(wx, wz, 888);
 
-        if (biomeId === 'minecraft:dappled_forest' && treeRoll < 0.34) {
+        if (
+          (biomeId === 'minecraft:dappled_forest' || biomeId === 'minecraft:poplar_grove') &&
+          treeRoll < (biomeId === 'minecraft:poplar_grove' ? 0.42 : 0.32)
+        ) {
           const leafRoll = this.hash2D(wx, wz, 999);
           const leafVariant =
             leafRoll < 0.4
@@ -604,7 +625,7 @@ export class WorldGen26_3 {
               ? 'yellow_poplar_leaves'
               : 'red_poplar_leaves';
           this.placePoplarTree(chunk, lx, h + 1, lz, leafVariant, leafRoll);
-        } else if (biomeId === 'minecraft:forest' && treeRoll < 0.3) {
+        } else if (biomeId === 'minecraft:forest' && treeRoll < 0.28) {
           this.placeClassicTree(chunk, lx, h + 1, lz, 'oak_log', 'oak_leaves', 5 + Math.floor(treeRoll * 7));
         } else if (biomeId === 'minecraft:plains' && treeRoll < 0.03) {
           this.placeClassicTree(chunk, lx, h + 1, lz, 'oak_log', 'oak_leaves', 5);
@@ -612,6 +633,10 @@ export class WorldGen26_3 {
           this.placeClassicTree(chunk, lx, h + 1, lz, 'birch_log', 'birch_leaves', 6);
         } else if (biomeId === 'minecraft:cherry_grove' && treeRoll < 0.22) {
           this.placeClassicTree(chunk, lx, h + 1, lz, 'cherry_log', 'cherry_leaves', 6);
+        } else if (biomeId === 'minecraft:snowy_plains' && treeRoll < 0.18) {
+          this.placeClassicTree(chunk, lx, h + 1, lz, 'spruce_log', 'spruce_leaves', 7);
+        } else if (biomeId === 'minecraft:savanna' && treeRoll < 0.12) {
+          this.placeClassicTree(chunk, lx, h + 1, lz, 'acacia_log', 'acacia_leaves', 5);
         }
       }
     }

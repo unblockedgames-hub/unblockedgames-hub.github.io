@@ -21,6 +21,20 @@ export const BIOMES_26_3: Record<string, BiomeInfo> = {
     foliageColor: [0.42, 0.68, 0.24],
     waterColor: [0.24, 0.48, 0.89],
   },
+  'minecraft:poplar_grove': {
+    id: 'minecraft:poplar_grove',
+    name: 'Poplar Grove',
+    grassColor: [0.68, 0.78, 0.36],
+    foliageColor: [0.55, 0.72, 0.26],
+    waterColor: [0.24, 0.48, 0.89],
+  },
+  'minecraft:forest': {
+    id: 'minecraft:forest',
+    name: 'Forest',
+    grassColor: [0.47, 0.74, 0.32],
+    foliageColor: [0.44, 0.70, 0.27],
+    waterColor: [0.24, 0.46, 0.89],
+  },
   'minecraft:plains': {
     id: 'minecraft:plains',
     name: 'Plains',
@@ -41,6 +55,34 @@ export const BIOMES_26_3: Record<string, BiomeInfo> = {
     grassColor: [0.53, 0.73, 0.40],
     foliageColor: [0.50, 0.65, 0.33],
     waterColor: [0.24, 0.46, 0.89],
+  },
+  'minecraft:desert': {
+    id: 'minecraft:desert',
+    name: 'Desert',
+    grassColor: [0.75, 0.71, 0.38],
+    foliageColor: [0.68, 0.65, 0.33],
+    waterColor: [0.20, 0.42, 0.82],
+  },
+  'minecraft:savanna': {
+    id: 'minecraft:savanna',
+    name: 'Savanna',
+    grassColor: [0.75, 0.71, 0.29],
+    foliageColor: [0.67, 0.63, 0.25],
+    waterColor: [0.24, 0.46, 0.89],
+  },
+  'minecraft:snowy_plains': {
+    id: 'minecraft:snowy_plains',
+    name: 'Snowy Plains',
+    grassColor: [0.50, 0.68, 0.48],
+    foliageColor: [0.40, 0.60, 0.45],
+    waterColor: [0.24, 0.40, 0.88],
+  },
+  'minecraft:badlands': {
+    id: 'minecraft:badlands',
+    name: 'Badlands',
+    grassColor: [0.56, 0.52, 0.34],
+    foliageColor: [0.62, 0.53, 0.30],
+    waterColor: [0.30, 0.44, 0.78],
   },
 };
 
@@ -137,7 +179,8 @@ export class Chunk {
       r: number,
       g: number,
       b: number,
-      uvSub?: [number, number, number, number]
+      uvSub?: [number, number, number, number],
+      uvRot = 0
     ) => {
       const uvBox = TextureAtlas.getUV(texName);
       let u0 = uvBox.u0;
@@ -154,13 +197,24 @@ export class Chunk {
         vTop = uvBox.v0 + uvSub[3] * dv;
       }
 
+      let quadUvs: number[];
+      if (uvRot === 1) {
+        quadUvs = [u1, vBottom, u1, vTop, u0, vTop, u0, vBottom];
+      } else if (uvRot === 2) {
+        quadUvs = [u1, vTop, u0, vTop, u0, vBottom, u1, vBottom];
+      } else if (uvRot === 3) {
+        quadUvs = [u0, vTop, u0, vBottom, u1, vBottom, u1, vTop];
+      } else {
+        quadUvs = [u0, vBottom, u1, vBottom, u1, vTop, u0, vTop];
+      }
+
       if (isWater) {
         wPositions.push(...v0, ...v1, ...v2, ...v3);
         for (let i = 0; i < 4; i++) {
           wNormals.push(nx, ny, nz);
           wColors.push(r, g, b);
         }
-        wUvs.push(u0, vBottom, u1, vBottom, u1, vTop, u0, vTop);
+        wUvs.push(...quadUvs);
         wIndices.push(
           wVertCount,
           wVertCount + 1,
@@ -176,7 +230,7 @@ export class Chunk {
           normals.push(nx, ny, nz);
           colors.push(r, g, b);
         }
-        uvs.push(u0, vBottom, u1, vBottom, u1, vTop, u0, vTop);
+        uvs.push(...quadUvs);
         indices.push(
           vertCount,
           vertCount + 1,
@@ -199,9 +253,30 @@ export class Chunk {
       def: BlockDefinition,
       biome: BiomeInfo,
       cullMask = 0x3f,
-      meta = 0
+      meta = 0,
+      wx = 0,
+      wz = 0
     ) => {
       const isWater = def.fluid === 'water';
+      const hasRandomRotation =
+        def.shortId === 'grass_block' ||
+        def.shortId === 'dirt' ||
+        def.shortId === 'podzol' ||
+        def.shortId === 'stone' ||
+        def.shortId === 'sand' ||
+        def.shortId === 'gravel' ||
+        def.shortId === 'deepslate' ||
+        def.shortId === 'bedrock' ||
+        def.shortId === 'andesite' ||
+        def.shortId === 'diorite' ||
+        def.shortId === 'granite';
+
+      const rotTop = hasRandomRotation
+        ? Math.abs((wx * 3129871) ^ (wz * 618791) ^ (Math.floor(y0) * 17)) & 3
+        : 0;
+      const rotBottom = hasRandomRotation
+        ? Math.abs((wx * 189721) ^ (wz * 872191) ^ (Math.floor(y0) * 31)) & 3
+        : 0;
       const getTint = (face: 'top' | 'bottom' | 'side', shade: number): [number, number, number] => {
         if (def.tint === 'grass' && face === 'top') {
           return [biome.grassColor[0] * shade, biome.grassColor[1] * shade, biome.grassColor[2] * shade];
@@ -240,7 +315,9 @@ export class Chunk {
           def.textures.top,
           r,
           g,
-          b
+          b,
+          undefined,
+          rotTop
         );
       }
       // Bottom (-Y)
@@ -258,7 +335,9 @@ export class Chunk {
           def.textures.bottom,
           r,
           g,
-          b
+          b,
+          undefined,
+          rotBottom
         );
       }
       let texNorth = def.textures.north;
@@ -411,7 +490,7 @@ export class Chunk {
             if (shouldRenderNeighborFace(def, getWorldBlock(wx + 1, y, wz))) mask |= 16;
             if (shouldRenderNeighborFace(def, getWorldBlock(wx - 1, y, wz))) mask |= 32;
             if (mask !== 0) {
-              pushBox(lx, y, lz, lx + 1, y + 1, lz + 1, def, biome, mask, meta);
+              pushBox(lx, y, lz, lx + 1, y + 1, lz + 1, def, biome, mask, meta, wx, wz);
             }
           } else if (def.shape === 'fluid') {
             let mask = 0;

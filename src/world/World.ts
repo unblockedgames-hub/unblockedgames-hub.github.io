@@ -75,6 +75,16 @@ export class World {
           }
         }
       }
+
+      // Mark adjacent chunks dirty so their borders re-cull against this newly generated chunk!
+      const north = this.getChunk(cx, cz - 1);
+      if (north) north.dirty = true;
+      const south = this.getChunk(cx, cz + 1);
+      if (south) south.dirty = true;
+      const east = this.getChunk(cx + 1, cz);
+      if (east) east.dirty = true;
+      const west = this.getChunk(cx - 1, cz);
+      if (west) west.dirty = true;
     }
     return chunk;
   }
@@ -210,10 +220,11 @@ export class World {
     const centerCz = Math.floor(pz / CHUNK_SIZE);
     const radius = OptionsManager.current.renderDistance || 4;
 
-    // Ensure chunks within radius exist
-    for (let dz = -radius; dz <= radius; dz++) {
-      for (let dx = -radius; dx <= radius; dx++) {
-        if (dx * dx + dz * dz <= (radius + 0.5) * (radius + 0.5)) {
+    // Ensure chunks within radius + 1 exist so all meshed chunks have neighbor data
+    const genRadius = radius + 1;
+    for (let dz = -genRadius; dz <= genRadius; dz++) {
+      for (let dx = -genRadius; dx <= genRadius; dx++) {
+        if (dx * dx + dz * dz <= (genRadius + 0.5) * (genRadius + 0.5)) {
           this.ensureChunk(centerCx + dx, centerCz + dz);
         }
       }
@@ -221,7 +232,21 @@ export class World {
 
     // Rebuild up to 3 dirty chunks per frame for smooth FPS
     let rebuilt = 0;
-    const boundGetBlock = (wx: number, wy: number, wz: number) => this.getBlock(wx, wy, wz);
+    const boundGetBlock = (wx: number, wy: number, wz: number): number => {
+      const cx = Math.floor(wx / CHUNK_SIZE);
+      const cz = Math.floor(wz / CHUNK_SIZE);
+      const chunk = this.chunks.get(this.chunkKey(cx, cz));
+      if (!chunk) {
+        // If neighbor is ungenerated and below sea level, treat as water to eliminate border walls
+        if (wy <= 62 && wy >= 58) {
+          return Registries.getBlock('water').numId;
+        }
+        return 0;
+      }
+      const lx = ((wx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+      const lz = ((wz % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+      return chunk.getBlock(lx, Math.floor(wy), lz);
+    };
 
     for (let dz = -radius; dz <= radius; dz++) {
       for (let dx = -radius; dx <= radius; dx++) {

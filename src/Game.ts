@@ -79,6 +79,12 @@ export class Game {
     this.particleSystem = new ParticleSystem(this.scene);
 
     this.init(uiRoot);
+
+    window.addEventListener('beforeunload', () => {
+      if (this.inWorld && this.ui) {
+        this.ui.saveActiveWorldState();
+      }
+    });
   }
 
   async init(uiRoot: HTMLElement) {
@@ -479,6 +485,9 @@ export class Game {
                 mobHit.mob.z
               );
             }
+            if (res.killed && mobHit.mob.type === 'zombie') {
+              this.ui.unlockAdvancement('monster_hunter');
+            }
           }
           return;
         }
@@ -696,6 +705,14 @@ export class Game {
       this.getBlockParticleColor(blockDef)
     );
 
+    if (blockDef.shortId === 'stone' || blockDef.shortId === 'cobblestone') {
+      this.ui.unlockAdvancement('stone_age');
+    } else if (blockDef.shortId === 'poplar_log') {
+      this.ui.unlockAdvancement('wilderness');
+    } else if (blockDef.shortId === 'orange_poplar_leaves' || blockDef.shortId === 'yellow_poplar_leaves') {
+      this.ui.unlockAdvancement('canopy');
+    }
+
     // Spawn 3D Dropped Item in Survival Mode (respecting tool harvest requirements!)
     if (this.player.gameMode === 'survival') {
       const held = this.inventory.getHeldStack();
@@ -831,6 +848,7 @@ export class Game {
       this.entityRenderer.findCushionAtBlock(hit.bx, hit.by + 1, hit.bz);
     if (clickedCushion) {
       this.player.sitOnCushion(clickedCushion);
+      this.ui.unlockAdvancement('take_a_seat');
       this.ui.showToast(
         'Take a Seat!',
         `Seated on ${Registries.formatName(clickedCushion.color + '_cushion')}`,
@@ -851,6 +869,7 @@ export class Game {
     ) {
       AudioEngine.playBlockSound('straw_bed', 'place');
       this.world.timeOfDay = 1000;
+      this.ui.unlockAdvancement('straw_dreams');
       this.ui.showToast(
         'Sweet Wilderness Dreams!',
         'Rested on a 26.3 Straw Bed',
