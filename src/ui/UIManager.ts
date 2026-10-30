@@ -5,7 +5,7 @@ import { Player } from '../gameplay/Player';
 import { Inventory, ItemStack, ContainerManager } from '../gameplay/Inventory';
 import { World } from '../world/World';
 import { Registries, ItemDefinition } from '../core/Registries';
-import { OptionsManager } from '../core/Options';
+import { OptionsManager, DEFAULT_KEYBINDS, KeyBinds } from '../core/Options';
 import { AudioEngine } from '../core/AudioEngine';
 import { MultiplayerManager, ServerEntry } from '../network/MultiplayerManager';
 import { MinecraftFont } from './MinecraftFont';
@@ -26,6 +26,8 @@ export type UIState =
   | 'CONNECTING'
   | 'OPTIONS'
   | 'CONTROLS'
+  | 'MOUSE_SETTINGS'
+  | 'KEY_BINDS'
   | 'SOUND_OPTIONS'
   | 'VIDEO_SETTINGS'
   | 'SKIN_CUSTOMIZATION'
@@ -96,6 +98,8 @@ export class UIManager {
   public activeContainerTab: 'inventory' | 'crafting' | 'stonecutter' | 'furnace' | 'chest' | 'barrel' = 'inventory';
   public activeContainerBlockPos: string = '';
   public rebindingKey: keyof typeof OptionsManager.current.keyBinds | null = null;
+  public keyBindsScrollY = 0;
+  public keyBindsMaxScrollY = 0;
 
   // Creative Inventory Tab state
   public creativeTab:
@@ -399,6 +403,12 @@ export class UIManager {
       } else {
         this.focusedEditBox = null;
       }
+      if (this.rebindingKey) {
+        OptionsManager.current.keyBinds[this.rebindingKey] = `Mouse${e.button}`;
+        OptionsManager.save();
+        this.rebindingKey = null;
+        return;
+      }
       if (e.button === 2) {
         this.isRightMouseDown = true;
         this.rightHoldTimer = 0;
@@ -544,6 +554,12 @@ export class UIManager {
       if (this.state === 'INVENTORY' && this.player.gameMode === 'creative') {
         const dir = e.deltaY > 0 ? 1 : -1;
         this.creativeScrollRow = Math.max(0, this.creativeScrollRow + dir);
+      } else if (this.state === 'KEY_BINDS') {
+        const dir = e.deltaY > 0 ? 24 : -24;
+        this.keyBindsScrollY = Math.max(
+          0,
+          Math.min(this.keyBindsMaxScrollY, this.keyBindsScrollY + dir)
+        );
       }
     });
 
@@ -868,6 +884,12 @@ export class UIManager {
         break;
       case 'CONTROLS':
         this.renderControlsScreen();
+        break;
+      case 'MOUSE_SETTINGS':
+        this.renderMouseSettingsScreen();
+        break;
+      case 'KEY_BINDS':
+        this.renderKeyBindsScreen();
         break;
       case 'SOUND_OPTIONS':
         this.renderSoundOptionsScreen();
@@ -2384,7 +2406,7 @@ export class UIManager {
   }
 
   // ============================================================================
-  // 5a. CONTROLS SCREEN (Keybinds, Toggle Sprint/Sneak, Mouse Settings)
+  // 5a. CONTROLS SCREEN (ControlsScreen.java in Minecraft 26.3)
   // ============================================================================
   private renderControlsScreen(): void {
     const sw = this.gui.scaledWidth;
@@ -2396,61 +2418,19 @@ export class UIManager {
     this.gui.renderMenuBackground(inWorld, 32, sh - 36);
     this.font.drawCentered(this.gui.ctx, 'Controls', centerX, 11, '#FFFFFF', true);
 
-    // Row 1: Mouse Sensitivity & Invert Mouse
-    this.addSlider(
-      centerX - 155,
-      38,
-      150,
-      20,
-      `Sensitivity: ${Math.round(opts.mouseSensitivity * 200)}%`,
-      opts.mouseSensitivity,
-      (n) => {
-        opts.mouseSensitivity = Math.max(0.05, Math.round(n * 100) / 100);
-        OptionsManager.save();
-      }
-    );
+    // Row 1: Mouse Settings... & Key Binds...
+    this.addButton(centerX - 155, 42, 150, 20, 'Mouse Settings...', () => {
+      this.setState('MOUSE_SETTINGS');
+    });
+    this.addButton(centerX + 5, 42, 150, 20, 'Key Binds...', () => {
+      this.keyBindsScrollY = 0;
+      this.setState('KEY_BINDS');
+    });
 
-    this.addButton(
-      centerX + 5,
-      38,
-      150,
-      20,
-      `Invert Mouse: ${opts.invertMouse ? 'ON' : 'OFF'}`,
-      () => {
-        opts.invertMouse = !opts.invertMouse;
-        OptionsManager.save();
-      }
-    );
-
-    // Row 2: Toggle Sprint & Toggle Sneak
+    // Row 2: Auto-Jump & Operator Items Tab
     this.addButton(
       centerX - 155,
-      60,
-      150,
-      20,
-      `Sprint: ${opts.toggleSprint ? 'Toggle' : 'Hold'}`,
-      () => {
-        opts.toggleSprint = !opts.toggleSprint;
-        OptionsManager.save();
-      }
-    );
-
-    this.addButton(
-      centerX + 5,
-      60,
-      150,
-      20,
-      `Sneak: ${opts.toggleSneak ? 'Toggle' : 'Hold'}`,
-      () => {
-        opts.toggleSneak = !opts.toggleSneak;
-        OptionsManager.save();
-      }
-    );
-
-    // Row 3: Auto-Jump & Operator Items Tab
-    this.addButton(
-      centerX - 155,
-      82,
+      66,
       150,
       20,
       `Auto-Jump: ${opts.autoJump ? 'ON' : 'OFF'}`,
@@ -2459,10 +2439,9 @@ export class UIManager {
         OptionsManager.save();
       }
     );
-
     this.addButton(
       centerX + 5,
-      82,
+      66,
       150,
       20,
       `Operator Items Tab: ${opts.operatorItemsTab ? 'ON' : 'OFF'}`,
@@ -2472,66 +2451,255 @@ export class UIManager {
       }
     );
 
-    // Keybind list
-    const keyActions: Array<{ key: keyof typeof opts.keyBinds; label: string }> = [
-      { key: 'forward', label: 'Walk Forward' },
-      { key: 'back', label: 'Walk Backward' },
-      { key: 'left', label: 'Strafe Left' },
-      { key: 'right', label: 'Strafe Right' },
-      { key: 'jump', label: 'Jump' },
-      { key: 'sneak', label: 'Sneak' },
-      { key: 'sprint', label: 'Sprint' },
-      { key: 'drop', label: 'Drop Selected Item' },
-      { key: 'inventory', label: 'Open/Close Inventory' },
-      { key: 'chat', label: 'Open Chat' },
-      { key: 'command', label: 'Open Command' },
-    ];
+    // Row 3: Sneak & Sprint
+    this.addButton(
+      centerX - 155,
+      90,
+      150,
+      20,
+      `Sneak: ${opts.toggleSneak ? 'Toggle' : 'Hold'}`,
+      () => {
+        opts.toggleSneak = !opts.toggleSneak;
+        OptionsManager.save();
+      }
+    );
+    this.addButton(
+      centerX + 5,
+      90,
+      150,
+      20,
+      `Sprint: ${opts.toggleSprint ? 'Toggle' : 'Hold'}`,
+      () => {
+        opts.toggleSprint = !opts.toggleSprint;
+        OptionsManager.save();
+      }
+    );
+
+    this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
+      this.setState(this.optionsReturnState || 'OPTIONS');
+    });
+  }
+
+  // ============================================================================
+  // 5a-1. MOUSE SETTINGS SCREEN (MouseSettingsScreen.java in Minecraft 26.3)
+  // ============================================================================
+  private renderMouseSettingsScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const opts = OptionsManager.current;
+    const inWorld = this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
+
+    this.gui.renderMenuBackground(inWorld, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Mouse Settings', centerX, 11, '#FFFFFF', true);
+
+    // Row 1: Mouse Sensitivity & Invert Mouse
+    this.addSlider(
+      centerX - 155,
+      42,
+      150,
+      20,
+      `Sensitivity: ${Math.round(opts.mouseSensitivity * 200)}%`,
+      opts.mouseSensitivity,
+      (n) => {
+        opts.mouseSensitivity = Math.max(0.05, Math.round(n * 100) / 100);
+        OptionsManager.save();
+      }
+    );
+    this.addButton(
+      centerX + 5,
+      42,
+      150,
+      20,
+      `Invert Mouse: ${opts.invertMouse ? 'ON' : 'OFF'}`,
+      () => {
+        opts.invertMouse = !opts.invertMouse;
+        OptionsManager.save();
+      }
+    );
+
+    // Row 2: Mouse Wheel Sensitivity & Discrete Scrolling
+    const mwsNorm = Math.max(0, Math.min(1, ((opts.mouseWheelSensitivity || 1.0) - 0.2) / 1.8));
+    this.addSlider(
+      centerX - 155,
+      66,
+      150,
+      20,
+      `Mouse Wheel Sensitivity: ${Math.round((opts.mouseWheelSensitivity || 1.0) * 100)}%`,
+      mwsNorm,
+      (n) => {
+        opts.mouseWheelSensitivity = Math.round((0.2 + n * 1.8) * 10) / 10;
+        OptionsManager.save();
+      }
+    );
+    this.addButton(
+      centerX + 5,
+      66,
+      150,
+      20,
+      `Discrete Scrolling: ${opts.discreteMouseScroll ? 'ON' : 'OFF'}`,
+      () => {
+        opts.discreteMouseScroll = !opts.discreteMouseScroll;
+        OptionsManager.save();
+      }
+    );
+
+    // Row 3: Touchscreen Mode
+    this.addButton(
+      centerX - 155,
+      90,
+      150,
+      20,
+      `Touchscreen Mode: ${opts.touchscreen ? 'ON' : 'OFF'}`,
+      () => {
+        opts.touchscreen = !opts.touchscreen;
+        OptionsManager.save();
+      }
+    );
+
+    this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
+      this.setState('CONTROLS');
+    });
+  }
+
+  // ============================================================================
+  // 5a-2. KEY BINDS SCREEN (KeyBindsScreen.java with full scrollable categories)
+  // ============================================================================
+  private renderKeyBindsScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const opts = OptionsManager.current;
+    const inWorld = this.previousState === 'PAUSE' || this.previousState === 'IN_GAME';
+
+    this.gui.renderMenuBackground(inWorld, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Key Binds', centerX, 11, '#FFFFFF', true);
 
     const formatKey = (code: string) => {
       if (!code) return 'None';
-      if (code.startsWith('Key')) return code.slice(3);
+      if (code.startsWith('Key')) return code.slice(3).toUpperCase();
       if (code.startsWith('Digit')) return code.slice(5);
       if (code === 'Space') return 'SPACE';
       if (code === 'ShiftLeft') return 'LSHIFT';
       if (code === 'ShiftRight') return 'RSHIFT';
       if (code === 'ControlLeft') return 'LCTRL';
       if (code === 'ControlRight') return 'RCTRL';
+      if (code === 'AltLeft') return 'LALT';
+      if (code === 'AltRight') return 'RALT';
       if (code === 'Slash') return '/';
-      return code;
+      if (code === 'Tab') return 'TAB';
+      if (code === 'Mouse0') return 'Left Click';
+      if (code === 'Mouse1') return 'Middle Click';
+      if (code === 'Mouse2') return 'Right Click';
+      return code.toUpperCase();
     };
 
-    const startY = 106;
-    for (let i = 0; i < Math.min(6, keyActions.length); i++) {
-      const act = keyActions[i];
-      const y = startY + i * 22;
-      this.font.draw(this.gui.ctx, act.label, centerX - 155, y + 6, '#FFFFFF', true);
-      const isRebinding = this.rebindingKey === act.key;
-      const btnText = isRebinding ? '§e> ??? <' : formatKey(opts.keyBinds[act.key]);
-      this.addButton(centerX + 35, y, 120, 20, btnText, () => {
-        this.rebindingKey = act.key;
-      });
+    const entries: Array<
+      | { type: 'header'; label: string }
+      | { type: 'binding'; key: keyof KeyBinds; label: string }
+    > = [
+      { type: 'header', label: 'Movement' },
+      { type: 'binding', key: 'jump', label: 'Jump' },
+      { type: 'binding', key: 'sneak', label: 'Sneak' },
+      { type: 'binding', key: 'sprint', label: 'Sprint' },
+      { type: 'binding', key: 'left', label: 'Strafe Left' },
+      { type: 'binding', key: 'right', label: 'Strafe Right' },
+      { type: 'binding', key: 'back', label: 'Walk Backward' },
+      { type: 'binding', key: 'forward', label: 'Walk Forward' },
+
+      { type: 'header', label: 'Gameplay' },
+      { type: 'binding', key: 'attack', label: 'Attack / Destroy' },
+      { type: 'binding', key: 'pickItem', label: 'Pick Block' },
+      { type: 'binding', key: 'use', label: 'Use Item / Place Block' },
+      { type: 'binding', key: 'drop', label: 'Drop Selected Item' },
+      { type: 'binding', key: 'inventory', label: 'Open/Close Inventory' },
+      { type: 'binding', key: 'swapOffhand', label: 'Swap Item In Hands' },
+
+      { type: 'header', label: 'Inventory' },
+      { type: 'binding', key: 'hotbar1', label: 'Hotbar Slot 1' },
+      { type: 'binding', key: 'hotbar2', label: 'Hotbar Slot 2' },
+      { type: 'binding', key: 'hotbar3', label: 'Hotbar Slot 3' },
+      { type: 'binding', key: 'hotbar4', label: 'Hotbar Slot 4' },
+      { type: 'binding', key: 'hotbar5', label: 'Hotbar Slot 5' },
+      { type: 'binding', key: 'hotbar6', label: 'Hotbar Slot 6' },
+      { type: 'binding', key: 'hotbar7', label: 'Hotbar Slot 7' },
+      { type: 'binding', key: 'hotbar8', label: 'Hotbar Slot 8' },
+      { type: 'binding', key: 'hotbar9', label: 'Hotbar Slot 9' },
+
+      { type: 'header', label: 'Multiplayer' },
+      { type: 'binding', key: 'chat', label: 'Open Chat' },
+      { type: 'binding', key: 'command', label: 'Open Command' },
+      { type: 'binding', key: 'playerlist', label: 'Player List' },
+
+      { type: 'header', label: 'Miscellaneous' },
+      { type: 'binding', key: 'advancements', label: 'Advancements' },
+      { type: 'binding', key: 'togglePerspective', label: 'Toggle Perspective' },
+      { type: 'binding', key: 'fullscreen', label: 'Toggle Fullscreen' },
+      { type: 'binding', key: 'debugOverlay', label: 'Debug Screen' },
+    ];
+
+    const rowH = 22;
+    const totalListH = entries.length * rowH;
+    const visibleH = sh - 70;
+    const maxScroll = Math.max(0, totalListH - visibleH);
+    this.keyBindsMaxScrollY = maxScroll;
+    this.keyBindsScrollY = Math.max(0, Math.min(maxScroll, this.keyBindsScrollY));
+
+    // Clip rendering to inner viewport
+    this.gui.ctx.save();
+    this.gui.ctx.beginPath();
+    this.gui.ctx.rect(0, 32, sw, sh - 68);
+    this.gui.ctx.clip();
+
+    let curY = 36 - this.keyBindsScrollY;
+    for (const item of entries) {
+      if (curY + rowH >= 32 && curY <= sh - 36) {
+        if (item.type === 'header') {
+          this.font.drawCentered(this.gui.ctx, `§e${item.label}`, centerX, curY + 6, '#FFFF55', true);
+        } else {
+          this.font.draw(this.gui.ctx, item.label, centerX - 155, curY + 6, '#FFFFFF', true);
+          const isRebinding = this.rebindingKey === item.key;
+          const currentBind = opts.keyBinds[item.key] || DEFAULT_KEYBINDS[item.key];
+          const btnText = isRebinding ? '§e> ??? <' : formatKey(currentBind);
+
+          this.addButton(centerX + 15, curY, 80, 20, btnText, () => {
+            this.rebindingKey = item.key;
+          });
+
+          const isDefault = currentBind === DEFAULT_KEYBINDS[item.key];
+          const resetLabel = isDefault ? '§7Reset' : 'Reset';
+          this.addButton(centerX + 100, curY, 48, 20, resetLabel, () => {
+            if (!isDefault) {
+              opts.keyBinds[item.key] = DEFAULT_KEYBINDS[item.key];
+              OptionsManager.save();
+            }
+          });
+        }
+      }
+      curY += rowH;
     }
 
-    this.addButton(centerX - 155, sh - 28, 150, 20, 'Reset Keys', () => {
-      opts.keyBinds = {
-        forward: 'KeyW',
-        back: 'KeyS',
-        left: 'KeyA',
-        right: 'KeyD',
-        jump: 'Space',
-        sneak: 'ShiftLeft',
-        sprint: 'ControlLeft',
-        drop: 'KeyQ',
-        inventory: 'KeyE',
-        chat: 'KeyT',
-        command: 'Slash',
-      };
+    this.gui.ctx.restore();
+
+    // Scrollbar track & thumb
+    if (maxScroll > 0) {
+      const trackH = sh - 72;
+      const thumbH = Math.max(20, Math.round((trackH / totalListH) * trackH));
+      const thumbY = 34 + Math.round((this.keyBindsScrollY / maxScroll) * (trackH - thumbH));
+      this.gui.fill(centerX + 158, 34, centerX + 164, sh - 38, '#000000');
+      this.gui.fill(centerX + 158, thumbY, centerX + 164, thumbY + thumbH, '#808080');
+      this.gui.fill(centerX + 158, thumbY, centerX + 163, thumbY + thumbH - 1, '#C0C0C0');
+    }
+
+    // Bottom action buttons: Reset All Keys & Done
+    this.addButton(centerX - 155, sh - 28, 150, 20, 'Reset All Keys', () => {
+      opts.keyBinds = { ...DEFAULT_KEYBINDS };
       OptionsManager.save();
     });
 
     this.addButton(centerX + 5, sh - 28, 150, 20, 'Done', () => {
       this.rebindingKey = null;
-      this.setState('OPTIONS');
+      this.setState('CONTROLS');
     });
   }
 

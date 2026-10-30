@@ -500,8 +500,8 @@ export class Player {
 
       let wishVy = 0;
       if (controlsActive) {
-        if (this.keys.has('Space')) wishVy += 7.5;
-        if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) wishVy -= 7.5;
+        if (this.keys.has(kb.jump || 'Space') || this.keys.has('Space')) wishVy += 7.5;
+        if (this.keys.has(kb.sneak || 'ShiftLeft') || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) wishVy -= 7.5;
       }
       this.velocity.y += (wishVy - this.velocity.y) * Math.min(1, dt * 14.0);
     } else {
@@ -516,7 +516,7 @@ export class Player {
         this.velocity.z *= Math.pow(0.8, dt * 20);
         this.velocity.y -= 6.5 * dt;
         this.velocity.y = Math.max(-3.0, this.velocity.y);
-        if (controlsActive && this.keys.has('Space')) {
+        if (controlsActive && (this.keys.has(kb.jump || 'Space') || this.keys.has('Space'))) {
           this.velocity.y = 4.2;
         }
       } else {
@@ -529,7 +529,8 @@ export class Player {
           this.velocity.y = Math.max(-55.0, this.velocity.y);
         }
 
-        if (controlsActive && this.keys.has('Space') && this.onGround && this.jumpCooldown <= 0) {
+        const jumpPressed = this.keys.has(kb.jump || 'Space') || this.keys.has('Space');
+        if (controlsActive && jumpPressed && this.onGround && this.jumpCooldown <= 0) {
           this.velocity.y = 8.45;
           this.onGround = false;
           this.jumpCooldown = 0.5; // 10 ticks cooldown like vanilla Minecraft!

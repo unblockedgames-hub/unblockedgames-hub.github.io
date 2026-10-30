@@ -2,6 +2,7 @@
  * Parses and manages official `options.txt` from `/.minecraft/options.txt`
  */
 export interface KeyBinds {
+  // Movement
   forward: string;
   back: string;
   left: string;
@@ -9,11 +10,69 @@ export interface KeyBinds {
   jump: string;
   sneak: string;
   sprint: string;
+
+  // Gameplay
+  attack: string;
+  use: string;
+  pickItem: string;
   drop: string;
   inventory: string;
+  swapOffhand: string;
+
+  // Inventory / Hotbar
+  hotbar1: string;
+  hotbar2: string;
+  hotbar3: string;
+  hotbar4: string;
+  hotbar5: string;
+  hotbar6: string;
+  hotbar7: string;
+  hotbar8: string;
+  hotbar9: string;
+
+  // Multiplayer
   chat: string;
   command: string;
+  playerlist: string;
+
+  // Miscellaneous
+  advancements: string;
+  togglePerspective: string;
+  fullscreen: string;
+  debugOverlay: string;
 }
+
+export const DEFAULT_KEYBINDS: KeyBinds = {
+  forward: 'KeyW',
+  back: 'KeyS',
+  left: 'KeyA',
+  right: 'KeyD',
+  jump: 'Space',
+  sneak: 'ShiftLeft',
+  sprint: 'ControlLeft',
+  attack: 'Mouse0',
+  use: 'Mouse2',
+  pickItem: 'Mouse1',
+  drop: 'KeyQ',
+  inventory: 'KeyE',
+  swapOffhand: 'KeyF',
+  hotbar1: 'Digit1',
+  hotbar2: 'Digit2',
+  hotbar3: 'Digit3',
+  hotbar4: 'Digit4',
+  hotbar5: 'Digit5',
+  hotbar6: 'Digit6',
+  hotbar7: 'Digit7',
+  hotbar8: 'Digit8',
+  hotbar9: 'Digit9',
+  chat: 'KeyT',
+  command: 'Slash',
+  playerlist: 'Tab',
+  advancements: 'KeyL',
+  togglePerspective: 'F5',
+  fullscreen: 'F11',
+  debugOverlay: 'F3',
+};
 
 export interface GameOptions {
   fov: number;
@@ -21,6 +80,9 @@ export interface GameOptions {
   simulationDistance: number;
   mouseSensitivity: number;
   invertMouse: boolean;
+  mouseWheelSensitivity: number;
+  discreteMouseScroll: boolean;
+  touchscreen: boolean;
   soundVolume: number;
   musicVolume: number;
   blocksVolume: number;
@@ -56,6 +118,9 @@ export class OptionsManager {
     simulationDistance: 12,
     mouseSensitivity: 0.5,
     invertMouse: false,
+    mouseWheelSensitivity: 1.0,
+    discreteMouseScroll: false,
+    touchscreen: false,
     soundVolume: 0.8,
     musicVolume: 0.6,
     blocksVolume: 0.8,
@@ -84,19 +149,7 @@ export class OptionsManager {
         ? 'wss://anura.pro/'
         : `ws://${(typeof window !== 'undefined' && window.location.host) || 'localhost:3000'}/wisp/`,
     username: 'Steve',
-    keyBinds: {
-      forward: 'KeyW',
-      back: 'KeyS',
-      left: 'KeyA',
-      right: 'KeyD',
-      jump: 'Space',
-      sneak: 'ShiftLeft',
-      sprint: 'ControlLeft',
-      drop: 'KeyQ',
-      inventory: 'KeyE',
-      chat: 'KeyT',
-      command: 'Slash',
-    },
+    keyBinds: { ...DEFAULT_KEYBINDS },
   };
 
   static async init() {
@@ -142,6 +195,21 @@ export class OptionsManager {
       } else if (key === 'mouseSensitivity') {
         const ms = parseFloat(val);
         if (!isNaN(ms)) this.current.mouseSensitivity = ms;
+      } else if (key === 'mouseWheelSensitivity') {
+        const mws = parseFloat(val);
+        if (!isNaN(mws)) this.current.mouseWheelSensitivity = mws;
+      } else if (key === 'invertYMouse' || key === 'invertMouse') {
+        this.current.invertMouse = val === 'true';
+      } else if (key === 'discrete_mouse_scroll') {
+        this.current.discreteMouseScroll = val === 'true';
+      } else if (key === 'autoJump') {
+        this.current.autoJump = val === 'true';
+      } else if (key === 'operatorItemsTab') {
+        this.current.operatorItemsTab = val === 'true';
+      } else if (key === 'toggleSprint') {
+        this.current.toggleSprint = val === 'true';
+      } else if (key === 'toggleCrouch' || key === 'toggleSneak') {
+        this.current.toggleSneak = val === 'true';
       }
     }
   }

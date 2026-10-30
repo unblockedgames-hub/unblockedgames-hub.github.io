@@ -260,24 +260,40 @@ export class Game {
         document.pointerLockElement !== this.canvas
       )
         return;
-      const sens = OptionsManager.current.mouseSensitivity * 0.0045;
+      const opts = OptionsManager.current;
+      const sens = (opts.mouseSensitivity || 0.5) * 0.0045;
       this.player.yaw -= e.movementX * sens;
+      const pitchDelta = (opts.invertMouse ? -1 : 1) * e.movementY * sens;
       this.player.pitch = Math.max(
         -Math.PI / 2 + 0.01,
-        Math.min(Math.PI / 2 - 0.01, this.player.pitch - e.movementY * sens)
+        Math.min(Math.PI / 2 - 0.01, this.player.pitch - pitchDelta)
       );
     });
 
     window.addEventListener('keydown', (e) => {
       if (this.ui.state === 'CHAT') return;
+      const kb = OptionsManager.current.keyBinds;
 
-      if (e.code === 'F3') {
+      if (e.code === (kb?.debugOverlay || 'F3') || e.code === 'F3') {
         e.preventDefault();
         this.ui.showDebugF3 = !this.ui.showDebugF3;
         return;
       }
 
-      if (e.code === 'KeyE') {
+      if (e.code === (kb?.fullscreen || 'F11') || e.code === 'F11') {
+        e.preventDefault();
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen?.().catch(() => {});
+          OptionsManager.current.fullscreen = true;
+        } else {
+          document.exitFullscreen?.().catch(() => {});
+          OptionsManager.current.fullscreen = false;
+        }
+        OptionsManager.save();
+        return;
+      }
+
+      if (e.code === (kb?.inventory || 'KeyE')) {
         if (this.ui.state === 'IN_GAME') {
           e.preventDefault();
           this.player.isMining = false;
@@ -292,7 +308,26 @@ export class Game {
         }
       }
 
-      const kb = OptionsManager.current.keyBinds;
+      if (e.code === (kb?.swapOffhand || 'KeyF') && this.ui.state === 'IN_GAME') {
+        e.preventDefault();
+        const mainIdx = this.inventory.selectedHotbarSlot;
+        const mainStack = this.inventory.slots[mainIdx];
+        const offStack = this.inventory.offhandSlot;
+        this.inventory.slots[mainIdx] = offStack;
+        this.inventory.offhandSlot = mainStack;
+        AudioEngine.play('item.armor.equip_generic', 0.6);
+        this.ui.updateHUDOnly();
+        return;
+      }
+
+      if (e.code === (kb?.advancements || 'KeyL') && this.ui.state === 'IN_GAME') {
+        e.preventDefault();
+        this.player.isMining = false;
+        this.player.resetMining();
+        this.ui.setState('ADVANCEMENTS');
+        return;
+      }
+
       const dropKey = kb?.drop || 'KeyQ';
       if (e.code === dropKey && this.ui.state === 'IN_GAME') {
         e.preventDefault();
@@ -323,14 +358,16 @@ export class Game {
         return;
       }
 
+      const chatKey = kb?.chat || 'KeyT';
+      const cmdKey = kb?.command || 'Slash';
       if (
-        (e.code === 'KeyT' || e.code === 'Slash') &&
+        (e.code === chatKey || e.code === cmdKey || e.code === 'KeyT' || e.code === 'Slash') &&
         this.ui.state === 'IN_GAME'
       ) {
         e.preventDefault();
         this.player.isMining = false;
         this.player.resetMining();
-        if (e.code === 'Slash') {
+        if (e.code === cmdKey || e.code === 'Slash') {
           (this.ui as any).chatInputText = '/';
         } else {
           (this.ui as any).chatInputText = '';
@@ -352,7 +389,24 @@ export class Game {
         }
       }
 
-      // Hotbar keys Digit1..Digit9
+      // Hotbar keys
+      const hotbarMap = [
+        kb?.hotbar1 || 'Digit1',
+        kb?.hotbar2 || 'Digit2',
+        kb?.hotbar3 || 'Digit3',
+        kb?.hotbar4 || 'Digit4',
+        kb?.hotbar5 || 'Digit5',
+        kb?.hotbar6 || 'Digit6',
+        kb?.hotbar7 || 'Digit7',
+        kb?.hotbar8 || 'Digit8',
+        kb?.hotbar9 || 'Digit9',
+      ];
+      const hbIdx = hotbarMap.indexOf(e.code);
+      if (hbIdx !== -1 && this.ui.state === 'IN_GAME') {
+        this.inventory.selectedHotbarSlot = hbIdx;
+        this.ui.updateHUDOnly();
+        return;
+      }
       if (e.code.startsWith('Digit') && this.ui.state === 'IN_GAME') {
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= 9) {
@@ -398,11 +452,22 @@ export class Game {
       }
     });
 
+    let wheelAccumulator = 0;
     window.addEventListener('wheel', (e) => {
       if (this.ui.state !== 'IN_GAME') return;
-      const dir = e.deltaY > 0 ? 1 : -1;
-      this.inventory.selectedHotbarSlot =
-        (this.inventory.selectedHotbarSlot + dir + 9) % 9;
+      const opts = OptionsManager.current;
+      const sens = opts.mouseWheelSensitivity || 1.0;
+      if (opts.discreteMouseScroll) {
+        const dir = e.deltaY > 0 ? 1 : -1;
+        this.inventory.selectedHotbarSlot = (this.inventory.selectedHotbarSlot + dir + 9) % 9;
+      } else {
+        wheelAccumulator += e.deltaY * sens;
+        if (Math.abs(wheelAccumulator) >= 60) {
+          const dir = wheelAccumulator > 0 ? 1 : -1;
+          this.inventory.selectedHotbarSlot = (this.inventory.selectedHotbarSlot + dir + 9) % 9;
+          wheelAccumulator = 0;
+        }
+      }
       this.ui.updateHUDOnly();
     });
 
@@ -1072,6 +1137,8 @@ export class Game {
         this.ui.state === 'ADVANCEMENTS' ||
         this.ui.state === 'VIDEO_SETTINGS' ||
         this.ui.state === 'CONTROLS' ||
+        this.ui.state === 'MOUSE_SETTINGS' ||
+        this.ui.state === 'KEY_BINDS' ||
         this.ui.state === 'SOUND_OPTIONS' ||
         this.ui.state === 'SKIN_CUSTOMIZATION' ||
         this.ui.state === 'CHAT_SETTINGS' ||
@@ -1207,9 +1274,14 @@ export class Game {
 
       const heldStack = this.inventory.getHeldStack();
       this.firstPersonHand.updateHeldItem(heldStack ? heldStack.item : null);
+      const kb = OptionsManager.current.keyBinds;
       const isMoving =
         controlsActive &&
-        (this.player.keys.has('KeyW') ||
+        (this.player.keys.has(kb?.forward || 'KeyW') ||
+          this.player.keys.has(kb?.back || 'KeyS') ||
+          this.player.keys.has(kb?.left || 'KeyA') ||
+          this.player.keys.has(kb?.right || 'KeyD') ||
+          this.player.keys.has('KeyW') ||
           this.player.keys.has('KeyS') ||
           this.player.keys.has('KeyA') ||
           this.player.keys.has('KeyD'));
