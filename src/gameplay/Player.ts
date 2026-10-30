@@ -27,6 +27,7 @@ export class Player {
   velocity = new THREE.Vector3(0, 0, 0);
   yaw = 0;
   pitch = 0;
+  perspective: 0 | 1 | 2 = 0; // 0=first-person, 1=third-person-back, 2=third-person-front
 
   // Default to Survival Mode like real Minecraft!
   gameMode: 'survival' | 'creative' | 'spectator' = 'survival';
@@ -375,10 +376,10 @@ export class Player {
 
     // Dismount cushion if Sneak is pressed
     const kb = OptionsManager.current.keyBinds;
+    const sneakKey = kb?.sneak || 'ShiftLeft';
     const sneakPressed =
-      this.keys.has(kb.sneak) ||
-      this.keys.has('ShiftLeft') ||
-      this.keys.has('ShiftRight');
+      this.keys.has(sneakKey) ||
+      (sneakKey === 'ShiftLeft' && this.keys.has('ShiftRight'));
 
     if (this.seatedCushion && controlsActive && sneakPressed) {
       this.dismountCushion();
@@ -409,16 +410,21 @@ export class Player {
     // Input vector in local XZ
     let forward = 0;
     let strafe = 0;
+    const fKey = kb?.forward || 'KeyW';
+    const bKey = kb?.back || 'KeyS';
+    const lKey = kb?.left || 'KeyA';
+    const rKey = kb?.right || 'KeyD';
+    const sprKey = kb?.sprint || 'ControlLeft';
+
     const forwardPressed =
-      this.keys.has(kb.forward) || this.keys.has('KeyW') || this.keys.has('ArrowUp');
+      this.keys.has(fKey) || (fKey === 'KeyW' && this.keys.has('ArrowUp'));
     const backPressed =
-      this.keys.has(kb.back) || this.keys.has('KeyS') || this.keys.has('ArrowDown');
+      this.keys.has(bKey) || (bKey === 'KeyS' && this.keys.has('ArrowDown'));
     const leftPressed =
-      this.keys.has(kb.left) || this.keys.has('KeyA') || this.keys.has('ArrowLeft');
+      this.keys.has(lKey) || (lKey === 'KeyA' && this.keys.has('ArrowLeft'));
     const rightPressed =
-      this.keys.has(kb.right) || this.keys.has('KeyD') || this.keys.has('ArrowRight');
-    const sprintPressed =
-      this.keys.has(kb.sprint) || this.keys.has('ControlLeft') || this.keys.has('KeyR');
+      this.keys.has(rKey) || (rKey === 'KeyD' && this.keys.has('ArrowRight'));
+    const sprintPressed = this.keys.has(sprKey);
 
     if (controlsActive) {
       if (forwardPressed) forward += 1;
@@ -499,9 +505,10 @@ export class Player {
       this.velocity.z += (wishVz - this.velocity.z) * flyAccel;
 
       let wishVy = 0;
+      const jKey = kb?.jump || 'Space';
       if (controlsActive) {
-        if (this.keys.has(kb.jump || 'Space') || this.keys.has('Space')) wishVy += 7.5;
-        if (this.keys.has(kb.sneak || 'ShiftLeft') || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) wishVy -= 7.5;
+        if (this.keys.has(jKey)) wishVy += 7.5;
+        if (sneakPressed) wishVy -= 7.5;
       }
       this.velocity.y += (wishVy - this.velocity.y) * Math.min(1, dt * 14.0);
     } else {
@@ -516,7 +523,8 @@ export class Player {
         this.velocity.z *= Math.pow(0.8, dt * 20);
         this.velocity.y -= 6.5 * dt;
         this.velocity.y = Math.max(-3.0, this.velocity.y);
-        if (controlsActive && (this.keys.has(kb.jump || 'Space') || this.keys.has('Space'))) {
+        const jKey = kb?.jump || 'Space';
+        if (controlsActive && this.keys.has(jKey)) {
           this.velocity.y = 4.2;
         }
       } else {
@@ -529,7 +537,8 @@ export class Player {
           this.velocity.y = Math.max(-55.0, this.velocity.y);
         }
 
-        const jumpPressed = this.keys.has(kb.jump || 'Space') || this.keys.has('Space');
+        const jKey = kb?.jump || 'Space';
+        const jumpPressed = this.keys.has(jKey);
         if (controlsActive && jumpPressed && this.onGround && this.jumpCooldown <= 0) {
           this.velocity.y = 8.45;
           this.onGround = false;
@@ -772,11 +781,32 @@ export class Player {
     const rightVec = new THREE.Vector3(1, 0, 0).applyQuaternion(
       this.camera.quaternion
     );
-    this.camera.position.set(
-      this.position.x + rightVec.x * bobX,
-      this.position.y + this.currentEyeHeight + bobY,
-      this.position.z + rightVec.z * bobX
+    const forwardVec = new THREE.Vector3(0, 0, -1).applyQuaternion(
+      this.camera.quaternion
     );
+
+    const eyeX = this.position.x + rightVec.x * bobX;
+    const eyeY = this.position.y + this.currentEyeHeight + bobY;
+    const eyeZ = this.position.z + rightVec.z * bobX;
+
+    if (this.perspective === 1) {
+      // Third person back: camera behind player looking forward
+      this.camera.position.set(
+        eyeX - forwardVec.x * 3.8,
+        eyeY - forwardVec.y * 3.8 + 0.2,
+        eyeZ - forwardVec.z * 3.8
+      );
+    } else if (this.perspective === 2) {
+      // Third person front: camera in front of player looking backward at face
+      this.camera.position.set(
+        eyeX + forwardVec.x * 3.8,
+        eyeY + forwardVec.y * 3.8 + 0.2,
+        eyeZ + forwardVec.z * 3.8
+      );
+      this.camera.lookAt(eyeX, eyeY, eyeZ);
+    } else {
+      this.camera.position.set(eyeX, eyeY, eyeZ);
+    }
   }
 
   /**

@@ -158,6 +158,7 @@ export class UIManager {
 
   // HUD state
   public showDebugF3 = false;
+  public showPlayerList = false;
   public fps = 60;
   public splashText = SPLASH_TEXTS[0];
   public chatHistory: Array<{ text: string; time: number }> = [];
@@ -424,11 +425,15 @@ export class UIManager {
         this.rebindingKey = null;
         return;
       }
-      if (e.button === 2) {
+      const kb = OptionsManager.current.keyBinds;
+      const isUseButton = kb?.use ? kb.use === `Mouse${e.button}` : e.button === 2;
+      const isAttackButton = kb?.attack ? kb.attack === `Mouse${e.button}` : e.button === 0;
+
+      if (isUseButton) {
         this.isRightMouseDown = true;
         this.rightHoldTimer = 0;
         this.rightRepeatTimer = 0;
-      } else if (e.button === 0) {
+      } else if (isAttackButton) {
         this.isLeftMouseDown = true;
         this.rightHoldTimer = 0;
         this.rightRepeatTimer = 0;
@@ -496,12 +501,12 @@ export class UIManager {
             if (!r.isSlot) {
               AudioEngine.play('ui.button.click', 0.8);
             }
-            if (e.button === 2 && r.slotKey) {
+            if (isUseButton && r.slotKey) {
               this.lastRightDragSlotKey = r.slotKey;
             }
             // Check for Double-Left-Click on a slot (`ClickType.PICKUP_ALL`) to gather all matching items!
             if (
-              e.button === 0 &&
+              isAttackButton &&
               !e.shiftKey &&
               r.isSlot &&
               r.slotKey &&
@@ -525,7 +530,7 @@ export class UIManager {
             }
             // Capture initial cursor stack for potential Left-Click Drag Distribute
             if (
-              e.button === 0 &&
+              isAttackButton &&
               !e.shiftKey &&
               r.isSlot &&
               r.slotKey &&
@@ -552,7 +557,8 @@ export class UIManager {
                 ];
               }
             }
-            r.onClick(e.button, e.shiftKey);
+            const effectiveButton = isUseButton ? 2 : (isAttackButton ? 0 : e.button);
+            r.onClick(effectiveButton, e.shiftKey);
             return;
           }
         }
@@ -560,7 +566,7 @@ export class UIManager {
 
       // Click outside container window drops cursor item into the world as a 3D dropped item entity!
       if (this.state === 'INVENTORY' && this.inventory.cursorStack) {
-        const dropCount = e.button === 2 ? 1 : this.inventory.cursorStack.count;
+        const dropCount = isUseButton ? 1 : this.inventory.cursorStack.count;
         const dropId = this.inventory.cursorStack.item.shortId;
         this.inventory.cursorStack.count -= dropCount;
         if (this.inventory.cursorStack.count <= 0) {
@@ -590,10 +596,14 @@ export class UIManager {
 
     window.addEventListener('mouseup', (e) => {
       this.activeSlider = null;
-      if (e.button === 2) {
+      const kb = OptionsManager.current.keyBinds;
+      const isUseButton = kb?.use ? kb.use === `Mouse${e.button}` : e.button === 2;
+      const isAttackButton = kb?.attack ? kb.attack === `Mouse${e.button}` : e.button === 0;
+      if (isUseButton) {
         this.isRightMouseDown = false;
         this.lastRightDragSlotKey = '';
-      } else if (e.button === 0) {
+      }
+      if (isAttackButton) {
         this.isLeftMouseDown = false;
         this.leftDragItem = null;
         this.leftDragTotalCount = 0;
@@ -750,32 +760,138 @@ export class UIManager {
         }
       }
 
-      // Number keys 1..9 in Container/Inventory screens swap hovered slot with Hotbar slot 0..8
+      // Pressing Attack Key (e.g. custom keyboard keybind) in Container/Inventory screen handles slot left-click
+      const kbAttack = OptionsManager.current.keyBinds?.attack || 'Mouse0';
       if (
         this.state === 'INVENTORY' &&
         !this.focusedEditBox &&
-        e.code.startsWith('Digit') &&
+        kbAttack &&
+        !kbAttack.startsWith('Mouse') &&
+        e.code === kbAttack
+      ) {
+        for (let i = this.interactiveRects.length - 1; i >= 0; i--) {
+          const r = this.interactiveRects[i];
+          if (
+            r.isSlot &&
+            this.mouseX >= r.x &&
+            this.mouseX < r.x + r.w &&
+            this.mouseY >= r.y &&
+            this.mouseY < r.y + r.h
+          ) {
+            e.preventDefault();
+            r.onClick?.(0, e.shiftKey);
+            this.updateHUDOnly();
+            this.render();
+            return;
+          }
+        }
+      }
+
+      // Pressing Use Key (e.g. custom keybind like KeyR) in Container/Inventory screen handles slot interaction
+      const kbUse = OptionsManager.current.keyBinds?.use || 'Mouse2';
+      if (
+        this.state === 'INVENTORY' &&
+        !this.focusedEditBox &&
+        e.code === kbUse
+      ) {
+        for (let i = this.interactiveRects.length - 1; i >= 0; i--) {
+          const r = this.interactiveRects[i];
+          if (
+            r.isSlot &&
+            this.mouseX >= r.x &&
+            this.mouseX < r.x + r.w &&
+            this.mouseY >= r.y &&
+            this.mouseY < r.y + r.h
+          ) {
+            e.preventDefault();
+            this.isRightMouseDown = true;
+            this.lastRightDragSlotKey = r.slotKey || '';
+            this.rightHoldTimer = 0;
+            this.rightRepeatTimer = 0;
+            if (this.inventory.cursorStack) {
+              if (r.onRightDragPlace) {
+                r.onRightDragPlace();
+              } else if (r.onClick) {
+                r.onClick(2, e.shiftKey);
+              }
+            } else {
+              r.onClick?.(2, e.shiftKey);
+            }
+            this.updateHUDOnly();
+            this.render();
+            return;
+          }
+        }
+      }
+
+      // Hotbar keys in Container/Inventory screens swap hovered slot with Hotbar slot 0..8
+      const hotbarKeyCodes = [
+        OptionsManager.current.keyBinds?.hotbar1 || 'Digit1',
+        OptionsManager.current.keyBinds?.hotbar2 || 'Digit2',
+        OptionsManager.current.keyBinds?.hotbar3 || 'Digit3',
+        OptionsManager.current.keyBinds?.hotbar4 || 'Digit4',
+        OptionsManager.current.keyBinds?.hotbar5 || 'Digit5',
+        OptionsManager.current.keyBinds?.hotbar6 || 'Digit6',
+        OptionsManager.current.keyBinds?.hotbar7 || 'Digit7',
+        OptionsManager.current.keyBinds?.hotbar8 || 'Digit8',
+        OptionsManager.current.keyBinds?.hotbar9 || 'Digit9',
+      ];
+      const hbSlotIdx = hotbarKeyCodes.indexOf(e.code);
+      if (
+        this.state === 'INVENTORY' &&
+        !this.focusedEditBox &&
+        hbSlotIdx !== -1 &&
         !e.ctrlKey &&
         !e.metaKey &&
         !e.altKey
       ) {
-        const num = parseInt(e.code.replace('Digit', ''), 10);
-        if (num >= 1 && num <= 9) {
-          const hotbarIdx = num - 1;
-          for (let i = this.interactiveRects.length - 1; i >= 0; i--) {
-            const r = this.interactiveRects[i];
-            if (
-              r.isSlot &&
-              r.onHotbarKeySwap &&
-              this.mouseX >= r.x &&
-              this.mouseX < r.x + r.w &&
-              this.mouseY >= r.y &&
-              this.mouseY < r.y + r.h
-            ) {
-              e.preventDefault();
-              r.onHotbarKeySwap(hotbarIdx);
-              return;
-            }
+        for (let i = this.interactiveRects.length - 1; i >= 0; i--) {
+          const r = this.interactiveRects[i];
+          if (
+            r.isSlot &&
+            r.onHotbarKeySwap &&
+            this.mouseX >= r.x &&
+            this.mouseX < r.x + r.w &&
+            this.mouseY >= r.y &&
+            this.mouseY < r.y + r.h
+          ) {
+            e.preventDefault();
+            r.onHotbarKeySwap(hbSlotIdx);
+            return;
+          }
+        }
+      }
+
+      // Swap Offhand Key in Container/Inventory screens swaps hovered slot with Offhand slot
+      const kbOffhand = OptionsManager.current.keyBinds?.swapOffhand || 'KeyF';
+      if (
+        this.state === 'INVENTORY' &&
+        !this.focusedEditBox &&
+        e.code === kbOffhand &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
+        for (let i = this.interactiveRects.length - 1; i >= 0; i--) {
+          const r = this.interactiveRects[i];
+          if (
+            r.isSlot &&
+            r.getSlot &&
+            r.setSlot &&
+            this.mouseX >= r.x &&
+            this.mouseX < r.x + r.w &&
+            this.mouseY >= r.y &&
+            this.mouseY < r.y + r.h
+          ) {
+            e.preventDefault();
+            const slotStack = r.getSlot();
+            const offhandStack = this.inventory.offhandSlot;
+            r.setSlot(offhandStack);
+            this.inventory.offhandSlot = slotStack;
+            AudioEngine.play('item.armor.equip_generic', 0.6);
+            this.updateHUDOnly();
+            this.render();
+            return;
           }
         }
       }
@@ -812,6 +928,14 @@ export class UIManager {
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         this.modifyFocusedText((s) => (s.length < 80 ? s + e.key : s));
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      const kbUse = OptionsManager.current.keyBinds?.use || 'Mouse2';
+      if (e.code === kbUse) {
+        this.isRightMouseDown = false;
+        this.lastRightDragSlotKey = '';
       }
     });
   }
@@ -3483,6 +3607,45 @@ export class UIManager {
     // F3 Debug Screen Overlay (DebugScreenOverlay.java)
     if (this.showDebugF3) {
       this.renderDebugF3Overlay();
+    }
+
+    // Player List Overlay (Tab / playerlist keybind)
+    if (this.showPlayerList) {
+      this.renderPlayerListOverlay();
+    }
+  }
+
+  private renderPlayerListOverlay(): void {
+    const sw = this.gui.scaledWidth;
+    const centerX = Math.floor(sw / 2);
+
+    const players: string[] = [MultiplayerManager.username || 'Steve'];
+    for (const [, mob] of this.world.entityRenderer.mobs) {
+      if (mob.type === 'remote_player' && mob.name && !players.includes(mob.name)) {
+        players.push(mob.name);
+      }
+    }
+
+    const boxW = Math.max(180, players.length > 0 ? 210 : 180);
+    const boxH = 24 + players.length * 13;
+    const boxX = centerX - Math.floor(boxW / 2);
+    const boxY = 14;
+
+    this.gui.fill(boxX, boxY, boxX + boxW, boxY + boxH, 'rgba(0, 0, 0, 0.70)');
+    this.gui.ctx.strokeStyle = '#303038';
+    this.gui.ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+    const header = MultiplayerManager.activeSession?.state === 'PLAY'
+      ? 'Integrated Wisp Multiplayer Server'
+      : 'Integrated 26.3 Server';
+    this.font.drawCentered(this.gui.ctx, header, centerX, boxY + 4, '#FFFF55', true);
+
+    let rowY = boxY + 18;
+    for (const name of players) {
+      this.gui.fill(boxX + 4, rowY - 1, boxX + boxW - 4, rowY + 10, 'rgba(255, 255, 255, 0.08)');
+      this.font.draw(this.gui.ctx, name, boxX + 8, rowY + 1, '#FFFFFF', true);
+      this.font.draw(this.gui.ctx, '0ms §a||||', boxX + boxW - 44, rowY + 1, '#55FF55', true);
+      rowY += 13;
     }
   }
 

@@ -197,13 +197,18 @@ export class EntityRenderer {
     const applyTexture = (img: HTMLImageElement, u: number, v: number, transparent = false) => {
       const dz = dzHeight;
       const dy = dyLength;
+      // In Minecraft QuadrupedModel, the body box is rotated xRot = PI/2 (90 deg).
+      // - The unrotated -Z face rotates to +Y (top back): (u + dz + dx + dz, v + dz, dx, dy)
+      // - The unrotated +Z face rotates to -Y (belly): (u + dz, v + dz, dx, dy)
+      // - The unrotated top (+Y) rotates to +Z (front chest): (u + dz, v, dx, dz)
+      // - The unrotated bottom (-Y) rotates to -Z (rear): (u + dz + dx, v, dx, dz)
       const faceTexs = [
         this.cropSubTexture(img, u + dz + dx, v + dz, dz, dy, true), // +X (left flank)
         this.cropSubTexture(img, u, v + dz, dz, dy, true), // -X (right flank)
-        this.cropSubTexture(img, u + dz, v + dz, dx, dy), // +Y (top back)
-        this.cropSubTexture(img, u + dz + dx + dz, v + dz, dx, dy), // -Y (belly)
-        this.cropSubTexture(img, u + dz + dx, v, dx, dz), // +Z (front chest)
-        this.cropSubTexture(img, u + dz, v, dx, dz), // -Z (rear)
+        this.cropSubTexture(img, u + dz + dx + dz, v + dz, dx, dy), // +Y (top back)
+        this.cropSubTexture(img, u + dz, v + dz, dx, dy), // -Y (belly)
+        this.cropSubTexture(img, u + dz, v, dx, dz), // +Z (front chest)
+        this.cropSubTexture(img, u + dz + dx, v, dx, dz), // -Z (rear)
       ];
       for (let i = 0; i < 6; i++) {
         mats[i].map = faceTexs[i];
@@ -402,8 +407,13 @@ export class EntityRenderer {
       body.mesh.position.set(0, 17 / 16, -1 / 16);
 
       // Official Cow udder: texOffs(52, 0) box (-2, 2, -8, 4, 6, 1) under belly towards rear
-      const udder = this.createUprightPartMesh(4, 2, 6, 0, 0xf0a5a2);
-      udder.mesh.position.set(0, 11.2 / 16, -5 / 16);
+      const udderGeo = new THREE.BoxGeometry(4 / 16, 1.5 / 16, 6 / 16);
+      const udderMats = Array.from(
+        { length: 6 },
+        () => new THREE.MeshLambertMaterial({ color: 0xf0a5a2 })
+      );
+      const udderMesh = new THREE.Mesh(udderGeo, udderMats);
+      udderMesh.position.set(0, 11.25 / 16, -4 / 16);
 
       // Front legs at z = +6/16, Hind legs at z = -7/16, hip pivot at y = 12/16
       const legCoords: Array<[number, number]> = [
@@ -421,14 +431,21 @@ export class EntityRenderer {
         return leg;
       });
 
-      group.add(head.mesh, rHorn.mesh, lHorn.mesh, body.mesh, udder.mesh);
+      group.add(head.mesh, rHorn.mesh, lHorn.mesh, body.mesh, udderMesh);
 
       this.loadEntityImage('/assets/minecraft/textures/entity/cow/cow_temperate.png', (img) => {
         head.applyTexture(img, 0, 0);
         rHorn.applyTexture(img, 22, 0);
         lHorn.applyTexture(img, 22, 0);
         body.applyTexture(img, 18, 4);
-        udder.applyTexture(img, 52, 0);
+        // Map udder textures (bottom face at index 3 displays the 4 teats)
+        const udderBottom = this.cropSubTexture(img, 52, 0, 4, 6);
+        const udderSide = this.cropSubTexture(img, 52, 0, 4, 2);
+        for (let i = 0; i < 6; i++) {
+          udderMats[i].map = i === 3 ? udderBottom : udderSide;
+          udderMats[i].color.setHex(0xffffff);
+          udderMats[i].needsUpdate = true;
+        }
         for (const l of legParts) l.applyTexture(img, 0, 16);
       });
     } else if (type === 'zombie') {
@@ -605,7 +622,8 @@ export class EntityRenderer {
 
     mob.health = Math.max(0, mob.health - damage);
     mob.hurtTimer = 0.45;
-    mob.panicTimer = 4.5;
+    mob.panicTimer = 6.0; // Panic fleeing for 6 seconds on damage
+    mob.aiTimer = 0; // Trigger panic movement immediately
     this.setMobHurtTint(mob, true);
 
     // Knockback away from attacker
@@ -943,6 +961,8 @@ export class EntityRenderer {
         mob.panicTimer -= dt;
       }
 
+      const groundY = getGroundHeight(Math.floor(mob.x), Math.floor(mob.z));
+
       mob.aiTimer -= dt;
       if (mob.type === 'zombie' && playerPos && mob.hurtTimer <= 0) {
         // Aggressive zombie pathing towards player
@@ -962,11 +982,17 @@ export class EntityRenderer {
         }
       } else if (mob.aiTimer <= 0 && mob.hurtTimer <= 0) {
         if (mob.panicTimer > 0) {
-          mob.aiTimer = 0.35 + Math.random() * 0.45;
-          mob.yaw += (Math.random() - 0.5) * 2.4;
-          const speed = 2.9;
+          mob.aiTimer = 0.35 + Math.random() * 0.35;
+          const awayX = playerPos ? mob.x - playerPos.x : mob.vx;
+          const awayZ = playerPos ? mob.z - playerPos.z : mob.vz;
+          const baseAngle = Math.atan2(awayX, awayZ);
+          mob.yaw = baseAngle + (Math.random() - 0.5) * 1.0;
+          const speed = 5.2; // Vanilla panic sprint speed
           mob.vx = Math.sin(mob.yaw) * speed;
           mob.vz = Math.cos(mob.yaw) * speed;
+          if (mob.y <= groundY + 0.1 && Math.random() < 0.3) {
+            mob.vy = 4.0;
+          }
         } else {
           mob.aiTimer = 2 + Math.random() * 4;
           if (Math.random() < 0.6) {
@@ -981,16 +1007,16 @@ export class EntityRenderer {
         }
       }
 
-      // Dampen knockback velocity smoothly
+      // Dampen knockback velocity smoothly during hurt timer
       if (mob.hurtTimer > 0) {
-        mob.vx *= Math.pow(0.08, dt);
-        mob.vz *= Math.pow(0.08, dt);
+        mob.vx *= Math.pow(0.12, dt);
+        mob.vz *= Math.pow(0.12, dt);
       }
 
       const speedHoriz = Math.hypot(mob.vx, mob.vz);
       const isWalking = speedHoriz > 0.05;
       if (isWalking) {
-        mob.walkPhase += dt * (mob.panicTimer > 0 ? 13.0 : 7.0);
+        mob.walkPhase += dt * (mob.panicTimer > 0 ? 18.0 : 7.0);
       } else {
         mob.walkPhase *= 0.85;
       }
@@ -1008,16 +1034,16 @@ export class EntityRenderer {
 
       mob.x += mob.vx * dt;
       mob.z += mob.vz * dt;
-      const groundY = getGroundHeight(Math.floor(mob.x), Math.floor(mob.z));
-      if (mob.y > groundY || mob.vy > 0) {
+      const targetGroundY = getGroundHeight(Math.floor(mob.x), Math.floor(mob.z));
+      if (mob.y > targetGroundY || mob.vy > 0) {
         mob.vy -= 18.0 * dt;
         mob.y += mob.vy * dt;
-        if (mob.y <= groundY) {
-          mob.y = groundY;
+        if (mob.y <= targetGroundY) {
+          mob.y = targetGroundY;
           mob.vy = 0;
         }
       } else {
-        mob.y += (groundY - mob.y) * Math.min(1, dt * 10);
+        mob.y += (targetGroundY - mob.y) * Math.min(1, dt * 10);
       }
 
       mob.mesh.position.set(mob.x, mob.y, mob.z);

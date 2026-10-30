@@ -274,13 +274,13 @@ export class Game {
       if (this.ui.state === 'CHAT') return;
       const kb = OptionsManager.current.keyBinds;
 
-      if (e.code === (kb?.debugOverlay || 'F3') || e.code === 'F3') {
+      if (e.code === (kb?.debugOverlay || 'F3')) {
         e.preventDefault();
         this.ui.showDebugF3 = !this.ui.showDebugF3;
         return;
       }
 
-      if (e.code === (kb?.fullscreen || 'F11') || e.code === 'F11') {
+      if (e.code === (kb?.fullscreen || 'F11')) {
         e.preventDefault();
         if (!document.fullscreenElement) {
           document.documentElement.requestFullscreen?.().catch(() => {});
@@ -290,6 +290,58 @@ export class Game {
           OptionsManager.current.fullscreen = false;
         }
         OptionsManager.save();
+        return;
+      }
+
+      if (e.code === (kb?.togglePerspective || 'F5') && this.ui.state === 'IN_GAME') {
+        e.preventDefault();
+        this.player.perspective = ((this.player.perspective + 1) % 3) as (0 | 1 | 2);
+        return;
+      }
+
+      if (e.code === (kb?.playerlist || 'Tab') && this.ui.state === 'IN_GAME') {
+        e.preventDefault();
+        this.ui.showPlayerList = true;
+        return;
+      }
+
+      // Keyboard keybind support for Attack / Destroy
+      if (kb?.attack && e.code === kb.attack && this.ui.state === 'IN_GAME') {
+        e.preventDefault();
+        this.player.triggerSwing();
+        this.firstPersonHand.triggerSwing();
+        this.player.isMining = true;
+        if (this.player.gameMode === 'creative') {
+          this.completeBlockBreak();
+          this.player.creativeBreakCooldown = 0.22;
+        }
+        return;
+      }
+
+      // Keyboard keybind support for Pick Block
+      if (kb?.pickItem && e.code === kb.pickItem && this.ui.state === 'IN_GAME') {
+        e.preventDefault();
+        const hit = this.player.currentHit;
+        if (hit) {
+          const def = Registries.getBlock(hit.blockNumId);
+          const itemDef = Registries.getItem(def.shortId);
+          if (itemDef) {
+            if (this.player.gameMode === 'creative') {
+              this.inventory.slots[this.inventory.selectedHotbarSlot] = {
+                item: itemDef,
+                count: itemDef.maxStack,
+              };
+            } else {
+              const existingIdx = this.inventory.slots.findIndex(
+                (s) => s && s.item.id === itemDef.id
+              );
+              if (existingIdx >= 0 && existingIdx < 9) {
+                this.inventory.selectedHotbarSlot = existingIdx;
+              }
+            }
+            this.ui.updateHUDOnly();
+          }
+        }
         return;
       }
 
@@ -358,16 +410,24 @@ export class Game {
         return;
       }
 
+      // Use Item / Place Block keyboard keybind
+      const useKey = kb?.use || 'Mouse2';
+      if (e.code === useKey && this.ui.state === 'IN_GAME') {
+        e.preventDefault();
+        this.handleRightClickInteractOrPlace();
+        return;
+      }
+
       const chatKey = kb?.chat || 'KeyT';
       const cmdKey = kb?.command || 'Slash';
       if (
-        (e.code === chatKey || e.code === cmdKey || e.code === 'KeyT' || e.code === 'Slash') &&
+        (e.code === chatKey || e.code === cmdKey) &&
         this.ui.state === 'IN_GAME'
       ) {
         e.preventDefault();
         this.player.isMining = false;
         this.player.resetMining();
-        if (e.code === cmdKey || e.code === 'Slash') {
+        if (e.code === cmdKey) {
           (this.ui as any).chatInputText = '/';
         } else {
           (this.ui as any).chatInputText = '';
@@ -407,16 +467,10 @@ export class Game {
         this.ui.updateHUDOnly();
         return;
       }
-      if (e.code.startsWith('Digit') && this.ui.state === 'IN_GAME') {
-        const n = parseInt(e.code.slice(5), 10);
-        if (n >= 1 && n <= 9) {
-          this.inventory.selectedHotbarSlot = n - 1;
-          this.ui.updateHUDOnly();
-        }
-      }
 
-      // Double-tap W to Sprint!
-      if (e.code === 'KeyW' && !e.repeat && this.ui.state === 'IN_GAME') {
+      // Double-tap Forward key to Sprint!
+      const fwdKey = kb?.forward || 'KeyW';
+      if (e.code === fwdKey && !e.repeat && this.ui.state === 'IN_GAME') {
         const now = performance.now();
         if (now - this.player.lastWPress < 280) {
           this.player.isSprinting = true;
@@ -424,8 +478,9 @@ export class Game {
         this.player.lastWPress = now;
       }
 
-      // Double-tap Space to toggle flying in Creative mode
-      if (e.code === 'Space' && !e.repeat && this.ui.state === 'IN_GAME') {
+      // Double-tap Jump key to toggle flying in Creative mode
+      const jmpKey = kb?.jump || 'Space';
+      if (e.code === jmpKey && !e.repeat && this.ui.state === 'IN_GAME') {
         const now = performance.now();
         if (
           now - this.player.lastSpacePress < 300 &&
@@ -441,10 +496,20 @@ export class Game {
 
     window.addEventListener('keyup', (e) => {
       this.player.keys.delete(e.code);
+      const kb = OptionsManager.current.keyBinds;
+      const plistKey = kb?.playerlist || 'Tab';
+      if (e.code === plistKey) {
+        this.ui.showPlayerList = false;
+      }
+      if (kb?.attack && e.code === kb.attack) {
+        this.player.isMining = false;
+        this.player.resetMining();
+      }
     });
 
     window.addEventListener('blur', () => {
       this.player.keys.clear();
+      this.ui.showPlayerList = false;
       this.player.isMining = false;
       this.player.resetMining();
       if (this.ui.state === 'IN_GAME') {
@@ -480,7 +545,18 @@ export class Game {
         return;
       }
 
-      if (e.button === 0) {
+      const kb = OptionsManager.current.keyBinds;
+      const isAttackMatch = kb?.attack
+        ? kb.attack === `Mouse${e.button}`
+        : e.button === 0;
+      const isUseMatch = kb?.use
+        ? kb.use === `Mouse${e.button}`
+        : e.button === 2;
+      const isPickMatch = kb?.pickItem
+        ? kb.pickItem === `Mouse${e.button}`
+        : e.button === 1;
+
+      if (isAttackMatch) {
         this.player.triggerSwing();
         this.firstPersonHand.triggerSwing();
 
@@ -563,9 +639,9 @@ export class Game {
           this.completeBlockBreak();
           this.player.creativeBreakCooldown = 0.22;
         }
-      } else if (e.button === 2) {
+      } else if (isUseMatch) {
         this.handleRightClickInteractOrPlace();
-      } else if (e.button === 1) {
+      } else if (isPickMatch) {
         // Middle click Pick Block (Creative only or switch to matching slot in Survival)
         const hit = this.player.currentHit;
         if (hit) {
@@ -592,7 +668,11 @@ export class Game {
     });
 
     window.addEventListener('mouseup', (e) => {
-      if (e.button === 0) {
+      const kb = OptionsManager.current.keyBinds;
+      const isAttackMatch = kb?.attack
+        ? kb.attack === `Mouse${e.button}`
+        : e.button === 0;
+      if (isAttackMatch) {
         this.player.isMining = false;
         this.player.resetMining();
       }
@@ -1299,7 +1379,9 @@ export class Game {
     }
 
     this.renderer.render(this.scene, this.camera);
-    this.firstPersonHand.render(this.renderer);
+    if (this.player.perspective === 0) {
+      this.firstPersonHand.render(this.renderer);
+    }
     this.ui.render(dt);
   }
 }
