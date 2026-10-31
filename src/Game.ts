@@ -1880,8 +1880,9 @@ export class Game {
           const cx = Math.floor(px + Math.cos(angle) * dist);
           const cz = Math.floor(pz + Math.sin(angle) * dist);
           const topSolidY = this.world.getTopSolidY(cx, cz);
-          const startY = Math.min(topSolidY - 3, py + 12);
-          const endY = Math.max(4, py - 16);
+          // Strictly deep subterranean during daylight (at least 6 blocks below surface)
+          const startY = Math.min(topSolidY - (isNight ? 3 : 6), py + 10);
+          const endY = Math.max(4, py - 18);
 
           if (startY > endY) {
             for (let testY = startY; testY >= endY; testY--) {
@@ -1889,25 +1890,45 @@ export class Game {
               const cur = this.world.getBlock(cx, testY, cz);
               const ceil = this.world.getBlock(cx, testY + 1, cz);
               const floorDef = Registries.getBlock(floor);
-              if (floor !== 0 && floorDef?.solid && !floorDef?.fluid && cur === 0 && ceil === 0) {
-                const packCount = 1 + Math.floor(Math.random() * 2);
-                for (let p = 0; p < packCount; p++) {
-                  const ox = (Math.random() - 0.5) * 2;
-                  const oz = (Math.random() - 0.5) * 2;
-                  const chosen =
-                    testY < 40 && Math.random() < 0.25
-                      ? 'slime'
-                      : hostilePool[Math.floor(Math.random() * hostilePool.length)];
-                  this.entityRenderer.spawnMob(
-                    `${chosen}_${Date.now()}_${p}`,
-                    chosen,
-                    cx + 0.5 + ox,
-                    testY,
-                    cz + 0.5 + oz
-                  );
-                }
-                break;
+
+              // Hostile cave mobs never spawn on grass, fluids, or non-solid blocks
+              if (
+                floor === 0 ||
+                !floorDef?.solid ||
+                floorDef?.fluid ||
+                floorDef?.shortId === 'grass_block' ||
+                cur !== 0 ||
+                ceil !== 0
+              ) {
+                continue;
               }
+
+              // During daytime, verify thick solid rock ceiling above to prevent surface/overhang spawns
+              if (!isNight) {
+                const roof1 = this.world.getBlock(cx, testY + 2, cz);
+                const roof2 = this.world.getBlock(cx, testY + 3, cz);
+                const roof3 = this.world.getBlock(cx, testY + 4, cz);
+                if (
+                  !Registries.getBlock(roof1)?.solid ||
+                  !Registries.getBlock(roof2)?.solid ||
+                  !Registries.getBlock(roof3)?.solid
+                ) {
+                  continue;
+                }
+              }
+
+              const chosen =
+                testY < 40 && Math.random() < 0.25
+                  ? 'slime'
+                  : hostilePool[Math.floor(Math.random() * hostilePool.length)];
+              this.entityRenderer.spawnMob(
+                `${chosen}_${Date.now()}`,
+                chosen,
+                cx + 0.5,
+                testY,
+                cz + 0.5
+              );
+              break;
             }
           }
 

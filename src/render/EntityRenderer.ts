@@ -951,6 +951,57 @@ export class EntityRenderer {
     return closest;
   }
 
+  private getMobDimensions(mob: MobEntity): { halfW: number; height: number } {
+    if (mob.type === 'spider') return { halfW: 0.6, height: 0.85 };
+    if (mob.type === 'enderman') return { halfW: 0.3, height: 2.8 };
+    if (mob.type === 'slime') {
+      const s = (mob.slimeSize || 4) * 0.25;
+      return { halfW: 0.25 * s, height: 0.5 * s };
+    }
+    if (mob.type === 'cow' || mob.type === 'pig' || mob.type === 'sheep') {
+      return { halfW: 0.4, height: 1.25 };
+    }
+    return { halfW: 0.3, height: 1.75 };
+  }
+
+  private mobCollidesAt(
+    mob: MobEntity,
+    px: number,
+    py: number,
+    pz: number,
+    isSolidAt?: (bx: number, by: number, bz: number) => boolean
+  ): boolean {
+    if (!isSolidAt) return false;
+    const { halfW, height } = this.getMobDimensions(mob);
+    const minX = Math.floor(px - halfW);
+    const maxX = Math.floor(px + halfW);
+    const minY = Math.floor(py);
+    const maxY = Math.floor(py + height);
+    const minZ = Math.floor(pz - halfW);
+    const maxZ = Math.floor(pz + halfW);
+
+    for (let y = minY; y <= maxY; y++) {
+      for (let z = minZ; z <= maxZ; z++) {
+        for (let x = minX; x <= maxX; x++) {
+          if (isSolidAt(x, y, z)) {
+            if (py < y + 0.999 && py + height > y + 0.001) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  private isMobOnGround(
+    mob: MobEntity,
+    isSolidAt?: (bx: number, by: number, bz: number) => boolean
+  ): boolean {
+    if (!isSolidAt) return false;
+    return this.mobCollidesAt(mob, mob.x, mob.y - 0.02, mob.z, isSolidAt);
+  }
+
   private setMobHurtTint(mob: MobEntity, isHurt: boolean): void {
     const tintHex = isHurt ? 0xff5555 : 0xffffff;
     mob.mesh.traverse((child) => {
@@ -1796,7 +1847,7 @@ export class EntityRenderer {
           } else if (mob.type === 'spider') {
             mob.vx = Math.sin(mob.yaw) * 3.4;
             mob.vz = Math.cos(mob.yaw) * 3.4;
-            if (distHoriz < 5 && mob.y <= groundY + 0.1 && Math.random() < 0.08) {
+            if (distHoriz < 5 && this.isMobOnGround(mob, isSolidAt) && Math.random() < 0.08) {
               mob.vy = 4.2;
             }
             if (dist3D < 1.7 && Math.abs(pdy) < 1.6 && onMobAttackPlayer) {
@@ -1813,7 +1864,7 @@ export class EntityRenderer {
             }
           } else if (mob.type === 'slime') {
             const sSize = mob.slimeSize || 4;
-            if (mob.y <= groundY + 0.1 && mob.aiTimer <= 0) {
+            if (this.isMobOnGround(mob, isSolidAt) && mob.aiTimer <= 0) {
               mob.vy = 4.0 * Math.sqrt(sSize * 0.25);
               mob.aiTimer = 1.0 + Math.random() * 0.8;
               AudioEngine.play('entity.slime.jump', 0.6);
@@ -1909,18 +1960,109 @@ export class EntityRenderer {
         mob.legs[1].rotation.x = -swing;
       }
 
-      mob.x += mob.vx * dt;
-      mob.z += mob.vz * dt;
-      const targetGroundY = getGroundHeight(Math.floor(mob.x), Math.floor(mob.z));
-      if (mob.y > targetGroundY || mob.vy > 0) {
-        mob.vy -= 18.0 * dt;
-        mob.y += mob.vy * dt;
-        if (mob.y <= targetGroundY) {
-          mob.y = targetGroundY;
-          mob.vy = 0;
+      // Authentic Mob AABB Collision & Physics Resolution (Prevents clipping and teleporting into trees/ceilings)
+      const onGround = this.isMobOnGround(mob, isSolidAt);
+
+      // 1. Horizontal X Movement
+      const dx = mob.vx * dt;
+      if (Math.abs(dx) > 0.0001) {
+        const nextX = mob.x + dx;
+        if (!this.mobCollidesAt(mob, nextX, mob.y, mob.z, isSolidAt)) {
+          mob.x = nextX;
+        } else {
+          // Check step-up for half-blocks/slabs (NOT walls or tree trunks!)
+          const canStep =
+            onGround &&
+            !this.mobCollidesAt(mob, nextX, mob.y + 0.52, mob.z, isSolidAt) &&
+            this.mobCollidesAt(mob, nextX, mob.y + 0.05, mob.z, isSolidAt);
+          if (canStep && mob.vy <= 0.1) {
+            mob.x = nextX;
+            mob.y += 0.5;
+          } else {
+            // Check 1-block jump for walking mobs
+            const canJump =
+              onGround &&
+              isWalking &&
+              !this.mobCollidesAt(mob, nextX, mob.y + 1.1, mob.z, isSolidAt) &&
+              !this.mobCollidesAt(mob, mob.x, mob.y + 1.8, mob.z, isSolidAt);
+            if (canJump && mob.vy <= 0.01) {
+              mob.vy = 5.0;
+            } else {
+              mob.vx = 0;
+            }
+          }
+        }
+      }
+
+      // 2. Horizontal Z Movement
+      const dz = mob.vz * dt;
+      if (Math.abs(dz) > 0.0001) {
+        const nextZ = mob.z + dz;
+        if (!this.mobCollidesAt(mob, mob.x, mob.y, nextZ, isSolidAt)) {
+          mob.z = nextZ;
+        } else {
+          const canStep =
+            onGround &&
+            !this.mobCollidesAt(mob, mob.x, mob.y + 0.52, nextZ, isSolidAt) &&
+            this.mobCollidesAt(mob, mob.x, mob.y + 0.05, nextZ, isSolidAt);
+          if (canStep && mob.vy <= 0.1) {
+            mob.z = nextZ;
+            mob.y += 0.5;
+          } else {
+            const canJump =
+              onGround &&
+              isWalking &&
+              !this.mobCollidesAt(mob, mob.x, mob.y + 1.1, nextZ, isSolidAt) &&
+              !this.mobCollidesAt(mob, mob.x, mob.y + 1.8, mob.z, isSolidAt);
+            if (canJump && mob.vy <= 0.01) {
+              mob.vy = 5.0;
+            } else {
+              mob.vz = 0;
+            }
+          }
+        }
+      }
+
+      // 3. Vertical Movement with Gravity & Floor/Ceiling AABB collision
+      if (isSolidAt) {
+        mob.vy = Math.max(-28.0, mob.vy - 24.0 * dt);
+        const dy = mob.vy * dt;
+        const nextY = mob.y + dy;
+
+        if (!this.mobCollidesAt(mob, mob.x, nextY, mob.z, isSolidAt)) {
+          mob.y = nextY;
+        } else {
+          if (mob.vy < 0) {
+            // Binary search to find exact floor contact
+            let low = nextY;
+            let high = mob.y;
+            for (let i = 0; i < 6; i++) {
+              const mid = (low + high) * 0.5;
+              if (this.mobCollidesAt(mob, mob.x, mid, mob.z, isSolidAt)) {
+                low = mid;
+              } else {
+                high = mid;
+              }
+            }
+            mob.y = high;
+            mob.vy = 0;
+          } else if (mob.vy > 0) {
+            mob.vy = 0;
+          }
         }
       } else {
-        mob.y += (targetGroundY - mob.y) * Math.min(1, dt * 10);
+        // Fallback only if no world collision callback is provided
+        const targetGroundY = getGroundHeight(Math.floor(mob.x), Math.floor(mob.z));
+        if (mob.y > targetGroundY || mob.vy > 0) {
+          mob.vy -= 18.0 * dt;
+          mob.y += mob.vy * dt;
+          if (mob.y <= targetGroundY) {
+            mob.y = targetGroundY;
+            mob.vy = 0;
+          }
+        } else {
+          mob.y = targetGroundY;
+        }
       }
 
       mob.mesh.position.set(mob.x, mob.y, mob.z);
