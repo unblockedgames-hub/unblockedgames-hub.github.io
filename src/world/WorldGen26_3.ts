@@ -207,18 +207,33 @@ export class WorldGen26_3 {
     return null;
   }
 
-  static findNearestStructure(
-    px: number,
-    pz: number,
-    targetStructure: string
-  ): { x: number; z: number; dist: number } {
-    const norm = targetStructure.startsWith('minecraft:') ? targetStructure : `minecraft:${targetStructure}`;
+  static getStructureChunk(rx: number, rz: number, structType: string): { cx: number; cz: number } {
+    let norm = structType.toLowerCase().replace('minecraft:', '');
+    if (norm.startsWith('village')) norm = 'village';
+    else if (norm.startsWith('abandoned_camp')) norm = 'abandoned_camp';
+    else if (norm.startsWith('ruined_portal')) norm = 'ruined_portal';
+
     let structHash = this.seed ^ 0x5a5a;
     for (let i = 0; i < norm.length; i++) {
       structHash = (Math.imul(31, structHash) + norm.charCodeAt(i)) | 0;
     }
     structHash = Math.abs(structHash);
 
+    const spacing = norm.includes('mansion') ? 80 : norm.includes('ancient_city') ? 24 : 32;
+    const offX = Math.floor(this.hash2D(rx, rz, (structHash % 1000) + 11) * (spacing - 8) + 4);
+    const offZ = Math.floor(this.hash2D(rx, rz, (structHash % 1000) + 22) * (spacing - 8) + 4);
+    return {
+      cx: rx * spacing + offX,
+      cz: rz * spacing + offZ,
+    };
+  }
+
+  static findNearestStructure(
+    px: number,
+    pz: number,
+    targetStructure: string
+  ): { x: number; z: number; dist: number } {
+    const norm = targetStructure.startsWith('minecraft:') ? targetStructure : `minecraft:${targetStructure}`;
     const spacing = norm.includes('mansion') ? 80 : norm.includes('ancient_city') ? 24 : 32;
     const regSize = spacing * 16;
     const regX = Math.floor(px / regSize);
@@ -228,14 +243,13 @@ export class WorldGen26_3 {
     let bestX = Math.floor(px);
     let bestZ = Math.floor(pz);
 
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      for (let dz = -3; dz <= 3; dz++) {
         const rx = regX + dx;
         const rz = regZ + dz;
-        const offX = Math.floor(this.hash2D(rx, rz, (structHash % 1000) + 11) * (spacing - 8) + 4) * 16;
-        const offZ = Math.floor(this.hash2D(rx, rz, (structHash % 1000) + 22) * (spacing - 8) + 4) * 16;
-        const sx = rx * regSize + offX;
-        const sz = rz * regSize + offZ;
+        const target = this.getStructureChunk(rx, rz, norm);
+        const sx = target.cx * 16 + 8;
+        const sz = target.cz * 16 + 8;
         const d = Math.hypot(sx - px, sz - pz);
         if (d < bestDist) {
           bestDist = d;
@@ -504,13 +518,162 @@ export class WorldGen26_3 {
     };
   }
 
+  static placeVillage(
+    chunk: Chunk,
+    cx: number,
+    cz: number,
+    baseY: number,
+    biomeId: string
+  ): { villagers: Array<{ type: string; x: number; y: number; z: number }> } {
+    const villagers: Array<{ type: string; x: number; y: number; z: number }> = [];
+    const isDesert = biomeId.includes('desert');
+    const isTaiga = biomeId.includes('taiga') || biomeId.includes('snowy');
+    const isSavanna = biomeId.includes('savanna');
+
+    const wallBlock = isDesert ? 'sandstone' : isTaiga ? 'spruce_planks' : isSavanna ? 'acacia_planks' : 'oak_planks';
+    const logBlock = isDesert ? 'sandstone' : isTaiga ? 'spruce_log' : isSavanna ? 'acacia_log' : 'oak_log';
+    const cobbleBlock = isDesert ? 'sandstone' : 'cobblestone';
+    const pathBlock = isDesert ? 'sandstone' : 'dirt_path';
+
+    const wallId = Registries.getBlock(wallBlock).numId;
+    const logId = Registries.getBlock(logBlock).numId;
+    const cobbleId = Registries.getBlock(cobbleBlock).numId;
+    const pathId = Registries.getBlock(pathBlock)?.numId || cobbleId;
+    const glassId = Registries.getBlock('glass').numId;
+    const waterId = Registries.getBlock('water').numId;
+    const torchId = Registries.getBlock('torch').numId;
+    const craftingId = Registries.getBlock('crafting_table').numId;
+    const bedId = Registries.getBlock('straw_bed').numId;
+    const chestId = Registries.getBlock('chest').numId;
+    const fenceId = Registries.getBlock(isTaiga ? 'spruce_planks' : 'oak_planks').numId;
+
+    const setSafe = (lx: number, y: number, lz: number, numId: number) => {
+      if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE && y >= 1 && y < CHUNK_HEIGHT) {
+        chunk.setBlock(lx, y, lz, numId);
+      }
+    };
+
+    // 1. Central Village Well at lx: 6..9, lz: 6..9
+    for (let x = 6; x <= 9; x++) {
+      for (let z = 6; z <= 9; z++) {
+        for (let y = baseY - 4; y <= baseY; y++) {
+          setSafe(x, y, z, cobbleId);
+        }
+        if (x >= 7 && x <= 8 && z >= 7 && z <= 8) {
+          setSafe(x, baseY, z, waterId);
+          setSafe(x, baseY - 1, z, waterId);
+          setSafe(x, baseY - 2, z, waterId);
+        }
+        const isCorner = (x === 6 || x === 9) && (z === 6 || z === 9);
+        if (isCorner) {
+          setSafe(x, baseY + 1, z, fenceId);
+          setSafe(x, baseY + 2, z, fenceId);
+        }
+        setSafe(x, baseY + 3, z, cobbleId);
+      }
+    }
+
+    // 2. Village House (lx: 1..5, lz: 1..5)
+    for (let x = 1; x <= 5; x++) {
+      for (let z = 1; z <= 5; z++) {
+        setSafe(x, baseY, z, cobbleId);
+        for (let y = baseY + 1; y <= baseY + 4; y++) setSafe(x, y, z, 0);
+        const isWall = x === 1 || x === 5 || z === 1 || z === 5;
+        const isCorner = (x === 1 || x === 5) && (z === 1 || z === 5);
+        if (isWall) {
+          for (let y = baseY + 1; y <= baseY + 3; y++) {
+            if (isCorner) {
+              setSafe(x, y, z, logId);
+            } else if (y === baseY + 2 && (x === 3 || z === 3) && !(x === 3 && z === 1)) {
+              setSafe(x, y, z, glassId);
+            } else if (x === 3 && z === 1 && (y === baseY + 1 || y === baseY + 2)) {
+              setSafe(x, y, z, 0); // Doorway
+            } else {
+              setSafe(x, y, z, wallId);
+            }
+          }
+        }
+        setSafe(x, baseY + 4, z, logId);
+      }
+    }
+    setSafe(2, baseY + 1, 4, bedId);
+    setSafe(4, baseY + 1, 4, craftingId);
+    setSafe(4, baseY + 1, 2, chestId);
+    setSafe(3, baseY + 3, 2, torchId);
+
+    // 3. Second Cottage / Library (lx: 10..15, lz: 1..6)
+    for (let x = 10; x <= 14; x++) {
+      for (let z = 1; z <= 5; z++) {
+        setSafe(x, baseY, z, cobbleId);
+        for (let y = baseY + 1; y <= baseY + 4; y++) setSafe(x, y, z, 0);
+        const isWall = x === 10 || x === 14 || z === 1 || z === 5;
+        const isCorner = (x === 10 || x === 14) && (z === 1 || z === 5);
+        if (isWall) {
+          for (let y = baseY + 1; y <= baseY + 3; y++) {
+            if (isCorner) setSafe(x, y, z, cobbleId);
+            else if (x === 10 && z === 3 && (y === baseY + 1 || y === baseY + 2)) setSafe(x, y, z, 0);
+            else setSafe(x, y, z, wallId);
+          }
+        }
+        setSafe(x, baseY + 4, z, cobbleId);
+      }
+    }
+    setSafe(13, baseY + 1, 4, chestId);
+    setSafe(11, baseY + 1, 2, craftingId);
+
+    // 4. Village Crop Farm (lx: 2..6, lz: 10..15)
+    const farmlandId = Registries.getBlock('dirt')?.numId || cobbleId;
+    const cropId = Registries.getBlock('wheat')?.numId || Registries.getBlock('dandelion')?.numId || 0;
+    for (let x = 2; x <= 6; x++) {
+      for (let z = 10; z <= 15; z++) {
+        setSafe(x, baseY, z, farmlandId);
+        for (let y = baseY + 1; y <= baseY + 3; y++) setSafe(x, y, z, 0);
+        if (x === 4) {
+          setSafe(x, baseY, z, waterId);
+        } else if (cropId) {
+          setSafe(x, baseY + 1, z, cropId);
+        }
+      }
+    }
+
+    // 5. Connecting Paths
+    for (let pz = 1; pz < 15; pz++) {
+      setSafe(7, baseY, pz, pathId);
+      setSafe(8, baseY, pz, pathId);
+    }
+    for (let px = 1; px < 15; px++) {
+      setSafe(px, baseY, 7, pathId);
+      setSafe(px, baseY, 8, pathId);
+    }
+
+    // 6. Lamp posts
+    setSafe(5, baseY + 1, 6, fenceId);
+    setSafe(5, baseY + 2, 6, fenceId);
+    setSafe(5, baseY + 3, 6, torchId);
+
+    setSafe(10, baseY + 1, 9, fenceId);
+    setSafe(10, baseY + 2, 9, fenceId);
+    setSafe(10, baseY + 3, 9, torchId);
+
+    // Record Villagers & Golem positions to spawn
+    const wx = cx * CHUNK_SIZE;
+    const wz = cz * CHUNK_SIZE;
+    villagers.push({ type: 'villager', x: wx + 7.5, y: baseY + 1, z: wz + 5.5 });
+    villagers.push({ type: 'villager', x: wx + 11.5, y: baseY + 1, z: wz + 3.5 });
+    villagers.push({ type: 'iron_golem', x: wx + 8.5, y: baseY + 1, z: wz + 11.5 });
+
+    return { villagers };
+  }
+
   static generateChunk(cx: number, cz: number): {
     chunk: Chunk;
     cushions: CushionEntityData[];
     camp?: AbandonedCampLocation;
+    mobs?: Array<{ type: string; x: number; y: number; z: number }>;
   } {
     const chunk = new Chunk(cx, cz);
     const cushions: CushionEntityData[] = [];
+    const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
     let camp: AbandonedCampLocation | undefined;
 
     const bedrockId = Registries.getBlock('bedrock').numId;
@@ -709,11 +872,26 @@ export class WorldGen26_3 {
       camp = res.campPos;
     }
 
+    // Check if this chunk hosts a Village structure matching /locate structure village
+    const villageTarget = this.getStructureChunk(rx, rz, 'village');
+    const isVillageChunk =
+      cx === villageTarget.cx &&
+      cz === villageTarget.cz &&
+      !isWildernessCampChunk &&
+      heightMap[7 * CHUNK_SIZE + 7] > SEA_LEVEL + 2;
+
+    if (isVillageChunk) {
+      const centerH = Math.max(SEA_LEVEL + 2, heightMap[7 * CHUNK_SIZE + 7]);
+      const biomeId = chunk.biomes[7 * CHUNK_SIZE + 7] || 'minecraft:plains';
+      const res = WorldGen26_3.placeVillage(chunk, cx, cz, centerH, biomeId);
+      mobs.push(...res.villagers);
+    }
+
     // Place Trees & Flora based on Biome
     for (let lz = 3; lz < CHUNK_SIZE - 3; lz += 4) {
       for (let lx = 3; lx < CHUNK_SIZE - 3; lx += 4) {
-        if (isWildernessCampChunk && lx >= 1 && lx <= 12 && lz >= 1 && lz <= 12) {
-          continue; // Clear campsite clearing while preserving forest surrounding the camp
+        if ((isWildernessCampChunk || isVillageChunk) && lx >= 1 && lx <= 15 && lz >= 1 && lz <= 15) {
+          continue; // Clear campsite or village clearing while preserving forest surrounding the area
         }
         const wx = cx * CHUNK_SIZE + lx;
         const wz = cz * CHUNK_SIZE + lz;
@@ -783,7 +961,7 @@ export class WorldGen26_3 {
       }
     }
 
-    return { chunk, cushions, camp };
+    return { chunk, cushions, camp, mobs };
   }
 
   static placeClassicTree(

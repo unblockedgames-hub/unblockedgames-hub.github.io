@@ -171,6 +171,9 @@ export class UIManager {
   public commandSuggestionHint = '';
   public commandTokenStart = 0;
   public commandTokenEnd = 0;
+  private isTabCycling = false;
+  private tabCycleBaseText = '';
+  private tabCycleTokenStart = 0;
   private commandHistory: string[] = [];
   private commandHistoryIdx = -1;
   private heldItemTooltipTimer = 0;
@@ -292,6 +295,8 @@ export class UIManager {
       this.commandSuggestions = [];
       this.commandSuggestionHint = '';
       this.commandSuggestionIndex = 0;
+      this.isTabCycling = false;
+      this.tabCycleBaseText = '';
     }
 
     this.render();
@@ -479,8 +484,9 @@ export class UIManager {
           if (targetIdx >= 0 && targetIdx < this.commandSuggestions.length) {
             const selected = this.commandSuggestions[targetIdx];
             if (selected && !selected.startsWith('<')) {
-              const before = this.chatInputText.slice(0, this.commandTokenStart);
+              const before = this.isTabCycling ? this.tabCycleBaseText : this.chatInputText.slice(0, this.commandTokenStart);
               this.chatInputText = before + selected + ' ';
+              this.isTabCycling = false;
               this.updateCommandAutofill();
               AudioEngine.play('ui.button.click', 0.6);
             }
@@ -652,8 +658,12 @@ export class UIManager {
           if (this.commandSuggestions.length > 0) {
             this.commandSuggestions = [];
             this.commandSuggestionHint = '';
+            this.isTabCycling = false;
+            this.tabCycleBaseText = '';
           } else {
             this.chatInputText = '';
+            this.isTabCycling = false;
+            this.tabCycleBaseText = '';
             this.setState('IN_GAME');
           }
           return;
@@ -663,24 +673,33 @@ export class UIManager {
         }
       }
 
-      // Tab key autocompletes or cycles command suggestions (Shift+Tab cycles backward)
+      // Tab key cycles through candidate suggestions without committing until space is typed
       if (this.state === 'CHAT' && e.key === 'Tab') {
         e.preventDefault();
         if (this.commandSuggestions.length > 0) {
-          if (e.shiftKey) {
-            this.commandSuggestionIndex =
-              (this.commandSuggestionIndex - 1 + this.commandSuggestions.length) %
-              this.commandSuggestions.length;
-          }
-          const selected = this.commandSuggestions[this.commandSuggestionIndex];
-          if (selected && !selected.startsWith('<')) {
-            const before = this.chatInputText.slice(0, this.commandTokenStart);
-            this.chatInputText = before + selected + (this.commandSuggestions.length === 1 ? ' ' : '');
-            if (!e.shiftKey) {
+          if (!this.isTabCycling) {
+            this.isTabCycling = true;
+            this.tabCycleBaseText = this.chatInputText.slice(0, this.commandTokenStart);
+            this.tabCycleTokenStart = this.commandTokenStart;
+            if (e.shiftKey) {
+              this.commandSuggestionIndex = this.commandSuggestions.length - 1;
+            }
+          } else {
+            if (e.shiftKey) {
+              this.commandSuggestionIndex =
+                (this.commandSuggestionIndex - 1 + this.commandSuggestions.length) %
+                this.commandSuggestions.length;
+            } else {
               this.commandSuggestionIndex =
                 (this.commandSuggestionIndex + 1) % this.commandSuggestions.length;
             }
-            this.updateCommandAutofill();
+          }
+
+          const selected = this.commandSuggestions[this.commandSuggestionIndex];
+          if (selected && !selected.startsWith('<')) {
+            // Apply selected suggestion WITHOUT committing or appending trailing space
+            this.chatInputText = this.tabCycleBaseText + selected;
+            // Note: do NOT call updateCommandAutofill() so suggestions list is preserved for subsequent Tabs
           }
         }
         return;
@@ -690,9 +709,18 @@ export class UIManager {
       if (this.state === 'CHAT' && e.key === 'ArrowUp') {
         e.preventDefault();
         if (this.commandSuggestions.length > 0) {
+          if (!this.isTabCycling) {
+            this.isTabCycling = true;
+            this.tabCycleBaseText = this.chatInputText.slice(0, this.commandTokenStart);
+            this.tabCycleTokenStart = this.commandTokenStart;
+          }
           this.commandSuggestionIndex =
             (this.commandSuggestionIndex - 1 + this.commandSuggestions.length) %
             this.commandSuggestions.length;
+          const selected = this.commandSuggestions[this.commandSuggestionIndex];
+          if (selected && !selected.startsWith('<')) {
+            this.chatInputText = this.tabCycleBaseText + selected;
+          }
         } else if (this.commandHistory.length > 0) {
           if (this.commandHistoryIdx === -1) {
             this.commandHistoryIdx = this.commandHistory.length - 1;
@@ -708,8 +736,17 @@ export class UIManager {
       if (this.state === 'CHAT' && e.key === 'ArrowDown') {
         e.preventDefault();
         if (this.commandSuggestions.length > 0) {
+          if (!this.isTabCycling) {
+            this.isTabCycling = true;
+            this.tabCycleBaseText = this.chatInputText.slice(0, this.commandTokenStart);
+            this.tabCycleTokenStart = this.commandTokenStart;
+          }
           this.commandSuggestionIndex =
             (this.commandSuggestionIndex + 1) % this.commandSuggestions.length;
+          const selected = this.commandSuggestions[this.commandSuggestionIndex];
+          if (selected && !selected.startsWith('<')) {
+            this.chatInputText = this.tabCycleBaseText + selected;
+          }
         } else if (this.commandHistoryIdx !== -1) {
           if (this.commandHistoryIdx < this.commandHistory.length - 1) {
             this.commandHistoryIdx++;
@@ -921,6 +958,8 @@ export class UIManager {
           this.commandSuggestions = [];
           this.commandSuggestionHint = '';
           this.commandHistoryIdx = -1;
+          this.isTabCycling = false;
+          this.tabCycleBaseText = '';
           if (msg) {
             if (this.commandHistory[this.commandHistory.length - 1] !== msg) {
               this.commandHistory.push(msg);
@@ -981,6 +1020,8 @@ export class UIManager {
         this.creativeScrollRow = 0;
         break;
       case 'chat':
+        this.isTabCycling = false;
+        this.tabCycleBaseText = '';
         this.chatInputText = fn(this.chatInputText);
         this.updateCommandAutofill();
         break;
@@ -988,6 +1029,7 @@ export class UIManager {
   }
 
   public updateCommandAutofill(): void {
+    if (this.isTabCycling) return;
     if (this.chatInputText.startsWith('/')) {
       const res = CommandEngine.getSuggestions(this.chatInputText);
       this.commandSuggestions = res.suggestions;

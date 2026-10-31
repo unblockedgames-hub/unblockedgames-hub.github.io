@@ -84,6 +84,12 @@ export class World {
         if (gen.camp) {
           this.abandonedCamps.push(gen.camp);
         }
+        if (gen.mobs) {
+          for (const m of gen.mobs) {
+            const mid = `${m.type}_${Math.floor(m.x)}_${Math.floor(m.y)}_${Math.floor(m.z)}`;
+            this.entityRenderer.spawnMob(mid, m.type as any, m.x, m.y, m.z);
+          }
+        }
       }
       this.chunks.set(key, chunk);
 

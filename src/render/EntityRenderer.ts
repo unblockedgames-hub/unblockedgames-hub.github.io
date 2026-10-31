@@ -459,13 +459,13 @@ export class EntityRenderer {
       body.mesh.position.set(0, 17 / 16, -1 / 16);
 
       // Official Cow udder: texOffs(52, 0) box (-2, 2, -8, 4, 6, 1) under belly towards rear
-      const udderGeo = new THREE.BoxGeometry(4 / 16, 1.5 / 16, 6 / 16);
+      const udderGeo = new THREE.BoxGeometry(4 / 16, 1 / 16, 6 / 16);
       const udderMats = Array.from(
         { length: 6 },
         () => new THREE.MeshLambertMaterial({ color: 0xf0a5a2 })
       );
       const udderMesh = new THREE.Mesh(udderGeo, udderMats);
-      udderMesh.position.set(0, 11.25 / 16, -4 / 16);
+      udderMesh.position.set(0, 11.5 / 16, -7 / 16);
 
       // Front legs at z = +6/16, Hind legs at z = -7/16, hip pivot at y = 12/16
       const legCoords: Array<[number, number]> = [
@@ -490,11 +490,20 @@ export class EntityRenderer {
         rHorn.applyTexture(img, 22, 0);
         lHorn.applyTexture(img, 22, 0);
         body.applyTexture(img, 18, 4);
-        // Map udder textures (bottom face at index 3 displays the 4 teats)
-        const udderBottom = this.cropSubTexture(img, 52, 0, 4, 6);
-        const udderSide = this.cropSubTexture(img, 52, 0, 4, 2);
+        // Map udder textures:
+        // In Three.js BoxGeometry: 0:+X, 1:-X, 2:+Y (top attached to belly), 3:-Y (bottom facing ground with teats), 4:+Z, 5:-Z
+        const udderBottom = this.cropSubTexture(img, 53, 1, 4, 6);
+        const udderSideX1 = this.cropSubTexture(img, 52, 1, 1, 6);
+        const udderSideX2 = this.cropSubTexture(img, 57, 1, 1, 6);
+        const udderEnd1 = this.cropSubTexture(img, 53, 0, 4, 1);
+        const udderEnd2 = this.cropSubTexture(img, 57, 0, 4, 1);
+        udderMats[0].map = udderSideX1;
+        udderMats[1].map = udderSideX2;
+        udderMats[2].map = udderEnd1;
+        udderMats[3].map = udderBottom;
+        udderMats[4].map = udderEnd1;
+        udderMats[5].map = udderEnd2;
         for (let i = 0; i < 6; i++) {
-          udderMats[i].map = i === 3 ? udderBottom : udderSide;
           udderMats[i].color.setHex(0xffffff);
           udderMats[i].needsUpdate = true;
         }
