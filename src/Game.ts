@@ -321,6 +321,20 @@ export class Game {
       // Keyboard keybind support for Use Item / Place Block
       if (kb?.use && e.code === kb.use && this.ui.state === 'IN_GAME') {
         e.preventDefault();
+        const held = this.inventory.getHeldStack();
+        const offhand = this.inventory.offhandSlot;
+        if (held && held.item.shortId === 'bow') {
+          const hasArrow =
+            this.inventory.countItem('arrow') > 0 || this.player.gameMode === 'creative';
+          if (hasArrow) {
+            this.player.isPullingBow = true;
+            this.player.bowPullTime = 0.0;
+            return;
+          }
+        } else if (held?.item.shortId === 'shield' || offhand?.item.shortId === 'shield') {
+          this.player.isBlocking = true;
+          return;
+        }
         this.handleRightClickInteractOrPlace();
         return;
       }
@@ -512,6 +526,19 @@ export class Game {
         this.player.isMining = false;
         this.player.resetMining();
       }
+      if (kb?.use && e.code === kb.use) {
+        if (this.player.isBlocking) {
+          this.player.isBlocking = false;
+        }
+        if (this.player.isPullingBow) {
+          const pull = Math.min(1.0, this.player.bowPullTime);
+          this.player.isPullingBow = false;
+          this.player.bowPullTime = 0;
+          if (pull >= 0.1) {
+            this.shootBow(pull);
+          }
+        }
+      }
     });
 
     window.addEventListener('blur', () => {
@@ -616,6 +643,9 @@ export class Game {
             }
           );
           if (res.hit) {
+            if (this.player.gameMode === 'survival') {
+              this.inventory.damageHeldItem(1);
+            }
             const hurtSound =
               mobHit.mob.type === 'cow'
                 ? 'entity.cow.hurt'
@@ -647,8 +677,18 @@ export class Game {
                 mobHit.mob.z
               );
             }
-            if (res.killed && mobHit.mob.type === 'zombie') {
-              this.ui.unlockAdvancement('monster_hunter');
+            if (res.killed) {
+              this.player.addExperience(
+                mobHit.mob.type === 'zombie' ||
+                mobHit.mob.type === 'skeleton' ||
+                mobHit.mob.type === 'spider' ||
+                mobHit.mob.type === 'creeper'
+                  ? 5
+                  : 2
+              );
+              if (mobHit.mob.type === 'zombie') {
+                this.ui.unlockAdvancement('monster_hunter');
+              }
             }
           }
           return;
@@ -661,6 +701,20 @@ export class Game {
           this.player.creativeBreakCooldown = 0.22;
         }
       } else if (isUseMatch) {
+        const held = this.inventory.getHeldStack();
+        const offhand = this.inventory.offhandSlot;
+        if (held && held.item.shortId === 'bow') {
+          const hasArrow =
+            this.inventory.countItem('arrow') > 0 || this.player.gameMode === 'creative';
+          if (hasArrow) {
+            this.player.isPullingBow = true;
+            this.player.bowPullTime = 0.0;
+            return;
+          }
+        } else if (held?.item.shortId === 'shield' || offhand?.item.shortId === 'shield') {
+          this.player.isBlocking = true;
+          return;
+        }
         this.handleRightClickInteractOrPlace();
       } else if (isPickMatch) {
         // Middle click Pick Block (Creative only or switch to matching slot in Survival)
@@ -696,6 +750,20 @@ export class Game {
       if (isAttackMatch) {
         this.player.isMining = false;
         this.player.resetMining();
+      }
+      const isUseMatch = kb?.use ? kb.use === `Mouse${e.button}` : e.button === 2;
+      if (isUseMatch) {
+        if (this.player.isBlocking) {
+          this.player.isBlocking = false;
+        }
+        if (this.player.isPullingBow) {
+          const pull = Math.min(1.0, this.player.bowPullTime);
+          this.player.isPullingBow = false;
+          this.player.bowPullTime = 0;
+          if (pull >= 0.1) {
+            this.shootBow(pull);
+          }
+        }
       }
     });
   }
@@ -958,6 +1026,17 @@ export class Game {
         if (dropId) {
           this.entityRenderer.spawnDroppedItem(hit.bx, hit.by, hit.bz, dropId, dropCount);
         }
+
+        // Damage tool durability in survival mode
+        this.inventory.damageHeldItem(1);
+
+        // Authentic XP award for mining ore blocks
+        if (id === 'coal_ore' || id === 'deepslate_coal_ore') this.player.addExperience(1);
+        else if (id === 'diamond_ore' || id === 'deepslate_diamond_ore') this.player.addExperience(5);
+        else if (id === 'emerald_ore' || id === 'deepslate_emerald_ore') this.player.addExperience(5);
+        else if (id === 'lapis_ore' || id === 'deepslate_lapis_ore') this.player.addExperience(3);
+        else if (id === 'redstone_ore' || id === 'deepslate_redstone_ore') this.player.addExperience(3);
+        else if (id === 'nether_quartz_ore') this.player.addExperience(3);
       }
     }
 
@@ -996,8 +1075,67 @@ export class Game {
     return 0x888888;
   }
 
+  private shootBow(pull: number) {
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+    const speed = pull * 45;
+    const isCrit = pull >= 0.95;
+    const damage = Math.ceil(pull * 9) + (isCrit ? Math.floor(Math.random() * 3 + 1) : 0);
+    this.entityRenderer.spawnArrow(
+      this.camera.position.x,
+      this.camera.position.y - 0.1,
+      this.camera.position.z,
+      dir.x * speed,
+      dir.y * speed,
+      dir.z * speed,
+      damage,
+      isCrit
+    );
+    AudioEngine.play('entity.arrow.shoot', 0.95, 1.0 / (Math.random() * 0.4 + 1.2));
+    if (this.player.gameMode === 'survival') {
+      this.inventory.consumeItem('arrow', 1);
+      this.inventory.damageHeldItem(1);
+      this.ui.updateHUDOnly();
+    }
+  }
+
   private handleRightClickInteractOrPlace() {
     const held = this.inventory.getHeldStack();
+
+    // Check right-clicking a mob within reach (Animal breeding / Villager trade)
+    const lookDir = new THREE.Vector3();
+    this.camera.getWorldDirection(lookDir);
+    const mobHit = this.entityRenderer.raycastMob(this.camera.position, lookDir, 3.8);
+    if (mobHit && !mobHit.mob.dead) {
+      const mob = mobHit.mob;
+      const hId = held?.item.shortId;
+      const isCowOrSheep = (mob.type === 'cow' || mob.type === 'sheep') && hId === 'wheat';
+      const isPig =
+        mob.type === 'pig' &&
+        (hId === 'carrot' || hId === 'potato' || hId === 'beetroot');
+      if (
+        (isCowOrSheep || isPig) &&
+        !mob.isBaby &&
+        (!mob.breedCooldown || mob.breedCooldown <= 0) &&
+        (!mob.inLoveTimer || mob.inLoveTimer <= 0)
+      ) {
+        mob.inLoveTimer = 30;
+        if (this.player.gameMode === 'survival') {
+          this.inventory.consumeHeld(1);
+        }
+        AudioEngine.play('entity.generic.eat', 0.85);
+        this.particleSystem.spawnHeartBurst(mob.x, mob.y + 0.8, mob.z);
+        this.firstPersonHand.triggerSwing();
+        this.player.triggerSwing();
+        this.ui.updateHUDOnly();
+        return;
+      }
+      if (mob.type === 'villager') {
+        AudioEngine.play('entity.villager.trade', 0.85);
+        this.firstPersonHand.triggerSwing();
+        return;
+      }
+    }
 
     const FOOD_PROPERTIES: Record<string, { hunger: number; saturation: number }> = {
       apple: { hunger: 4, saturation: 2.4 },
@@ -1005,8 +1143,11 @@ export class Game {
       cooked_beef: { hunger: 8, saturation: 12.8 },
       cooked_porkchop: { hunger: 8, saturation: 12.8 },
       cooked_mutton: { hunger: 6, saturation: 9.6 },
+      beef: { hunger: 3, saturation: 1.8 },
       raw_beef: { hunger: 3, saturation: 1.8 },
+      porkchop: { hunger: 3, saturation: 1.8 },
       raw_porkchop: { hunger: 3, saturation: 1.8 },
+      mutton: { hunger: 2, saturation: 1.2 },
       raw_mutton: { hunger: 2, saturation: 1.2 },
       rotten_flesh: { hunger: 4, saturation: 0.8 },
       golden_apple: { hunger: 4, saturation: 9.6 },
@@ -1388,6 +1529,36 @@ export class Game {
       this.world.checkGravity(placeX, placeY, placeZ, (bx, by, bz, blockId, targetY, meta) => {
         this.entityRenderer.spawnFallingBlock(bx, by, bz, blockId, targetY, meta);
       });
+      this.world.checkFluidContact(placeX, placeY, placeZ);
+      this.world.checkRedstone(placeX, placeY, placeZ, (tx, ty, tz) => {
+        AudioEngine.play('entity.creeper.primed', 1.0);
+        setTimeout(() => {
+          AudioEngine.play('entity.generic.explode', 1.0);
+          this.particleSystem.spawnDeathPoof(tx, ty, tz);
+          for (let ex = -3; ex <= 3; ex++) {
+            for (let ey = -3; ey <= 3; ey++) {
+              for (let ez = -3; ez <= 3; ez++) {
+                if (ex * ex + ey * ey + ez * ez <= 9) {
+                  const b = this.world.getBlock(
+                    Math.floor(tx + ex),
+                    Math.floor(ty + ey),
+                    Math.floor(tz + ez)
+                  );
+                  const bDef = Registries.getBlock(b);
+                  if (bDef && bDef.hardness >= 0 && bDef.shortId !== 'bedrock') {
+                    this.world.setBlock(
+                      Math.floor(tx + ex),
+                      Math.floor(ty + ey),
+                      Math.floor(tz + ez),
+                      0
+                    );
+                  }
+                }
+              }
+            }
+          }
+        }, 3000);
+      });
 
       AudioEngine.playBlockSound(placeDef.soundGroup, 'place');
       this.player.triggerSwing();
@@ -1684,7 +1855,14 @@ export class Game {
           const px = Math.floor(this.player.position.x);
           const py = Math.floor(this.player.position.y);
           const pz = Math.floor(this.player.position.z);
-          const hostilePool: ('zombie' | 'skeleton' | 'creeper' | 'spider')[] = ['zombie', 'skeleton', 'creeper', 'spider'];
+          const hostilePool: (
+            | 'zombie'
+            | 'skeleton'
+            | 'creeper'
+            | 'spider'
+            | 'enderman'
+            | 'slime'
+          )[] = ['zombie', 'skeleton', 'creeper', 'spider', 'enderman', 'slime'];
 
           // 1. Underground Cave Spawning: search near player's depth for dark cave floors
           const angle = Math.random() * Math.PI * 2;
@@ -1765,6 +1943,7 @@ export class Game {
 
       this.particleSystem.update(dt);
       const curDaylight = this.sunLight.intensity / 0.95;
+      const heldStack = this.inventory.getHeldStack();
       this.entityRenderer.update(
         dt,
         (x, z) => this.world.getTopSolidY(x, z),
@@ -1786,6 +1965,13 @@ export class Game {
           return b !== 0 && Registries.getBlock(b).solid;
         },
         (dmg, mobType) => {
+          if (this.player.isBlocking) {
+            AudioEngine.play('item.shield.block', 1.0);
+            if (this.player.gameMode === 'survival') {
+              this.inventory.damageHeldItem(1);
+            }
+            return;
+          }
           this.player.applyDamage(dmg, mobType);
         },
         (bx, by, bz, numId, meta, blockId) => {
@@ -1800,11 +1986,24 @@ export class Game {
             blockId === 'sand' ? 0xe3d8a8 : 0x888484
           );
         },
-        curDaylight
+        curDaylight,
+        heldStack?.item.shortId,
+        (bx, by, bz) => {
+          this.particleSystem.spawnHeartBurst(bx, by, bz);
+          this.player.addExperience(1 + Math.floor(Math.random() * 7));
+        }
       );
 
-      const heldStack = this.inventory.getHeldStack();
-      this.firstPersonHand.updateHeldItem(heldStack ? heldStack.item : null);
+      if (this.player.isPullingBow) {
+        this.player.bowPullTime += dt;
+      }
+      let textureOverride: string | undefined = undefined;
+      if (heldStack?.item.shortId === 'bow' && this.player.isPullingBow) {
+        if (this.player.bowPullTime >= 0.9) textureOverride = 'item/bow_pulling_2';
+        else if (this.player.bowPullTime >= 0.65) textureOverride = 'item/bow_pulling_1';
+        else textureOverride = 'item/bow_pulling_0';
+      }
+      this.firstPersonHand.updateHeldItem(heldStack ? heldStack.item : null, textureOverride);
       const kb = OptionsManager.current.keyBinds;
       const isMoving =
         controlsActive &&
@@ -1816,7 +2015,14 @@ export class Game {
           this.player.keys.has('KeyS') ||
           this.player.keys.has('KeyA') ||
           this.player.keys.has('KeyD'));
-      this.firstPersonHand.update(dt, isMoving, this.player.isSprinting);
+      this.firstPersonHand.update(
+        dt,
+        isMoving,
+        this.player.isSprinting,
+        this.player.isBlocking,
+        this.player.isPullingBow,
+        this.player.bowPullTime
+      );
 
       this.autoSaveTimer += dt;
       if (this.autoSaveTimer >= 3.0) {

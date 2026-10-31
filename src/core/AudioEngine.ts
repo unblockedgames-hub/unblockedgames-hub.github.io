@@ -39,13 +39,30 @@ export class AudioEngine {
     let ch = 1.0;
     if (eventName.startsWith('music.')) ch = opts.musicVolume ?? 1.0;
     else if (eventName.startsWith('block.')) ch = opts.blocksVolume ?? 1.0;
-    else if (eventName.startsWith('entity.zombie.')) ch = opts.hostileVolume ?? 1.0;
+    else if (
+      eventName.startsWith('entity.zombie.') ||
+      eventName.startsWith('entity.skeleton.') ||
+      eventName.startsWith('entity.creeper.') ||
+      eventName.startsWith('entity.spider.') ||
+      eventName.startsWith('entity.enderman.') ||
+      eventName.startsWith('entity.slime.') ||
+      eventName.startsWith('entity.ender_dragon.')
+    )
+      ch = opts.hostileVolume ?? 1.0;
     else if (
       eventName.startsWith('entity.cow.') ||
       eventName.startsWith('entity.sheep.') ||
-      eventName.startsWith('entity.pig.')
+      eventName.startsWith('entity.pig.') ||
+      eventName.startsWith('entity.villager.') ||
+      eventName.startsWith('entity.iron_golem.')
     )
       ch = opts.friendlyVolume ?? 1.0;
+    else if (
+      eventName.startsWith('entity.player.') ||
+      eventName.startsWith('entity.arrow.') ||
+      eventName.startsWith('item.shield.')
+    )
+      ch = 1.0;
 
     return Math.min(1.0, baseVol * (opts.soundVolume ?? 0.8) * ch);
   }

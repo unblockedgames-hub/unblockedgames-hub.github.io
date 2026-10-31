@@ -57,6 +57,21 @@ export class Player {
   xpLevel = 0;
   xpProgress = 0.0;
 
+  // Oxygen & Drowning System (300 ticks = 15 seconds)
+  airSupply = 300;
+  maxAirSupply = 300;
+  drownTimer = 0;
+
+  // Combat & Item Use: Archery & Shield Blocking
+  isBlocking = false;
+  isPullingBow = false;
+  bowPullTime = 0.0;
+
+  // Eating System
+  isEating = false;
+  eatTimer = 0;
+  eatSoundTimer = 0;
+
   // 26.3 Cushion Sitting State (`net.minecraft.world.entity.decoration.Cushion`)
   seatedCushion: CushionEntityData | null = null;
 
@@ -247,6 +262,31 @@ export class Player {
       }
       AudioEngine.play('entity.player.death', 1.0);
       this.onPlayerDeath?.();
+    }
+  }
+
+  addExperience(amount: number) {
+    if (this.gameMode !== 'survival' || amount <= 0) return;
+    const neededForLevel = (lvl: number) => {
+      if (lvl >= 30) return 112 + (lvl - 30) * 9;
+      if (lvl >= 15) return 37 + (lvl - 15) * 5;
+      return 7 + lvl * 2;
+    };
+
+    let remaining = amount;
+    while (remaining > 0) {
+      const needed = neededForLevel(this.xpLevel);
+      const currentPts = this.xpProgress * needed;
+      const toAdd = Math.min(remaining, needed - currentPts);
+      remaining -= toAdd;
+      const newPts = currentPts + toAdd;
+      if (newPts >= needed) {
+        this.xpLevel++;
+        this.xpProgress = 0;
+        AudioEngine.play('entity.player.levelup', 0.85);
+      } else {
+        this.xpProgress = newPts / needed;
+      }
     }
   }
 
@@ -505,7 +545,7 @@ export class Player {
     let targetSpeed = 4.317;
     if (this.flying || this.gameMode === 'spectator') {
       targetSpeed = this.isSprinting ? 21.6 : 10.9;
-    } else if (this.isSneaking) {
+    } else if (this.isBlocking || this.isPullingBow || this.isSneaking) {
       targetSpeed = 1.31;
     } else if (this.isSprinting) {
       targetSpeed = 5.612;
@@ -680,6 +720,46 @@ export class Player {
       this.velocity.y = 0;
     }
 
+    // Water detection at feet & eyes
+    const currentFeetBlock = this.world.getBlock(
+      Math.floor(this.position.x),
+      Math.floor(this.position.y),
+      Math.floor(this.position.z)
+    );
+    const feetDef = Registries.getBlock(currentFeetBlock);
+    this.inWater = feetDef.fluid === 'water';
+
+    const eyeBlock = this.world.getBlock(
+      Math.floor(this.position.x),
+      Math.floor(this.position.y + this.currentEyeHeight),
+      Math.floor(this.position.z)
+    );
+    const eyeDef = Registries.getBlock(eyeBlock);
+    const eyesUnderwater = eyeDef.fluid === 'water';
+
+    if (this.gameMode === 'survival') {
+      if (eyesUnderwater) {
+        this.airSupply = Math.max(0, this.airSupply - 20 * dt);
+        if (this.airSupply <= 0) {
+          this.drownTimer += dt;
+          if (this.drownTimer >= 1.0) {
+            this.drownTimer = 0;
+            this.applyDamage(2, 'drown');
+            AudioEngine.play('entity.player.hurt_drown', 0.85);
+          }
+        }
+      } else {
+        this.airSupply = 300;
+        this.drownTimer = 0;
+      }
+    } else {
+      this.airSupply = 300;
+    }
+
+    if (this.inWater) {
+      this.fallDistance = 0; // Negate all fall damage in water like vanilla Minecraft!
+    }
+
     if (!this.onGround && !this.flying && !this.inWater) {
       if (this.velocity.y < 0) {
         this.fallDistance += -this.velocity.y * dt;
@@ -781,13 +861,16 @@ export class Player {
     this.currentEyeHeight +=
       (targetEye - this.currentEyeHeight) * Math.min(1, dt * 16);
 
-    // Dynamic FOV kick for Sprinting / Flying
-    const targetFovMult =
+    // Dynamic FOV kick for Sprinting / Flying / Bow Pulling
+    let targetFovMult =
       this.flying && this.isSprinting
         ? 1.16
         : this.isSprinting || this.flying
         ? 1.1
         : 1.0;
+    if (this.isPullingBow) {
+      targetFovMult -= Math.min(this.bowPullTime, 1.0) * 0.15;
+    }
     this.currentFovMultiplier +=
       (targetFovMult - this.currentFovMultiplier) * Math.min(1, dt * 10);
     const desiredFov = OptionsManager.current.fov * this.currentFovMultiplier;

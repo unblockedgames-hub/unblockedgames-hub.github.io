@@ -829,6 +829,39 @@ export class Registries {
       category: 'functional',
     });
     this.registerBlock({
+      shortId: 'redstone_torch',
+      shape: 'torch',
+      transparent: true,
+      solid: false,
+      lightEmission: 7,
+      hardness: 0,
+      soundGroup: 'wood',
+      textures: this.allFaces('redstone_torch'),
+      category: 'redstone',
+    });
+    this.registerBlock({
+      shortId: 'lever',
+      shape: 'torch',
+      transparent: true,
+      solid: false,
+      lightEmission: 0,
+      hardness: 0.5,
+      soundGroup: 'wood',
+      textures: this.allFaces('lever'),
+      category: 'redstone',
+    });
+    this.registerBlock({
+      shortId: 'redstone_wire',
+      shape: 'carpet',
+      transparent: true,
+      solid: false,
+      lightEmission: 0,
+      hardness: 0,
+      soundGroup: 'sand',
+      textures: this.allFaces('redstone_dust_dot'),
+      category: 'redstone',
+    });
+    this.registerBlock({
       shortId: 'lantern',
       shape: 'cross',
       transparent: true,
@@ -974,6 +1007,12 @@ export class Registries {
       ['packed_ice', 'natural', 'glass', 0.5],
       ['blue_ice', 'natural', 'glass', 2.8],
       ['bookshelf', 'functional', 'wood', 1.5],
+      ['tnt', 'redstone', 'grass', 0.0],
+      ['redstone_block', 'redstone', 'stone', 5.0],
+      ['redstone_lamp', 'redstone', 'glass', 0.3],
+      ['redstone_lamp_on', 'redstone', 'glass', 0.3],
+      ['dragon_egg', 'natural', 'stone', 3.0],
+      ['end_portal_frame', 'functional', 'glass', -1.0],
     ];
 
     for (const [shortId, category, soundGroup, hardness, transparent] of simpleCubes) {
@@ -983,6 +1022,10 @@ export class Registries {
             ? this.topBottomSide('oak_planks', 'oak_planks', 'bookshelf')
             : shortId === 'deepslate'
             ? this.topBottomSide('deepslate_top', 'deepslate_top', 'deepslate')
+            : shortId === 'tnt'
+            ? this.topBottomSide('tnt_top', 'tnt_bottom', 'tnt_side')
+            : shortId === 'end_portal_frame'
+            ? this.topBottomSide('end_portal_frame_top', 'end_stone', 'end_portal_frame_side')
             : this.allFaces(shortId);
         this.registerBlock({
           shortId,
@@ -990,7 +1033,10 @@ export class Registries {
           transparent: !!transparent,
           solid: true,
           lightEmission:
-            shortId === 'glowstone' || shortId === 'shroomlight' || shortId === 'sea_lantern'
+            shortId === 'glowstone' ||
+            shortId === 'shroomlight' ||
+            shortId === 'sea_lantern' ||
+            shortId === 'redstone_lamp_on'
               ? 15
               : shortId === 'crying_obsidian'
               ? 10

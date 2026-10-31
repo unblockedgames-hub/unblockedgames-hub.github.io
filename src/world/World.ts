@@ -6,6 +6,7 @@ import { TextureAtlas } from '../render/TextureAtlas';
 import { EntityRenderer } from '../render/EntityRenderer';
 import { ParticleSystem } from '../render/ParticleSystem';
 import { OptionsManager } from '../core/Options';
+import { AudioEngine } from '../core/AudioEngine';
 
 export class World {
   scene: THREE.Scene;
@@ -18,12 +19,15 @@ export class World {
   timeOfDay = 1000; // 0..24000 ticks (1000 = Morning, 6000 = Noon, 13000 = Dusk, 18000 = Midnight)
   worldName = 'Wilderness Bound (26.3)';
   blockDiffs = new Map<string, { numId: number; meta: number }>();
-  dimension: 'overworld' | 'nether' = 'overworld';
+  dimension: 'overworld' | 'nether' | 'the_end' = 'overworld';
   allowCommands: boolean = true;
   overworldChunks = new Map<string, Chunk>();
   netherChunks = new Map<string, Chunk>();
+  endChunks = new Map<string, Chunk>();
   overworldDiffs = new Map<string, { numId: number; meta: number }>();
   netherDiffs = new Map<string, { numId: number; meta: number }>();
+  endDiffs = new Map<string, { numId: number; meta: number }>();
+  dragonSpawned = false;
 
   constructor(scene: THREE.Scene, entityRenderer: EntityRenderer, particleSystem: ParticleSystem) {
     this.scene = scene;
@@ -60,6 +64,17 @@ export class World {
       if (this.dimension === 'nether') {
         const gen = WorldGen26_3.generateNetherChunk(cx, cz);
         chunk = gen.chunk;
+      } else if (this.dimension === 'the_end') {
+        const gen = WorldGen26_3.generateEndChunk(cx, cz);
+        chunk = gen.chunk;
+        for (const cry of gen.crystals) {
+          const cid = `crystal_${cry.x}_${cry.y}_${cry.z}`;
+          this.entityRenderer.spawnMob(cid, 'end_crystal', cry.x, cry.y, cry.z);
+        }
+        if (!this.dragonSpawned && Math.abs(cx) <= 1 && Math.abs(cz) <= 1) {
+          this.dragonSpawned = true;
+          this.entityRenderer.spawnMob('ender_dragon_boss', 'ender_dragon', 0, 75, 0, 'Ender Dragon');
+        }
       } else {
         const gen = WorldGen26_3.generateChunk(cx, cz);
         chunk = gen.chunk;
@@ -99,7 +114,7 @@ export class World {
     return chunk;
   }
 
-  switchDimension(target: 'overworld' | 'nether'): void {
+  switchDimension(target: 'overworld' | 'nether' | 'the_end'): void {
     if (this.dimension === target) return;
     for (const chunk of this.chunks.values()) {
       if (chunk.solidMesh) this.scene.remove(chunk.solidMesh);
@@ -108,15 +123,28 @@ export class World {
     if (this.dimension === 'overworld') {
       this.overworldChunks = new Map(this.chunks);
       this.overworldDiffs = new Map(this.blockDiffs);
-    } else {
+    } else if (this.dimension === 'nether') {
       this.netherChunks = new Map(this.chunks);
       this.netherDiffs = new Map(this.blockDiffs);
+    } else {
+      this.endChunks = new Map(this.chunks);
+      this.endDiffs = new Map(this.blockDiffs);
     }
     this.dimension = target;
     this.chunks.clear();
     this.blockDiffs.clear();
-    const sourceChunks = target === 'overworld' ? this.overworldChunks : this.netherChunks;
-    const sourceDiffs = target === 'overworld' ? this.overworldDiffs : this.netherDiffs;
+    const sourceChunks =
+      target === 'overworld'
+        ? this.overworldChunks
+        : target === 'nether'
+        ? this.netherChunks
+        : this.endChunks;
+    const sourceDiffs =
+      target === 'overworld'
+        ? this.overworldDiffs
+        : target === 'nether'
+        ? this.netherDiffs
+        : this.endDiffs;
     for (const [k, v] of sourceChunks) {
       v.dirty = true;
       this.chunks.set(k, v);
@@ -136,6 +164,11 @@ export class World {
         if (wy <= 0 || wy >= 127) return Registries.getBlock('bedrock').numId;
         if (wy <= 31) return Registries.getBlock('lava').numId;
         return Registries.getBlock('netherrack').numId;
+      }
+      if (this.dimension === 'the_end') {
+        const d = Math.hypot(wx, wz);
+        if (d < 75 && wy >= 35 && wy <= 62) return Registries.getBlock('end_stone')?.numId || 1;
+        return 0;
       }
       return WorldGen26_3.getBlockAt(wx, Math.floor(wy), wz);
     }
@@ -230,6 +263,108 @@ export class World {
         if (def && def.solid) break;
       }
       curY++;
+    }
+  }
+
+  checkFluidContact(bx: number, by: number, bz: number) {
+    const curBlock = this.getBlock(bx, by, bz);
+    const curDef = Registries.getBlock(curBlock);
+    if (!curDef) return;
+
+    const waterId = Registries.getBlock('water')?.numId;
+    const lavaId = Registries.getBlock('lava')?.numId;
+    const obsidianId = Registries.getBlock('obsidian')?.numId;
+    const cobblestoneId = Registries.getBlock('cobblestone')?.numId;
+
+    if (!waterId || !lavaId || !obsidianId || !cobblestoneId) return;
+
+    const neighbors = [
+      [1, 0, 0],
+      [-1, 0, 0],
+      [0, 1, 0],
+      [0, -1, 0],
+      [0, 0, 1],
+      [0, 0, -1],
+    ];
+
+    if (curDef.fluid === 'water' || curDef.shortId === 'water') {
+      for (const [dx, dy, dz] of neighbors) {
+        const nb = this.getBlock(bx + dx, by + dy, bz + dz);
+        const nbDef = Registries.getBlock(nb);
+        if (nbDef && (nbDef.fluid === 'lava' || nbDef.shortId === 'lava')) {
+          this.setBlock(bx + dx, by + dy, bz + dz, obsidianId);
+          AudioEngine.play('block.lava.extinguish', 0.85);
+          this.particleSystem.spawnDeathPoof(bx + dx + 0.5, by + dy + 1.0, bz + dz + 0.5);
+        }
+      }
+    } else if (curDef.fluid === 'lava' || curDef.shortId === 'lava') {
+      for (const [dx, dy, dz] of neighbors) {
+        const nb = this.getBlock(bx + dx, by + dy, bz + dz);
+        const nbDef = Registries.getBlock(nb);
+        if (nbDef && (nbDef.fluid === 'water' || nbDef.shortId === 'water')) {
+          this.setBlock(bx, by, bz, obsidianId);
+          AudioEngine.play('block.lava.extinguish', 0.85);
+          this.particleSystem.spawnDeathPoof(bx + 0.5, by + 1.0, bz + 0.5);
+          break;
+        }
+      }
+    }
+  }
+
+  checkRedstone(
+    bx: number,
+    by: number,
+    bz: number,
+    onTntIgnite?: (x: number, y: number, z: number) => void
+  ) {
+    const lampOff = Registries.getBlock('redstone_lamp')?.numId;
+    const lampOn = Registries.getBlock('redstone_lamp_on')?.numId;
+    const tntId = Registries.getBlock('tnt')?.numId;
+    const redstoneBlockId = Registries.getBlock('redstone_block')?.numId;
+    const redstoneTorchId = Registries.getBlock('redstone_torch')?.numId;
+    const leverId = Registries.getBlock('lever')?.numId;
+
+    const isPowered = (x: number, y: number, z: number): boolean => {
+      const neighbors = [
+        [1, 0, 0],
+        [-1, 0, 0],
+        [0, 1, 0],
+        [0, -1, 0],
+        [0, 0, 1],
+        [0, 0, -1],
+      ];
+      for (const [dx, dy, dz] of neighbors) {
+        const nb = this.getBlock(x + dx, y + dy, z + dz);
+        if (nb === redstoneBlockId || nb === redstoneTorchId) return true;
+        if (nb === leverId) {
+          const meta = this.getMeta(x + dx, y + dy, z + dz);
+          if (meta === 1) return true;
+        }
+      }
+      return false;
+    };
+
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          const tx = bx + dx;
+          const ty = by + dy;
+          const tz = bz + dz;
+          const b = this.getBlock(tx, ty, tz);
+          const powered = isPowered(tx, ty, tz);
+          if (lampOff && lampOn) {
+            if (b === lampOff && powered) {
+              this.setBlock(tx, ty, tz, lampOn);
+            } else if (b === lampOn && !powered) {
+              this.setBlock(tx, ty, tz, lampOff);
+            }
+          }
+          if (tntId && b === tntId && powered) {
+            this.setBlock(tx, ty, tz, 0);
+            onTntIgnite?.(tx + 0.5, ty + 0.5, tz + 0.5);
+          }
+        }
+      }
     }
   }
 

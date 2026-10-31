@@ -525,8 +525,15 @@ export class GuiGraphics {
     }
   }
 
-  /** Draw 16x16 item icon + stack count in GUI slot */
-  public renderItem(item: ItemDefinition | null, count: number, x: number, y: number): void {
+  /** Draw 16x16 item icon + stack count + durability bar in GUI slot */
+  public renderItem(
+    item: ItemDefinition | null,
+    count: number,
+    x: number,
+    y: number,
+    durability?: number,
+    maxDurability?: number
+  ): void {
     if (!item || count <= 0) return;
     x = Math.floor(x);
     y = Math.floor(y);
@@ -543,6 +550,22 @@ export class GuiGraphics {
       const s = String(count);
       const sw = this.font.width(s);
       this.font.draw(this.ctx, s, x + 17 - sw, y + 9, '#FFFFFF', true);
+    }
+
+    // Official 13-pixel durability bar at y + 13
+    if (
+      durability !== undefined &&
+      maxDurability !== undefined &&
+      maxDurability > 0 &&
+      durability < maxDurability
+    ) {
+      const barW = Math.max(0, Math.min(13, Math.round(13 * (durability / maxDurability))));
+      // 1px black background
+      this.fill(x + 2, y + 13, x + 15, y + 15, '#000000');
+      const ratio = Math.max(0, Math.min(1, durability / maxDurability));
+      const r = Math.round(255 * Math.min(1, (1 - ratio) * 2));
+      const g = Math.round(255 * Math.min(1, ratio * 2));
+      this.fill(x + 2, y + 13, x + 2 + barW, y + 14, `rgb(${r},${g},0)`);
     }
   }
 

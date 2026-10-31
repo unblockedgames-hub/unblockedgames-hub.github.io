@@ -23,6 +23,7 @@ export class ParticleSystem {
   leafMaterials: Record<'orange' | 'red' | 'yellow', THREE.MeshBasicMaterial>;
   smokeMaterial: THREE.MeshBasicMaterial;
   damageHeartMaterial: THREE.MeshBasicMaterial;
+  heartMaterial: THREE.MeshBasicMaterial;
   critStarMaterial: THREE.MeshBasicMaterial;
   poofCloudMaterial: THREE.MeshBasicMaterial;
   sharedGeo = new THREE.BoxGeometry(0.14, 0.14, 0.04);
@@ -55,6 +56,7 @@ export class ParticleSystem {
     };
 
     this.damageHeartMaterial = loadTex('/assets/minecraft/textures/particle/damage.png', 0xffffff);
+    this.heartMaterial = loadTex('/assets/minecraft/textures/particle/heart.png', 0xff5555);
     this.critStarMaterial = loadTex('/assets/minecraft/textures/particle/critical_hit.png', 0xffffff);
     this.poofCloudMaterial = loadTex('/assets/minecraft/textures/particle/generic_5.png', 0xffffff);
 
@@ -240,6 +242,27 @@ export class ParticleSystem {
         life: 0,
         maxLife: 0.35 + Math.random() * 0.15,
         swayFreq: 0,
+      });
+    }
+  }
+
+  spawnHeartBurst(x: number, y: number, z: number, count = 7) {
+    for (let i = 0; i < count; i++) {
+      const mesh = new THREE.Mesh(this.billboardGeo, this.heartMaterial);
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 0.6,
+        y + Math.random() * 0.6,
+        z + (Math.random() - 0.5) * 0.6
+      );
+      this.scene.add(mesh);
+      this.particles.push({
+        mesh,
+        vx: (Math.random() - 0.5) * 0.8,
+        vy: 0.8 + Math.random() * 0.8,
+        vz: (Math.random() - 0.5) * 0.8,
+        life: 0,
+        maxLife: 0.9 + Math.random() * 0.5,
+        swayFreq: 3.0,
       });
     }
   }

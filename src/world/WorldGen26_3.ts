@@ -828,4 +828,78 @@ export class WorldGen26_3 {
 
     return { chunk, cushions };
   }
+
+  static generateEndChunk(
+    cx: number,
+    cz: number
+  ): {
+    chunk: Chunk;
+    cushions: CushionEntityData[];
+    crystals: Array<{ x: number; y: number; z: number }>;
+  } {
+    const chunk = new Chunk(cx, cz);
+    const cushions: CushionEntityData[] = [];
+    const crystals: Array<{ x: number; y: number; z: number }> = [];
+
+    const endStoneId = Registries.getBlock('end_stone')?.numId || 1;
+    const obsidianId = Registries.getBlock('obsidian')?.numId || 1;
+    const bedrockId = Registries.getBlock('bedrock')?.numId || 1;
+
+    // 10 Obsidian Pillars around (0, 0)
+    const pillarPositions: Array<{ x: number; z: number; height: number }> = [];
+    for (let i = 0; i < 10; i++) {
+      const angle = (i * Math.PI * 2) / 10;
+      pillarPositions.push({
+        x: Math.round(Math.cos(angle) * 42),
+        z: Math.round(Math.sin(angle) * 42),
+        height: 76 + (i % 5) * 5,
+      });
+    }
+
+    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const wx = cx * CHUNK_SIZE + lx;
+        const wz = cz * CHUNK_SIZE + lz;
+        chunk.setBiome(lx, lz, 'minecraft:the_end');
+
+        const dist = Math.hypot(wx, wz);
+
+        // Main End Island: diameter ~150 blocks, thickness up to 28
+        if (dist < 75) {
+          const islandNoise = this.smoothNoise3D(wx, 60, wz, 18, 555) * 4.0;
+          const topY = Math.floor(62 + islandNoise);
+          const maxThickness = (1.0 - dist / 75) * 26.0;
+          const bottomY = Math.max(30, Math.floor(topY - maxThickness));
+
+          for (let y = bottomY; y <= topY; y++) {
+            chunk.setBlock(lx, y, lz, endStoneId);
+          }
+
+          // Central Exit Portal structure at (0, 0)
+          if (Math.abs(wx) <= 2 && Math.abs(wz) <= 2) {
+            chunk.setBlock(lx, 60, lz, bedrockId);
+            if (Math.abs(wx) === 2 || Math.abs(wz) === 2) {
+              chunk.setBlock(lx, 61, lz, bedrockId);
+            }
+          }
+        }
+
+        // Obsidian Pillars
+        for (const p of pillarPositions) {
+          const pd = Math.hypot(wx - p.x, wz - p.z);
+          if (pd <= 3.2) {
+            for (let y = 55; y <= p.height; y++) {
+              chunk.setBlock(lx, y, lz, obsidianId);
+            }
+            if (Math.abs(wx - p.x) <= 0.5 && Math.abs(wz - p.z) <= 0.5) {
+              chunk.setBlock(lx, p.height, lz, bedrockId);
+              crystals.push({ x: p.x + 0.5, y: p.height + 1, z: p.z + 0.5 });
+            }
+          }
+        }
+      }
+    }
+
+    return { chunk, cushions, crystals };
+  }
 }

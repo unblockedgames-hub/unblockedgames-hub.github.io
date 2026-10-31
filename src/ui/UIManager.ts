@@ -3357,6 +3357,41 @@ export class UIManager {
       );
     }
 
+    // Official Ender Dragon Boss Bar
+    let dragonMob: any = null;
+    if (this.world?.entityRenderer) {
+      for (const [, m] of this.world.entityRenderer.mobs) {
+        if (m.type === 'ender_dragon' && !m.dead) {
+          dragonMob = m;
+          break;
+        }
+      }
+    }
+    if (dragonMob) {
+      const barW = 182;
+      const barH = 5;
+      const barX = Math.floor(sw / 2 - barW / 2);
+      const barY = 12;
+      this.gui.blitSprite(
+        '/assets/minecraft/textures/gui/sprites/boss_bar/purple_background.png',
+        barX,
+        barY,
+        barW,
+        barH
+      );
+      const frac = Math.max(0, Math.min(1, dragonMob.health / dragonMob.maxHealth));
+      if (frac > 0) {
+        this.gui.blitSprite(
+          '/assets/minecraft/textures/gui/sprites/boss_bar/purple_progress.png',
+          barX,
+          barY,
+          Math.round(barW * frac),
+          barH
+        );
+      }
+      this.font.drawCentered(this.gui.ctx, 'Ender Dragon', sw / 2, barY - 9, '#FFFFFF', true);
+    }
+
     // Hotbar background (182x22 at sw/2 - 91, sh - 22)
     const hbX = centerX - 91;
     const hbY = sh - 22;
@@ -3390,7 +3425,9 @@ export class UIManager {
         this.inventory.offhandSlot.item,
         this.inventory.offhandSlot.count,
         hbX - 26,
-        hbY + 3
+        hbY + 3,
+        this.inventory.offhandSlot.durability,
+        this.inventory.offhandSlot.maxDurability
       );
     }
 
@@ -3398,7 +3435,14 @@ export class UIManager {
     for (let i = 0; i < 9; i++) {
       const stack = this.inventory.slots[i];
       if (stack) {
-        this.gui.renderItem(stack.item, stack.count, hbX + 3 + i * 20, hbY + 3);
+        this.gui.renderItem(
+          stack.item,
+          stack.count,
+          hbX + 3 + i * 20,
+          hbY + 3,
+          stack.durability,
+          stack.maxDurability
+        );
       }
     }
 
@@ -3530,17 +3574,28 @@ export class UIManager {
         }
       }
 
-      // Underwater air bubbles
-      if (this.player.inWater) {
+      // Underwater air bubbles (10 bubbles = 300 ticks)
+      if (this.player.airSupply < 300) {
+        const fullBubbles = Math.ceil(this.player.airSupply / 30);
         for (let i = 0; i < 10; i++) {
           const ax = hbX + 182 - i * 8 - 9;
-          this.gui.blitSprite(
-            '/assets/minecraft/textures/gui/sprites/hud/air.png',
-            ax,
-            heartY - 10,
-            9,
-            9
-          );
+          if (i < fullBubbles) {
+            this.gui.blitSprite(
+              '/assets/minecraft/textures/gui/sprites/hud/air.png',
+              ax,
+              heartY - 10,
+              9,
+              9
+            );
+          } else if (i === fullBubbles) {
+            this.gui.blitSprite(
+              '/assets/minecraft/textures/gui/sprites/hud/air_bursting.png',
+              ax,
+              heartY - 10,
+              9,
+              9
+            );
+          }
         }
       }
     }
@@ -3824,7 +3879,9 @@ export class UIManager {
         this.inventory.cursorStack.item,
         this.inventory.cursorStack.count,
         Math.floor(this.mouseX - 8),
-        Math.floor(this.mouseY - 8)
+        Math.floor(this.mouseY - 8),
+        this.inventory.cursorStack.durability,
+        this.inventory.cursorStack.maxDurability
       );
     }
   }
@@ -3843,7 +3900,7 @@ export class UIManager {
       this.gui.blitSprite(emptySpriteUrl, x, y, 16, 16);
     }
     if (stack) {
-      this.gui.renderItem(stack.item, stack.count, x, y);
+      this.gui.renderItem(stack.item, stack.count, x, y, stack.durability, stack.maxDurability);
     }
     const hovered =
       this.mouseX >= x &&
@@ -4003,7 +4060,14 @@ export class UIManager {
     const outX = leftPos + 154;
     const outY = topPos + 28;
     if (craftResult) {
-      this.gui.renderItem(craftResult.item, craftResult.count, outX, outY);
+      this.gui.renderItem(
+        craftResult.item,
+        craftResult.count,
+        outX,
+        outY,
+        craftResult.durability,
+        craftResult.maxDurability
+      );
     }
     if (
       this.mouseX >= outX &&
@@ -4515,7 +4579,14 @@ export class UIManager {
     const outX = leftPos + 124;
     const outY = topPos + 35;
     if (craftResult) {
-      this.gui.renderItem(craftResult.item, craftResult.count, outX, outY);
+      this.gui.renderItem(
+        craftResult.item,
+        craftResult.count,
+        outX,
+        outY,
+        craftResult.durability,
+        craftResult.maxDurability
+      );
     }
     if (
       this.mouseX >= outX &&

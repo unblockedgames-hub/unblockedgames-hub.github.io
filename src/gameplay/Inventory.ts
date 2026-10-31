@@ -1,10 +1,67 @@
 import { Registries, ItemDefinition } from '../core/Registries';
+import { AudioEngine } from '../core/AudioEngine';
 import officialRecipesData from '../data/official_recipes_26_3.json';
 
 export interface ItemStack {
   item: ItemDefinition;
   count: number;
+  durability?: number;
+  maxDurability?: number;
 }
+
+export const ITEM_MAX_DURABILITY: Record<string, number> = {
+  // Wooden tools (59)
+  wooden_pickaxe: 59,
+  wooden_axe: 59,
+  wooden_shovel: 59,
+  wooden_sword: 59,
+  wooden_hoe: 59,
+  // Stone tools (131)
+  stone_pickaxe: 131,
+  stone_axe: 131,
+  stone_shovel: 131,
+  stone_sword: 131,
+  stone_hoe: 131,
+  // Iron tools (250)
+  iron_pickaxe: 250,
+  iron_axe: 250,
+  iron_shovel: 250,
+  iron_sword: 250,
+  iron_hoe: 250,
+  // Diamond tools (1561)
+  diamond_pickaxe: 1561,
+  diamond_axe: 1561,
+  diamond_shovel: 1561,
+  diamond_sword: 1561,
+  diamond_hoe: 1561,
+  // Netherite tools (2031)
+  netherite_pickaxe: 2031,
+  netherite_axe: 2031,
+  netherite_shovel: 2031,
+  netherite_sword: 2031,
+  netherite_hoe: 2031,
+  // Golden tools (32)
+  golden_pickaxe: 32,
+  golden_axe: 32,
+  golden_shovel: 32,
+  golden_sword: 32,
+  golden_hoe: 32,
+  // Weapons & Utility
+  bow: 384,
+  shield: 336,
+  flint_and_steel: 64,
+  shears: 238,
+  fishing_rod: 64,
+  // Armor
+  iron_helmet: 165,
+  iron_chestplate: 240,
+  iron_leggings: 225,
+  iron_boots: 195,
+  diamond_helmet: 363,
+  diamond_chestplate: 528,
+  diamond_leggings: 495,
+  diamond_boots: 429,
+};
 
 export interface CraftingRecipe {
   id: string;
@@ -359,7 +416,9 @@ export class Inventory {
 
     const makeResult = (shortId: string, count: number): ItemStack | null => {
       const def = Registries.getItem(shortId);
-      return def ? { item: def, count } : null;
+      if (!def) return null;
+      const maxDur = ITEM_MAX_DURABILITY[def.shortId];
+      return { item: def, count, durability: maxDur, maxDurability: maxDur };
     };
 
     // Bounding box of pattern
@@ -511,10 +570,40 @@ export class Inventory {
     for (let i = 0; i < this.slots.length; i++) {
       if (!this.slots[i]) {
         const add = Math.min(def.maxStack, count);
-        this.slots[i] = { item: def, count: add };
+        const maxDur = ITEM_MAX_DURABILITY[def.shortId];
+        this.slots[i] = {
+          item: def,
+          count: add,
+          durability: maxDur,
+          maxDurability: maxDur,
+        };
         count -= add;
         if (count <= 0) return true;
       }
+    }
+    return false;
+  }
+
+  damageHeldItem(amount = 1): boolean {
+    const s = this.slots[this.selectedHotbarSlot];
+    if (!s || s.maxDurability === undefined) return false;
+    if (s.durability === undefined) s.durability = s.maxDurability;
+    s.durability -= amount;
+    if (s.durability <= 0) {
+      this.slots[this.selectedHotbarSlot] = null;
+      AudioEngine.play('entity.item.break', 0.85);
+      return true; // Broke
+    }
+    return false;
+  }
+
+  damageItem(stack: ItemStack, amount = 1): boolean {
+    if (stack.maxDurability === undefined) return false;
+    if (stack.durability === undefined) stack.durability = stack.maxDurability;
+    stack.durability -= amount;
+    if (stack.durability <= 0) {
+      AudioEngine.play('entity.item.break', 0.85);
+      return true; // Broke
     }
     return false;
   }
@@ -536,6 +625,27 @@ export class Inventory {
       if (s && s.item.id === def.id) total += s.count;
     }
     return total;
+  }
+
+  consumeItem(shortOrFullId: string, count = 1): boolean {
+    const def = Registries.getItem(shortOrFullId);
+    if (!def) return false;
+    let remaining = count;
+    for (let i = 0; i < this.slots.length; i++) {
+      const s = this.slots[i];
+      if (s && s.item.id === def.id) {
+        if (s.count <= remaining) {
+          remaining -= s.count;
+          this.slots[i] = null;
+        } else {
+          s.count -= remaining;
+          remaining = 0;
+          break;
+        }
+      }
+      if (remaining <= 0) break;
+    }
+    return remaining === 0;
   }
 
   removeIngredients(ingredients: Array<{ id: string; count: number }>): boolean {

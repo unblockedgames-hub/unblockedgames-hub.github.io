@@ -364,11 +364,12 @@ export class FirstPersonHand {
     }
   }
 
-  public updateHeldItem(item: ItemDefinition | null): void {
-    const id = item ? item.id : '';
+  public updateHeldItem(item: ItemDefinition | null, textureOverride?: string): void {
+    const rawId = item ? item.id : '';
+    const id = textureOverride ? `${rawId}#${textureOverride}` : rawId;
     if (id === this.currentItemId) return;
     this.currentItemId = id;
-    this.equipProgress = 0.0;
+    this.equipProgress = textureOverride ? 1.0 : 0.0;
 
     while (this.itemDisplayGroup.children.length > 0) {
       const child = this.itemDisplayGroup.children[0] as THREE.Mesh;
@@ -404,14 +405,16 @@ export class FirstPersonHand {
       this.itemDisplayGroup.quaternion.copy(q);
       this.itemDisplayGroup.scale.set(0.68, 0.68, 0.68);
 
-      let url = `/assets/minecraft/textures/${item.texture}.png`;
-      if (item.shortId === 'campfire') url = '/assets/minecraft/textures/item/campfire.png';
-      else if (item.shortId === 'lantern') url = '/assets/minecraft/textures/item/lantern.png';
+      let url = textureOverride
+        ? `/assets/minecraft/textures/${textureOverride}.png`
+        : `/assets/minecraft/textures/${item.texture}.png`;
+      if (item.shortId === 'campfire' && !textureOverride) url = '/assets/minecraft/textures/item/campfire.png';
+      else if (item.shortId === 'lantern' && !textureOverride) url = '/assets/minecraft/textures/item/lantern.png';
 
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        if (this.currentItemId !== item.id) return;
+        if (this.currentItemId !== id) return;
         const mesh = this.buildExtruded2DItemMesh(img);
         this.itemDisplayGroup.add(mesh);
       };
@@ -493,7 +496,14 @@ export class FirstPersonHand {
     this.itemDisplayGroup.add(mesh);
   }
 
-  public update(dt: number, isMoving: boolean, isSprinting: boolean): void {
+  public update(
+    dt: number,
+    isMoving: boolean,
+    isSprinting: boolean,
+    isBlocking = false,
+    isPullingBow = false,
+    bowPullProgress = 0
+  ): void {
     if (this.equipProgress < 1.0) {
       this.equipProgress = Math.min(1.0, this.equipProgress + dt * 6.0);
     }
@@ -569,11 +579,32 @@ export class FirstPersonHand {
       const tmp = new THREE.Matrix4();
 
       // 1. applyItemArmTransform: translate(0.56F, -0.52F + equipProgress * -0.6F, -0.72F)
-      m.makeTranslation(
-        0.56 + bobX,
-        -0.52 + equipOffset * -0.6 + bobY,
-        -0.72
-      );
+      let posX = 0.56 + bobX;
+      let posY = -0.52 + equipOffset * -0.6 + bobY;
+      let posZ = -0.72;
+
+      if (isBlocking) {
+        posX = 0.05 + bobX;
+        posY = -0.32 + bobY;
+        posZ = -0.5;
+      } else if (isPullingBow) {
+        const pull = Math.min(1.0, Math.max(0, bowPullProgress));
+        posX = 0.56 - 0.28 * pull + bobX;
+        posY = -0.52 + 0.12 * pull + bobY;
+        posZ = -0.72 + 0.22 * pull;
+      }
+
+      m.makeTranslation(posX, posY, posZ);
+
+      if (isBlocking) {
+        m.multiply(tmp.makeRotationY(-20.0 * DEG_TO_RAD));
+        m.multiply(tmp.makeRotationX(-25.0 * DEG_TO_RAD));
+        m.multiply(tmp.makeRotationZ(15.0 * DEG_TO_RAD));
+      } else if (isPullingBow) {
+        const pull = Math.min(1.0, Math.max(0, bowPullProgress));
+        m.multiply(tmp.makeRotationY((-15.0 * pull) * DEG_TO_RAD));
+        m.multiply(tmp.makeRotationZ((-10.0 * pull) * DEG_TO_RAD));
+      }
 
       // 2. swingArm translation: translate(-0.4 * sin(sqrt(s)*PI), 0.2 * sin(sqrt(s)*PI*2), -0.2 * sin(s*PI))
       const sx = -0.4 * Math.sin(sqrtS * Math.PI);

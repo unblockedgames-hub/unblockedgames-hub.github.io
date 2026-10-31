@@ -32,9 +32,38 @@ export interface FallingBlockEntity {
   mesh: THREE.Mesh;
 }
 
+export interface ArrowEntity {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  damage: number;
+  isCrit: boolean;
+  inGround: boolean;
+  age: number;
+  mesh: THREE.Group;
+}
+
 export interface MobEntity {
   id: string;
-  type: 'pig' | 'cow' | 'sheep' | 'remote_player' | 'zombie' | 'skeleton' | 'creeper' | 'spider';
+  type:
+    | 'pig'
+    | 'cow'
+    | 'sheep'
+    | 'remote_player'
+    | 'zombie'
+    | 'skeleton'
+    | 'creeper'
+    | 'spider'
+    | 'enderman'
+    | 'slime'
+    | 'iron_golem'
+    | 'villager'
+    | 'ender_dragon'
+    | 'end_crystal';
   name?: string;
   x: number;
   y: number;
@@ -43,6 +72,7 @@ export interface MobEntity {
   vy: number;
   vz: number;
   yaw: number;
+  pitch?: number;
   walkPhase: number;
   aiTimer: number;
   health: number;
@@ -56,6 +86,13 @@ export interface MobEntity {
   fuseTimer?: number;
   shootTimer?: number;
   burnTimer?: number;
+  teleportTimer?: number;
+  slimeSize?: number;
+  isBaby?: boolean;
+  growthTimer?: number;
+  inLoveTimer?: number;
+  breedCooldown?: number;
+  targetMobId?: string;
 }
 
 /**
@@ -70,6 +107,7 @@ export class EntityRenderer {
   mobs = new Map<string, MobEntity>();
   droppedItems = new Map<string, DroppedItemEntity>();
   fallingBlocks = new Map<string, FallingBlockEntity>();
+  arrows = new Map<string, ArrowEntity>();
   cushionTextures = new Map<string, THREE.Texture>();
   entityImages = new Map<string, HTMLImageElement>();
   textureLoader = new THREE.TextureLoader();
@@ -281,7 +319,16 @@ export class EntityRenderer {
     return undefined;
   }
 
-  spawnMob(id: string, type: MobEntity['type'], x: number, y: number, z: number, name?: string) {
+  spawnMob(
+    id: string,
+    type: MobEntity['type'],
+    x: number,
+    y: number,
+    z: number,
+    name?: string,
+    slimeSize = 4,
+    isBaby = false
+  ) {
     if (this.mobs.has(id)) return;
     const group = new THREE.Group();
     const legs: THREE.Mesh[] = [];
@@ -582,15 +629,192 @@ export class EntityRenderer {
           }
         }
       });
+    } else if (type === 'enderman') {
+      const head = this.createUprightPartMesh(8, 8, 8, 0, 0x161616);
+      head.mesh.position.set(0, 44 / 16, 0);
+      const body = this.createUprightPartMesh(8, 12, 4, 0, 0x161616);
+      body.mesh.position.set(0, 32 / 16, 0);
+
+      const rArm = this.createUprightPartMesh(2, 30, 2, 0, 0x161616);
+      rArm.mesh.geometry.translate(0, -14 / 16, 0);
+      rArm.mesh.position.set(-5 / 16, 36 / 16, 0);
+
+      const lArm = this.createUprightPartMesh(2, 30, 2, 0, 0x161616);
+      lArm.mesh.geometry.translate(0, -14 / 16, 0);
+      lArm.mesh.position.set(5 / 16, 36 / 16, 0);
+
+      const rLeg = this.createUprightPartMesh(2, 30, 2, 0, 0x161616);
+      rLeg.mesh.geometry.translate(0, -15 / 16, 0);
+      rLeg.mesh.position.set(-2 / 16, 26 / 16, 0);
+
+      const lLeg = this.createUprightPartMesh(2, 30, 2, 0, 0x161616);
+      lLeg.mesh.geometry.translate(0, -15 / 16, 0);
+      lLeg.mesh.position.set(2 / 16, 26 / 16, 0);
+
+      legs.push(rLeg.mesh, lLeg.mesh);
+      group.add(head.mesh, body.mesh, rArm.mesh, lArm.mesh, rLeg.mesh, lLeg.mesh);
+
+      this.loadEntityImage('/assets/minecraft/textures/entity/enderman/enderman.png', (img) => {
+        head.applyTexture(img, 0, 0);
+        body.applyTexture(img, 32, 16);
+        rArm.applyTexture(img, 56, 0);
+        lArm.applyTexture(img, 56, 0);
+        rLeg.applyTexture(img, 56, 0);
+        lLeg.applyTexture(img, 56, 0);
+      });
+    } else if (type === 'slime') {
+      const s = Math.max(0.25, slimeSize * 0.25);
+      const outerPart = this.createUprightPartMesh(8, 8, 8, 0, 0x7fff7f);
+      outerPart.mesh.geometry.translate(0, 4 / 16, 0);
+      const innerPart = this.createUprightPartMesh(4, 4, 4, 0, 0x4ca84c);
+      innerPart.mesh.geometry.translate(0, 4 / 16, 0);
+
+      outerPart.mesh.scale.set(s, s, s);
+      innerPart.mesh.scale.set(s, s, s);
+      group.add(outerPart.mesh, innerPart.mesh);
+
+      this.loadEntityImage('/assets/minecraft/textures/entity/slime/slime.png', (img) => {
+        outerPart.applyTexture(img, 0, 0, true);
+        const mats = outerPart.mesh.material as THREE.MeshLambertMaterial[];
+        for (const m of mats) {
+          m.transparent = true;
+          m.opacity = 0.72;
+        }
+        innerPart.applyTexture(img, 0, 16, true);
+      });
+    } else if (type === 'iron_golem') {
+      const head = this.createUprightPartMesh(8, 10, 8, 0, 0xd4c2b0);
+      head.mesh.position.set(0, 33 / 16, 0);
+      const nose = this.createUprightPartMesh(2, 4, 2, 0, 0xb89f8a);
+      nose.mesh.position.set(0, 31 / 16, 5 / 16);
+
+      const torso = this.createUprightPartMesh(18, 12, 11, 0, 0xd4c2b0);
+      torso.mesh.position.set(0, 23 / 16, 0);
+      const waist = this.createUprightPartMesh(9, 5, 6, 0, 0xb89f8a);
+      waist.mesh.position.set(0, 14.5 / 16, 0);
+
+      const rArm = this.createUprightPartMesh(4, 30, 4, 0, 0xd4c2b0);
+      rArm.mesh.geometry.translate(0, -13 / 16, 0);
+      rArm.mesh.position.set(-11 / 16, 23 / 16, 0);
+
+      const lArm = this.createUprightPartMesh(4, 30, 4, 0, 0xd4c2b0);
+      lArm.mesh.geometry.translate(0, -13 / 16, 0);
+      lArm.mesh.position.set(11 / 16, 23 / 16, 0);
+
+      const rLeg = this.createUprightPartMesh(6, 16, 5, 0, 0xb89f8a);
+      rLeg.mesh.geometry.translate(0, -8 / 16, 0);
+      rLeg.mesh.position.set(-4.5 / 16, 8 / 16, 0);
+
+      const lLeg = this.createUprightPartMesh(6, 16, 5, 0, 0xb89f8a);
+      lLeg.mesh.geometry.translate(0, -8 / 16, 0);
+      lLeg.mesh.position.set(4.5 / 16, 8 / 16, 0);
+
+      legs.push(rLeg.mesh, lLeg.mesh);
+      group.add(head.mesh, nose.mesh, torso.mesh, waist.mesh, rArm.mesh, lArm.mesh, rLeg.mesh, lLeg.mesh);
+
+      this.loadEntityImage('/assets/minecraft/textures/entity/iron_golem/iron_golem.png', (img) => {
+        head.applyTexture(img, 0, 0);
+        nose.applyTexture(img, 24, 0);
+        torso.applyTexture(img, 0, 40);
+        waist.applyTexture(img, 0, 70);
+        rArm.applyTexture(img, 60, 21);
+        lArm.applyTexture(img, 60, 58);
+        rLeg.applyTexture(img, 37, 0);
+        lLeg.applyTexture(img, 60, 0);
+      });
+    } else if (type === 'villager') {
+      const head = this.createUprightPartMesh(8, 10, 8, 0, 0xbd8b72);
+      head.mesh.position.set(0, 24 / 16, 0);
+      const nose = this.createUprightPartMesh(2, 4, 2, 0, 0xbd8b72);
+      nose.mesh.position.set(0, 22.5 / 16, 5 / 16);
+
+      const body = this.createUprightPartMesh(8, 12, 6, 0, 0x6e4a30);
+      body.mesh.position.set(0, 14 / 16, 0);
+      const robe = this.createUprightPartMesh(10, 18, 8, 0.2, 0x5a3d28);
+      robe.mesh.position.set(0, 11 / 16, 0);
+
+      const arms = this.createUprightPartMesh(8, 8, 4, 0, 0x5a3d28);
+      arms.mesh.position.set(0, 14 / 16, 3 / 16);
+
+      const rLeg = this.createUprightPartMesh(4, 12, 4, 0, 0x3d281a);
+      rLeg.mesh.geometry.translate(0, -6 / 16, 0);
+      rLeg.mesh.position.set(-2 / 16, 6 / 16, 0);
+
+      const lLeg = this.createUprightPartMesh(4, 12, 4, 0, 0x3d281a);
+      lLeg.mesh.geometry.translate(0, -6 / 16, 0);
+      lLeg.mesh.position.set(2 / 16, 6 / 16, 0);
+
+      legs.push(rLeg.mesh, lLeg.mesh);
+      group.add(head.mesh, nose.mesh, body.mesh, robe.mesh, arms.mesh, rLeg.mesh, lLeg.mesh);
+
+      this.loadEntityImage('/assets/minecraft/textures/entity/villager/villager.png', (img) => {
+        head.applyTexture(img, 0, 0);
+        nose.applyTexture(img, 24, 0);
+        body.applyTexture(img, 16, 20);
+        robe.applyTexture(img, 0, 38);
+        arms.applyTexture(img, 40, 38);
+        rLeg.applyTexture(img, 0, 22);
+        lLeg.applyTexture(img, 0, 22);
+      });
+    } else if (type === 'ender_dragon') {
+      const head = this.createUprightPartMesh(16, 16, 16, 0, 0x141414);
+      head.mesh.position.set(0, 8 / 16, 40 / 16);
+      const body = this.createUprightPartMesh(24, 24, 40, 0, 0x141414);
+      body.mesh.position.set(0, 1.5, 0);
+
+      const rWing = this.createUprightPartMesh(40, 4, 24, 0, 0x222222);
+      rWing.mesh.position.set(-28 / 16, 1.8, 0);
+      const lWing = this.createUprightPartMesh(40, 4, 24, 0, 0x222222);
+      lWing.mesh.position.set(28 / 16, 1.8, 0);
+
+      group.add(head.mesh, body.mesh, rWing.mesh, lWing.mesh);
+      group.scale.set(0.65, 0.65, 0.65);
+
+      this.loadEntityImage('/assets/minecraft/textures/entity/enderdragon/dragon.png', (img) => {
+        head.applyTexture(img, 176, 44);
+        body.applyTexture(img, 0, 0);
+        rWing.applyTexture(img, 112, 88);
+        lWing.applyTexture(img, 112, 88);
+      });
+    } else if (type === 'end_crystal') {
+      const outerBox = this.createUprightPartMesh(12, 12, 12, 0, 0xd0a0ff);
+      outerBox.mesh.position.set(0, 0.6, 0);
+      const innerCore = this.createUprightPartMesh(6, 6, 6, 0, 0x301040);
+      innerCore.mesh.position.set(0, 0.6, 0);
+
+      group.add(outerBox.mesh, innerCore.mesh);
+      this.loadEntityImage('/assets/minecraft/textures/entity/end_crystal/end_crystal.png', (img) => {
+        outerPartTex: outerBox.applyTexture(img, 32, 0, true);
+        const mats = outerBox.mesh.material as THREE.MeshLambertMaterial[];
+        for (const m of mats) {
+          m.transparent = true;
+          m.opacity = 0.8;
+        }
+        innerCore.applyTexture(img, 0, 16);
+      });
+    }
+
+    if (isBaby) {
+      group.scale.set(0.5, 0.5, 0.5);
     }
 
     const maxHealth =
-      type === 'zombie' || type === 'skeleton' || type === 'creeper'
+      type === 'ender_dragon'
+        ? 200
+        : type === 'iron_golem'
+        ? 100
+        : type === 'enderman'
+        ? 40
+        : type === 'zombie' || type === 'skeleton' || type === 'creeper' || type === 'villager'
         ? 20
         : type === 'spider'
         ? 16
+        : type === 'slime'
+        ? Math.max(1, slimeSize * 4)
         : type === 'sheep'
         ? 8
+        : type === 'end_crystal'
+        ? 1
         : 10;
     group.position.set(x, y, z);
     this.scene.add(group);
@@ -615,6 +839,9 @@ export class EntityRenderer {
       dead: false,
       mesh: group,
       legs,
+      slimeSize,
+      isBaby,
+      growthTimer: isBaby ? 120 : undefined,
     });
   }
 
@@ -632,15 +859,33 @@ export class EntityRenderer {
     for (const [, mob] of this.mobs) {
       if (mob.dead) continue;
       const halfW =
-        mob.type === 'cow'
+        mob.type === 'ender_dragon'
+          ? 3.2
+          : mob.type === 'iron_golem'
+          ? 0.75
+          : mob.type === 'cow'
           ? 0.55
           : mob.type === 'spider'
           ? 0.7
-          : mob.type === 'zombie' || mob.type === 'skeleton' || mob.type === 'creeper' || mob.type === 'remote_player'
+          : mob.type === 'slime'
+          ? (mob.slimeSize || 4) * 0.25
+          : mob.type === 'end_crystal'
+          ? 0.6
+          : mob.type === 'enderman'
+          ? 0.35
+          : mob.type === 'zombie' || mob.type === 'skeleton' || mob.type === 'creeper' || mob.type === 'remote_player' || mob.type === 'villager'
           ? 0.35
           : 0.48;
       const height =
-        mob.type === 'cow'
+        mob.type === 'ender_dragon'
+          ? 3.0
+          : mob.type === 'enderman'
+          ? 2.9
+          : mob.type === 'iron_golem'
+          ? 2.7
+          : mob.type === 'slime'
+          ? (mob.slimeSize || 4) * 0.5
+          : mob.type === 'cow'
           ? 1.45
           : mob.type === 'sheep'
           ? 1.35
@@ -648,7 +893,9 @@ export class EntityRenderer {
           ? 0.8
           : mob.type === 'creeper'
           ? 1.7
-          : mob.type === 'zombie' || mob.type === 'skeleton' || mob.type === 'remote_player'
+          : mob.type === 'end_crystal'
+          ? 1.2
+          : mob.type === 'zombie' || mob.type === 'skeleton' || mob.type === 'remote_player' || mob.type === 'villager'
           ? 1.95
           : 1.05;
       const minX = mob.x - halfW;
@@ -806,6 +1053,42 @@ export class EntityRenderer {
         }
         if (Math.random() < 0.33) {
           this.spawnDroppedItem(bx, by, bz, 'spider_eye');
+        }
+      } else if (mob.type === 'enderman') {
+        if (Math.random() < 0.6) {
+          this.spawnDroppedItem(bx, by, bz, 'ender_pearl');
+        }
+      } else if (mob.type === 'slime') {
+        const curSize = mob.slimeSize || 4;
+        if (curSize > 1) {
+          const splitSize = Math.floor(curSize / 2);
+          const splitCount = 2 + Math.floor(Math.random() * 3);
+          for (let i = 0; i < splitCount; i++) {
+            const sid = `slime_${Date.now()}_${Math.random()}`;
+            this.spawnMob(
+              sid,
+              'slime',
+              mob.x + (Math.random() - 0.5) * 0.8,
+              mob.y,
+              mob.z + (Math.random() - 0.5) * 0.8,
+              undefined,
+              splitSize
+            );
+          }
+        } else {
+          const ballCount = Math.floor(Math.random() * 3);
+          for (let i = 0; i < ballCount; i++) {
+            this.spawnDroppedItem(bx, by, bz, 'slime_ball');
+          }
+        }
+      } else if (mob.type === 'iron_golem') {
+        const ingots = 3 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < ingots; i++) {
+          this.spawnDroppedItem(bx, by, bz, 'iron_ingot');
+        }
+        const poppies = Math.floor(Math.random() * 3);
+        for (let i = 0; i < poppies; i++) {
+          this.spawnDroppedItem(bx, by, bz, 'poppy');
         }
       }
       return { hit: true, killed: true, mob };
@@ -974,6 +1257,66 @@ export class EntityRenderer {
     });
   }
 
+  spawnArrow(
+    x: number,
+    y: number,
+    z: number,
+    vx: number,
+    vy: number,
+    vz: number,
+    damage: number,
+    isCrit = false
+  ) {
+    const id = `arrow_${Date.now()}_${Math.random()}`;
+    const group = new THREE.Group();
+
+    const shaftGeo = new THREE.BoxGeometry(0.06, 0.06, 0.6);
+    const arrowTex = this.textureLoader.load('/assets/minecraft/textures/entity/projectiles/arrow.png');
+    arrowTex.magFilter = THREE.NearestFilter;
+    arrowTex.minFilter = THREE.NearestFilter;
+    arrowTex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshLambertMaterial({
+      map: arrowTex,
+      transparent: true,
+      alphaTest: 0.1,
+    });
+    const shaft = new THREE.Mesh(shaftGeo, mat);
+    shaft.position.set(0, 0, -0.3);
+    group.add(shaft);
+
+    group.position.set(x, y, z);
+    const yaw = Math.atan2(vx, vz);
+    const pitch = -Math.atan2(vy, Math.hypot(vx, vz));
+    group.rotation.set(pitch, yaw, 0, 'YXZ');
+
+    this.scene.add(group);
+    this.arrows.set(id, {
+      id,
+      x,
+      y,
+      z,
+      vx,
+      vy,
+      vz,
+      damage,
+      isCrit,
+      inGround: false,
+      age: 0,
+      mesh: group,
+    });
+  }
+
+  teleportEnderman(mob: MobEntity) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 8 + Math.random() * 8;
+    mob.x += Math.cos(angle) * dist;
+    mob.z += Math.sin(angle) * dist;
+    mob.vx = 0;
+    mob.vz = 0;
+    mob.mesh.position.set(mob.x, mob.y, mob.z);
+    AudioEngine.play('entity.enderman.teleport', 0.9);
+  }
+
   update(
     dt: number,
     getGroundHeight: (x: number, z: number) => number,
@@ -982,8 +1325,73 @@ export class EntityRenderer {
     isSolidAt?: (bx: number, by: number, bz: number) => boolean,
     onMobAttackPlayer?: (damage: number, mobType: string) => void,
     onFallingBlockLanded?: (bx: number, by: number, bz: number, numId: number, meta: number, blockId: string) => void,
-    daylight?: number
+    daylight?: number,
+    heldItemId?: string,
+    onBreed?: (x: number, y: number, z: number, type: string) => void
   ) {
+    // Update Arrow Projectiles with ballistics, mob collisions, and block embedding
+    for (const [aid, arrow] of this.arrows) {
+      arrow.age += dt;
+      if (!arrow.inGround) {
+        arrow.vy -= 18.0 * dt;
+        arrow.vx *= Math.pow(0.99, dt * 20);
+        arrow.vy *= Math.pow(0.99, dt * 20);
+        arrow.vz *= Math.pow(0.99, dt * 20);
+
+        const nextX = arrow.x + arrow.vx * dt;
+        const nextY = arrow.y + arrow.vy * dt;
+        const nextZ = arrow.z + arrow.vz * dt;
+
+        // Mob collision along flight trajectory
+        const rayDir = new THREE.Vector3(arrow.vx, arrow.vy, arrow.vz).normalize();
+        const distStep = Math.hypot(arrow.vx * dt, arrow.vy * dt, arrow.vz * dt);
+        const hit = this.raycastMob(new THREE.Vector3(arrow.x, arrow.y, arrow.z), rayDir, distStep);
+
+        if (hit && !hit.mob.dead) {
+          if (hit.mob.type === 'enderman') {
+            this.teleportEnderman(hit.mob);
+          } else {
+            this.attackMob(hit.mob.id, arrow.damage, new THREE.Vector3(arrow.x, arrow.y, arrow.z));
+            AudioEngine.play('entity.arrow.hit_player', 0.9);
+            this.scene.remove(arrow.mesh);
+            this.arrows.delete(aid);
+            continue;
+          }
+        }
+
+        const bx = Math.floor(nextX);
+        const by = Math.floor(nextY);
+        const bz = Math.floor(nextZ);
+        if (isSolidAt && isSolidAt(bx, by, bz)) {
+          arrow.inGround = true;
+          arrow.x = nextX;
+          arrow.y = nextY;
+          arrow.z = nextZ;
+          AudioEngine.play('entity.arrow.hit', 0.7);
+        } else {
+          arrow.x = nextX;
+          arrow.y = nextY;
+          arrow.z = nextZ;
+          arrow.mesh.position.set(arrow.x, arrow.y, arrow.z);
+          const yaw = Math.atan2(arrow.vx, arrow.vz);
+          const pitch = -Math.atan2(arrow.vy, Math.hypot(arrow.vx, arrow.vz));
+          arrow.mesh.rotation.set(pitch, yaw, 0, 'YXZ');
+        }
+      } else {
+        if (playerPos) {
+          const pdist = Math.hypot(playerPos.x - arrow.x, playerPos.y - arrow.y, playerPos.z - arrow.z);
+          if (pdist < 1.2 && onPickupItem && onPickupItem('arrow', 1)) {
+            this.scene.remove(arrow.mesh);
+            this.arrows.delete(aid);
+            continue;
+          }
+        }
+        if (arrow.age > 60) {
+          this.scene.remove(arrow.mesh);
+          this.arrows.delete(aid);
+        }
+      }
+    }
     // Smooth Gravity Physics for Falling Sand & Gravel Entities
     for (const [id, fb] of this.fallingBlocks) {
       fb.vy = Math.max(-36.0, fb.vy - 32.0 * dt);
@@ -1091,6 +1499,107 @@ export class EntityRenderer {
         continue;
       }
 
+      if (mob.type === 'end_crystal') {
+        if (mob.mesh.children.length >= 2) {
+          mob.mesh.children[0].rotation.y += dt * 1.5;
+          mob.mesh.children[1].rotation.y -= dt * 2.2;
+        }
+        continue;
+      }
+
+      if (mob.type === 'ender_dragon') {
+        mob.walkPhase = (mob.walkPhase || 0) + dt * 0.45;
+        const flightRadius = 38;
+        mob.x = Math.cos(mob.walkPhase) * flightRadius;
+        mob.z = Math.sin(mob.walkPhase) * flightRadius;
+        mob.y = 74 + Math.sin(mob.walkPhase * 2.5) * 6;
+        mob.yaw = -mob.walkPhase + Math.PI / 2;
+        mob.mesh.position.set(mob.x, mob.y, mob.z);
+        mob.mesh.rotation.y = mob.yaw;
+
+        const flap = Math.sin(mob.walkPhase * 8.0) * 0.4;
+        if (mob.mesh.children[2]) mob.mesh.children[2].rotation.z = flap;
+        if (mob.mesh.children[3]) mob.mesh.children[3].rotation.z = -flap;
+
+        if (playerPos) {
+          const pdist = Math.hypot(playerPos.x - mob.x, playerPos.y - mob.y, playerPos.z - mob.z);
+          if (pdist < 4.5 && onMobAttackPlayer) {
+            onMobAttackPlayer(8, 'ender_dragon');
+          }
+        }
+        continue;
+      }
+
+      // Animal Food Lure & Breeding System
+      const isLurable = mob.type === 'cow' || mob.type === 'sheep' || mob.type === 'pig';
+      let isLured = false;
+      if (isLurable && playerPos && heldItemId) {
+        const wantsWheat = (mob.type === 'cow' || mob.type === 'sheep') && heldItemId === 'wheat';
+        const wantsCarrot =
+          mob.type === 'pig' &&
+          (heldItemId === 'carrot' || heldItemId === 'potato' || heldItemId === 'beetroot');
+        if (wantsWheat || wantsCarrot) {
+          const ldx = playerPos.x - mob.x;
+          const ldz = playerPos.z - mob.z;
+          const ldist = Math.hypot(ldx, ldz);
+          if (ldist < 10.0) {
+            mob.yaw = Math.atan2(ldx, ldz);
+            if (ldist > 2.0) {
+              mob.vx = Math.sin(mob.yaw) * 1.8;
+              mob.vz = Math.cos(mob.yaw) * 1.8;
+            } else {
+              mob.vx = 0;
+              mob.vz = 0;
+            }
+            isLured = true;
+          }
+        }
+      }
+
+      if (mob.inLoveTimer && mob.inLoveTimer > 0) {
+        mob.inLoveTimer -= dt;
+        for (const [, other] of this.mobs) {
+          if (other.id !== mob.id && other.type === mob.type && other.inLoveTimer && other.inLoveTimer > 0) {
+            const bdx = other.x - mob.x;
+            const bdz = other.z - mob.z;
+            const bdist = Math.hypot(bdx, bdz);
+            mob.yaw = Math.atan2(bdx, bdz);
+            mob.vx = Math.sin(mob.yaw) * 1.5;
+            mob.vz = Math.cos(mob.yaw) * 1.5;
+            if (bdist < 1.1) {
+              mob.inLoveTimer = 0;
+              other.inLoveTimer = 0;
+              mob.breedCooldown = 300;
+              other.breedCooldown = 300;
+              const babyId = `${mob.type}_baby_${Date.now()}`;
+              this.spawnMob(
+                babyId,
+                mob.type,
+                (mob.x + other.x) / 2,
+                mob.y,
+                (mob.z + other.z) / 2,
+                undefined,
+                undefined,
+                true
+              );
+              onBreed?.((mob.x + other.x) / 2, mob.y + 0.5, (mob.z + other.z) / 2, mob.type);
+              AudioEngine.play('entity.player.levelup', 0.5);
+              break;
+            }
+          }
+        }
+      }
+      if (mob.breedCooldown && mob.breedCooldown > 0) {
+        mob.breedCooldown -= dt;
+      }
+      if (mob.isBaby && mob.growthTimer) {
+        mob.growthTimer -= dt;
+        if (mob.growthTimer <= 0) {
+          mob.isBaby = false;
+          mob.mesh.scale.set(1.0, 1.0, 1.0);
+        }
+      }
+
       if (mob.panicTimer > 0) {
         mob.panicTimer -= dt;
       }
@@ -1118,7 +1627,13 @@ export class EntityRenderer {
       }
 
       mob.aiTimer -= dt;
-      const isHostile = mob.type === 'zombie' || mob.type === 'skeleton' || mob.type === 'creeper' || mob.type === 'spider';
+      const isHostile =
+        mob.type === 'zombie' ||
+        mob.type === 'skeleton' ||
+        mob.type === 'creeper' ||
+        mob.type === 'spider' ||
+        mob.type === 'enderman' ||
+        mob.type === 'slime';
       if (isHostile && playerPos && mob.hurtTimer <= 0) {
         const pdx = playerPos.x - mob.x;
         const pdy = playerPos.y - mob.y;
@@ -1194,6 +1709,27 @@ export class EntityRenderer {
             if (dist3D < 1.7 && Math.abs(pdy) < 1.6 && onMobAttackPlayer) {
               onMobAttackPlayer(2, 'spider');
             }
+          } else if (mob.type === 'enderman') {
+            mob.vx = Math.sin(mob.yaw) * 4.8;
+            mob.vz = Math.cos(mob.yaw) * 4.8;
+            if (dist3D < 2.0 && Math.abs(pdy) < 2.0 && onMobAttackPlayer) {
+              onMobAttackPlayer(7, 'enderman');
+            }
+            if (Math.random() < 0.01) {
+              this.teleportEnderman(mob);
+            }
+          } else if (mob.type === 'slime') {
+            const sSize = mob.slimeSize || 4;
+            if (mob.y <= groundY + 0.1 && mob.aiTimer <= 0) {
+              mob.vy = 4.0 * Math.sqrt(sSize * 0.25);
+              mob.aiTimer = 1.0 + Math.random() * 0.8;
+              AudioEngine.play('entity.slime.jump', 0.6);
+            }
+            mob.vx = Math.sin(mob.yaw) * (1.5 + sSize * 0.3);
+            mob.vz = Math.cos(mob.yaw) * (1.5 + sSize * 0.3);
+            if (dist3D < 1.2 + sSize * 0.2 && onMobAttackPlayer) {
+              onMobAttackPlayer(sSize, 'slime');
+            }
           }
         }
       } else if (mob.aiTimer <= 0 && mob.hurtTimer <= 0) {
@@ -1219,6 +1755,38 @@ export class EntityRenderer {
           } else {
             mob.vx = 0;
             mob.vz = 0;
+          }
+        }
+      }
+
+      if (mob.type === 'iron_golem') {
+        let nearestTarget: MobEntity | null = null;
+        let minTdist = 14.0;
+        for (const [, candidate] of this.mobs) {
+          if (
+            !candidate.dead &&
+            (candidate.type === 'zombie' ||
+              candidate.type === 'skeleton' ||
+              candidate.type === 'spider' ||
+              candidate.type === 'creeper')
+          ) {
+            const cdist = Math.hypot(candidate.x - mob.x, candidate.z - mob.z);
+            if (cdist < minTdist) {
+              minTdist = cdist;
+              nearestTarget = candidate;
+            }
+          }
+        }
+        if (nearestTarget) {
+          const tdx = nearestTarget.x - mob.x;
+          const tdz = nearestTarget.z - mob.z;
+          mob.yaw = Math.atan2(tdx, tdz);
+          mob.vx = Math.sin(mob.yaw) * 2.8;
+          mob.vz = Math.cos(mob.yaw) * 2.8;
+          if (minTdist < 1.8) {
+            AudioEngine.play('entity.iron_golem.attack', 0.9);
+            this.attackMob(nearestTarget.id, 14, new THREE.Vector3(mob.x, mob.y, mob.z));
+            nearestTarget.vy = 6.5;
           }
         }
       }
@@ -1282,5 +1850,9 @@ export class EntityRenderer {
       it.mesh.geometry.dispose();
     }
     this.droppedItems.clear();
+    for (const [, a] of this.arrows) {
+      this.scene.remove(a.mesh);
+    }
+    this.arrows.clear();
   }
 }
