@@ -93,6 +93,7 @@ export interface MobEntity {
   inLoveTimer?: number;
   breedCooldown?: number;
   targetMobId?: string;
+  provoked?: boolean;
 }
 
 /**
@@ -1327,7 +1328,8 @@ export class EntityRenderer {
     onFallingBlockLanded?: (bx: number, by: number, bz: number, numId: number, meta: number, blockId: string) => void,
     daylight?: number,
     heldItemId?: string,
-    onBreed?: (x: number, y: number, z: number, type: string) => void
+    onBreed?: (x: number, y: number, z: number, type: string) => void,
+    playerLookDir?: THREE.Vector3
   ) {
     // Update Arrow Projectiles with ballistics, mob collisions, and block embedding
     for (const [aid, arrow] of this.arrows) {
@@ -1353,6 +1355,23 @@ export class EntityRenderer {
           } else {
             this.attackMob(hit.mob.id, arrow.damage, new THREE.Vector3(arrow.x, arrow.y, arrow.z));
             AudioEngine.play('entity.arrow.hit_player', 0.9);
+            this.scene.remove(arrow.mesh);
+            this.arrows.delete(aid);
+            continue;
+          }
+        }
+
+        // Check arrow hitting player (skeletons shooting player)
+        if (playerPos) {
+          const toP = Math.hypot(
+            nextX - playerPos.x,
+            nextY - (playerPos.y + 0.8),
+            nextZ - playerPos.z
+          );
+          if (toP < 0.75) {
+            if (onMobAttackPlayer) {
+              onMobAttackPlayer(arrow.damage, 'skeleton');
+            }
             this.scene.remove(arrow.mesh);
             this.arrows.delete(aid);
             continue;
@@ -1486,17 +1505,30 @@ export class EntityRenderer {
         if (mob.deathTimer <= 0) {
           this.scene.remove(mob.mesh);
           this.mobs.delete(id);
-          // Respawn a new passive mob further away so the wilderness stays alive
-          if (playerPos) {
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 14 + Math.random() * 10;
-            const sx = Math.floor(playerPos.x + Math.cos(angle) * dist);
-            const sz = Math.floor(playerPos.z + Math.sin(angle) * dist);
-            const sy = getGroundHeight(sx, sz);
-            this.spawnMob(`${mob.type}_${Date.now()}`, mob.type, sx, sy, sz);
-          }
         }
         continue;
+      }
+
+      // Vanilla NaturalSpawner: Despawn hostile mobs if too far from player (> 54 blocks)
+      if (
+        playerPos &&
+        mob.type !== 'ender_dragon' &&
+        mob.type !== 'end_crystal'
+      ) {
+        const distToPlayer = Math.hypot(mob.x - playerPos.x, mob.z - playerPos.z);
+        const isHostile = [
+          'zombie',
+          'skeleton',
+          'creeper',
+          'spider',
+          'enderman',
+          'slime',
+        ].includes(mob.type);
+        if (isHostile && distToPlayer > 54.0) {
+          this.scene.remove(mob.mesh);
+          this.mobs.delete(id);
+          continue;
+        }
       }
 
       if (mob.type === 'end_crystal') {
@@ -1627,13 +1659,48 @@ export class EntityRenderer {
       }
 
       mob.aiTimer -= dt;
+
+      // Spider Daytime Neutrality: neutral in direct sunlight unless attacked/provoked
+      let isSpiderHostile = true;
+      if (mob.type === 'spider') {
+        const isDaytimeSurface = daylight !== undefined && daylight > 0.75 && mob.y >= groundY - 0.5;
+        if (isDaytimeSurface && !mob.provoked && mob.panicTimer <= 0 && mob.hurtTimer <= 0) {
+          isSpiderHostile = false;
+        }
+      }
+
+      // Enderman Eye Contact Detection: staring directly at Enderman's head provokes it
+      if (mob.type === 'enderman' && !mob.provoked && playerPos && playerLookDir) {
+        const eyeX = playerPos.x;
+        const eyeY = playerPos.y + 1.62;
+        const eyeZ = playerPos.z;
+        const toHeadX = mob.x - eyeX;
+        const toHeadY = mob.y + 2.5 - eyeY;
+        const toHeadZ = mob.z - eyeZ;
+        const distEye = Math.hypot(toHeadX, toHeadY, toHeadZ);
+        if (distEye > 0.1 && distEye < 48) {
+          const invDist = 1 / distEye;
+          const dot =
+            playerLookDir.x * (toHeadX * invDist) +
+            playerLookDir.y * (toHeadY * invDist) +
+            playerLookDir.z * (toHeadZ * invDist);
+          if (dot > 0.985) {
+            mob.provoked = true;
+            AudioEngine.play('entity.enderman.stare', 0.9);
+          }
+        }
+      }
+      const isEndermanHostile =
+        mob.type === 'enderman' && (mob.provoked || mob.hurtTimer > 0 || mob.panicTimer > 0);
+
       const isHostile =
         mob.type === 'zombie' ||
         mob.type === 'skeleton' ||
         mob.type === 'creeper' ||
-        mob.type === 'spider' ||
-        mob.type === 'enderman' ||
+        (mob.type === 'spider' && isSpiderHostile) ||
+        isEndermanHostile ||
         mob.type === 'slime';
+
       if (isHostile && playerPos && mob.hurtTimer <= 0) {
         const pdx = playerPos.x - mob.x;
         const pdy = playerPos.y - mob.y;
@@ -1665,7 +1732,20 @@ export class EntityRenderer {
             if (mob.shootTimer <= 0) {
               mob.shootTimer = 2.0 + Math.random() * 0.5;
               AudioEngine.play('entity.skeleton.shoot', 0.85);
-              if (onMobAttackPlayer) onMobAttackPlayer(3, 'skeleton');
+              const dirX = (playerPos.x - mob.x) / dist3D;
+              const dirY = (playerPos.y + 0.9 - (mob.y + 1.4)) / dist3D;
+              const dirZ = (playerPos.z - mob.z) / dist3D;
+              const arrowSpeed = 22.0;
+              this.spawnArrow(
+                mob.x,
+                mob.y + 1.4,
+                mob.z,
+                dirX * arrowSpeed,
+                dirY * arrowSpeed + 1.5,
+                dirZ * arrowSpeed,
+                3,
+                false
+              );
             }
           } else if (mob.type === 'creeper') {
             if (dist3D < 3.2) {
@@ -1696,7 +1776,20 @@ export class EntityRenderer {
                 continue;
               }
             } else {
-              mob.fuseTimer = undefined;
+              // Player retreated: abort fuse and restore authentic creeper color
+              if (mob.fuseTimer !== undefined) {
+                mob.fuseTimer = undefined;
+                for (const part of mob.mesh.children) {
+                  if (part instanceof THREE.Mesh) {
+                    const mats = Array.isArray(part.material) ? part.material : [part.material];
+                    for (const m of mats) {
+                      if (m instanceof THREE.MeshLambertMaterial) {
+                        m.color.setHex(0x2e8b57);
+                      }
+                    }
+                  }
+                }
+              }
               mob.vx = Math.sin(mob.yaw) * 2.1;
               mob.vz = Math.cos(mob.yaw) * 2.1;
             }

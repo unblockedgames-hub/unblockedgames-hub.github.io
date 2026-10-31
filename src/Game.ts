@@ -1841,75 +1841,125 @@ export class Game {
       this.mobSpawnTimer += dt;
       if (this.mobSpawnTimer >= 2.5) {
         this.mobSpawnTimer = 0;
+
+        // Peaceful difficulty: immediately purge all hostile mobs
+        if (OptionsManager.current.difficulty === 'Peaceful') {
+          for (const [id, m] of this.entityRenderer.mobs) {
+            if (['zombie', 'skeleton', 'creeper', 'spider', 'enderman', 'slime'].includes(m.type)) {
+              this.entityRenderer.scene.remove(m.mesh);
+              this.entityRenderer.mobs.delete(id);
+            }
+          }
+        }
+
         const isNight = this.world.timeOfDay >= 13000 && this.world.timeOfDay < 23000;
         let hostiles = 0;
         let passives = 0;
         for (const [, m] of this.entityRenderer.mobs) {
-          if (m.type === 'zombie' || m.type === 'skeleton' || m.type === 'creeper' || m.type === 'spider') hostiles++;
-          else if (m.type === 'pig' || m.type === 'cow' || m.type === 'sheep') passives++;
+          if (['zombie', 'skeleton', 'creeper', 'spider', 'enderman', 'slime'].includes(m.type)) hostiles++;
+          else if (['pig', 'cow', 'sheep'].includes(m.type)) passives++;
         }
 
-        // Surface & Underground Cave Hostile Mob Spawning
+        const px = Math.floor(this.player.position.x);
+        const py = Math.floor(this.player.position.y);
+        const pz = Math.floor(this.player.position.z);
+        const hostilePool: ('zombie' | 'skeleton' | 'creeper' | 'spider' | 'enderman')[] = [
+          'zombie',
+          'skeleton',
+          'creeper',
+          'spider',
+          'enderman',
+        ];
+
+        // Surface & Underground Cave Hostile Mob Spawning (Respects Vanilla 24-block exclusion sphere)
         const canSpawnHostile = OptionsManager.current.difficulty !== 'Peaceful' && hostiles < 16;
         if (canSpawnHostile) {
-          const px = Math.floor(this.player.position.x);
-          const py = Math.floor(this.player.position.y);
-          const pz = Math.floor(this.player.position.z);
-          const hostilePool: (
-            | 'zombie'
-            | 'skeleton'
-            | 'creeper'
-            | 'spider'
-            | 'enderman'
-            | 'slime'
-          )[] = ['zombie', 'skeleton', 'creeper', 'spider', 'enderman', 'slime'];
-
-          // 1. Underground Cave Spawning: search near player's depth for dark cave floors
+          // 1. Underground Cave Spawning (Day or Night): must have solid roof over head
           const angle = Math.random() * Math.PI * 2;
-          const dist = 10 + Math.random() * 18;
+          const dist = 26 + Math.random() * 22;
           const cx = Math.floor(px + Math.cos(angle) * dist);
           const cz = Math.floor(pz + Math.sin(angle) * dist);
-          const startY = Math.min(100, py + 12);
-          const endY = Math.max(4, py - 14);
+          const topSolidY = this.world.getTopSolidY(cx, cz);
+          const startY = Math.min(topSolidY - 3, py + 12);
+          const endY = Math.max(4, py - 16);
 
-          for (let testY = startY; testY >= endY; testY--) {
-            const floor = this.world.getBlock(cx, testY - 1, cz);
-            const cur = this.world.getBlock(cx, testY, cz);
-            const ceil = this.world.getBlock(cx, testY + 1, cz);
-            if (floor !== 0 && Registries.getBlock(floor)?.solid && cur === 0 && ceil === 0) {
-              const packCount = 1 + Math.floor(Math.random() * 2);
-              for (let p = 0; p < packCount; p++) {
-                const ox = (Math.random() - 0.5) * 2;
-                const oz = (Math.random() - 0.5) * 2;
-                const chosen = hostilePool[Math.floor(Math.random() * hostilePool.length)];
-                this.entityRenderer.spawnMob(`${chosen}_${Date.now()}_${p}`, chosen, cx + 0.5 + ox, testY, cz + 0.5 + oz);
+          if (startY > endY) {
+            for (let testY = startY; testY >= endY; testY--) {
+              const floor = this.world.getBlock(cx, testY - 1, cz);
+              const cur = this.world.getBlock(cx, testY, cz);
+              const ceil = this.world.getBlock(cx, testY + 1, cz);
+              const floorDef = Registries.getBlock(floor);
+              if (floor !== 0 && floorDef?.solid && !floorDef?.fluid && cur === 0 && ceil === 0) {
+                const packCount = 1 + Math.floor(Math.random() * 2);
+                for (let p = 0; p < packCount; p++) {
+                  const ox = (Math.random() - 0.5) * 2;
+                  const oz = (Math.random() - 0.5) * 2;
+                  const chosen =
+                    testY < 40 && Math.random() < 0.25
+                      ? 'slime'
+                      : hostilePool[Math.floor(Math.random() * hostilePool.length)];
+                  this.entityRenderer.spawnMob(
+                    `${chosen}_${Date.now()}_${p}`,
+                    chosen,
+                    cx + 0.5 + ox,
+                    testY,
+                    cz + 0.5 + oz
+                  );
+                }
+                break;
               }
-              break;
             }
           }
 
-          // 2. Surface Night Spawning
+          // 2. Surface Night Spawning (Strictly ONLY at night, r >= 26 blocks)
           if (isNight) {
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 24 + Math.random() * 16;
-            const sx = Math.floor(px + Math.cos(angle) * dist);
-            const sz = Math.floor(pz + Math.sin(angle) * dist);
+            const sAngle = Math.random() * Math.PI * 2;
+            const sDist = 26 + Math.random() * 22;
+            const sx = Math.floor(px + Math.cos(sAngle) * sDist);
+            const sz = Math.floor(pz + Math.sin(sAngle) * sDist);
             const sy = this.world.getTopSolidY(sx, sz);
             if (sy >= 62) {
-              const chosen = hostilePool[Math.floor(Math.random() * hostilePool.length)];
-              this.entityRenderer.spawnMob(`${chosen}_${Date.now()}`, chosen, sx + 0.5, sy, sz + 0.5);
+              const floor = this.world.getBlock(sx, sy - 1, sz);
+              const cur = this.world.getBlock(sx, sy, sz);
+              const ceil = this.world.getBlock(sx, sy + 1, sz);
+              const floorDef = Registries.getBlock(floor);
+              if (floor !== 0 && floorDef?.solid && !floorDef?.fluid && cur === 0 && ceil === 0) {
+                const chosen = hostilePool[Math.floor(Math.random() * hostilePool.length)];
+                this.entityRenderer.spawnMob(`${chosen}_${Date.now()}`, chosen, sx + 0.5, sy, sz + 0.5);
+              }
             }
           }
-        } else if (!isNight && passives < 12) {
-          const angle = Math.random() * Math.PI * 2;
-          const dist = 18 + Math.random() * 18;
-          const sx = Math.floor(this.player.position.x + Math.cos(angle) * dist);
-          const sz = Math.floor(this.player.position.z + Math.sin(angle) * dist);
+        }
+
+        // 3. Independent Daytime Passive Mob Spawning (Grass blocks, sky view, pack herds)
+        if (!isNight && passives < 12) {
+          const pAngle = Math.random() * Math.PI * 2;
+          const pDist = 26 + Math.random() * 20;
+          const sx = Math.floor(px + Math.cos(pAngle) * pDist);
+          const sz = Math.floor(pz + Math.sin(pAngle) * pDist);
           const sy = this.world.getTopSolidY(sx, sz);
           if (sy >= 62) {
-            const types: ('sheep' | 'cow' | 'pig')[] = ['sheep', 'cow', 'pig'];
-            const t = types[Math.floor(Math.random() * types.length)];
-            this.entityRenderer.spawnMob(`${t}_${Date.now()}`, t, sx + 0.5, sy, sz + 0.5);
+            const floor = this.world.getBlock(sx, sy - 1, sz);
+            const cur = this.world.getBlock(sx, sy, sz);
+            const ceil = this.world.getBlock(sx, sy + 1, sz);
+            const floorDef = Registries.getBlock(floor);
+            if (floorDef?.shortId === 'grass_block' && cur === 0 && ceil === 0) {
+              const types: ('sheep' | 'cow' | 'pig')[] = ['sheep', 'cow', 'pig'];
+              const t = types[Math.floor(Math.random() * types.length)];
+              const packSize = 2 + Math.floor(Math.random() * 2);
+              for (let p = 0; p < packSize; p++) {
+                const ox = (Math.random() - 0.5) * 3;
+                const oz = (Math.random() - 0.5) * 3;
+                const pyPack = this.world.getTopSolidY(Math.floor(sx + ox), Math.floor(sz + oz));
+                this.entityRenderer.spawnMob(
+                  `${t}_${Date.now()}_${p}`,
+                  t,
+                  sx + 0.5 + ox,
+                  pyPack,
+                  sz + 0.5 + oz
+                );
+              }
+            }
           }
         }
       }
@@ -1991,7 +2041,8 @@ export class Game {
         (bx, by, bz) => {
           this.particleSystem.spawnHeartBurst(bx, by, bz);
           this.player.addExperience(1 + Math.floor(Math.random() * 7));
-        }
+        },
+        this.camera.getWorldDirection(new THREE.Vector3())
       );
 
       if (this.player.isPullingBow) {
