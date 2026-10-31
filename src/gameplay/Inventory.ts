@@ -1,4 +1,5 @@
 import { Registries, ItemDefinition } from '../core/Registries';
+import officialRecipesData from '../data/official_recipes_26_3.json';
 
 export interface ItemStack {
   item: ItemDefinition;
@@ -11,6 +12,74 @@ export interface CraftingRecipe {
   resultCount: number;
   ingredients: Array<{ id: string; count: number }>;
   type: 'crafting' | 'stonecutting';
+}
+
+interface OfficialRecipeRaw {
+  id: string;
+  type: 'shaped' | 'shapeless' | 'smelting' | 'stonecutting';
+  pattern?: string[];
+  key?: Record<string, string[]>;
+  ingredients?: string[][];
+  ingredient?: string[];
+  resultId: string;
+  resultCount?: number;
+  cookTicks?: number;
+}
+
+const shapedByDim = new Map<string, OfficialRecipeRaw[]>();
+const shapelessByCount = new Map<number, OfficialRecipeRaw[]>();
+const officialCraftingRecipes: CraftingRecipe[] = [];
+
+for (const raw of officialRecipesData as OfficialRecipeRaw[]) {
+  if (raw.type === 'shaped' && raw.pattern && raw.key) {
+    const dim = `${raw.pattern.length}x${raw.pattern[0].length}`;
+    let list = shapedByDim.get(dim);
+    if (!list) {
+      list = [];
+      shapedByDim.set(dim, list);
+    }
+    list.push(raw);
+
+    const ingCounts = new Map<string, number>();
+    for (const row of raw.pattern) {
+      for (let c = 0; c < row.length; c++) {
+        const ch = row[c];
+        if (ch !== ' ' && raw.key[ch] && raw.key[ch].length > 0) {
+          const item = raw.key[ch][0];
+          ingCounts.set(item, (ingCounts.get(item) || 0) + 1);
+        }
+      }
+    }
+    officialCraftingRecipes.push({
+      id: raw.id,
+      resultId: raw.resultId,
+      resultCount: raw.resultCount || 1,
+      ingredients: Array.from(ingCounts.entries()).map(([id, count]) => ({ id, count })),
+      type: 'crafting',
+    });
+  } else if (raw.type === 'shapeless' && raw.ingredients) {
+    let list = shapelessByCount.get(raw.ingredients.length);
+    if (!list) {
+      list = [];
+      shapelessByCount.set(raw.ingredients.length, list);
+    }
+    list.push(raw);
+
+    const ingCounts = new Map<string, number>();
+    for (const ing of raw.ingredients) {
+      if (ing.length > 0) {
+        const item = ing[0];
+        ingCounts.set(item, (ingCounts.get(item) || 0) + 1);
+      }
+    }
+    officialCraftingRecipes.push({
+      id: raw.id,
+      resultId: raw.resultId,
+      resultCount: raw.resultCount || 1,
+      ingredients: Array.from(ingCounts.entries()).map(([id, count]) => ({ id, count })),
+      type: 'crafting',
+    });
+  }
 }
 
 export class Inventory {
@@ -263,6 +332,25 @@ export class Inventory {
     return rem > 0 ? { item: stack.item, count: rem } : null;
   }
 
+  /** Total armor defense points (0..20) based on equipped helmet, chestplate, leggings, boots */
+  getArmorValue(): number {
+    let total = 0;
+    for (const s of this.armorSlots) {
+      if (!s) continue;
+      const id = s.item.shortId;
+      if (id.includes('helmet') || id.includes('cap')) {
+        total += id.includes('diamond') || id.includes('netherite') ? 3 : id.includes('iron') ? 2 : id.includes('golden') ? 2 : 1;
+      } else if (id.includes('chestplate') || id.includes('tunic')) {
+        total += id.includes('diamond') || id.includes('netherite') ? 8 : id.includes('iron') ? 6 : id.includes('golden') ? 5 : 3;
+      } else if (id.includes('leggings') || id.includes('pants')) {
+        total += id.includes('diamond') || id.includes('netherite') ? 6 : id.includes('iron') ? 5 : id.includes('golden') ? 3 : 2;
+      } else if (id.includes('boots')) {
+        total += id.includes('diamond') || id.includes('netherite') ? 3 : id.includes('iron') ? 2 : 1;
+      }
+    }
+    return total;
+  }
+
   /** Match 2x2 or 3x3 Crafting Grid against official 26.3 & vanilla recipes */
   getCraftingResult(grid: Array<ItemStack | null>, size: 2 | 3): ItemStack | null {
     const ids = grid.map((s) => (s ? s.item.shortId : ''));
@@ -273,15 +361,6 @@ export class Inventory {
       const def = Registries.getItem(shortId);
       return def ? { item: def, count } : null;
     };
-
-    // Single item shapeless recipes
-    if (nonEmpty.length === 1) {
-      const item = nonEmpty[0];
-      if (item.endsWith('_log') || item.endsWith('_wood')) {
-        const prefix = item.replace(/^stripped_/, '').replace(/_(log|wood)$/, '');
-        return makeResult(`${prefix}_planks`, 4);
-      }
-    }
 
     // Bounding box of pattern
     let minR: number = size,
@@ -298,8 +377,8 @@ export class Inventory {
         }
       }
     }
-    const h = maxR - minR + 1;
-    const w = maxC - minC + 1;
+    const boxH = maxR - minR + 1;
+    const boxW = maxC - minC + 1;
     const pat: string[][] = [];
     for (let r = minR; r <= maxR; r++) {
       const row: string[] = [];
@@ -309,222 +388,63 @@ export class Inventory {
       pat.push(row);
     }
 
-    const first = nonEmpty[0];
-    const allSame = (match: string) =>
-      nonEmpty.every(
-        (x) =>
-          x === match ||
-          (match === '_planks' && x.endsWith('_planks')) ||
-          (match === '_log' && x.endsWith('_log'))
-      );
-
-    // 2x2 full
-    if (w === 2 && h === 2 && nonEmpty.length === 4) {
-      if (allSame('_planks')) return makeResult('crafting_table', 1);
-      if (first.endsWith('_log') && allSame(first)) {
-        return makeResult(first.replace('_log', '_wood'), 3);
-      }
-      if (allSame('stone')) return makeResult('stone_bricks', 4);
-      if (allSame('sand')) return makeResult('sandstone', 1);
-      if (allSame('granite')) return makeResult('polished_granite', 4);
-      if (allSame('diorite')) return makeResult('polished_diorite', 4);
-      if (allSame('andesite')) return makeResult('polished_andesite', 4);
-    }
-
-    // 1x2 Vertical (Sticks & Torches)
-    if (w === 1 && h === 2 && nonEmpty.length === 2) {
-      if (pat[0][0].endsWith('_planks') && pat[1][0].endsWith('_planks')) {
-        return makeResult('stick', 4);
-      }
-      if ((pat[0][0] === 'coal' || pat[0][0] === 'charcoal') && pat[1][0] === 'stick') {
-        return makeResult('torch', 4);
-      }
-    }
-
-    // 1x3 Vertical (Shovel & Sword)
-    if (w === 1 && h === 3 && nonEmpty.length === 3) {
-      const matTier = (id: string) =>
-        id.endsWith('_planks')
-          ? 'wooden'
-          : id === 'cobblestone' || id === 'cobbled_deepslate'
-          ? 'stone'
-          : id === 'iron_ingot'
-          ? 'iron'
-          : id === 'diamond'
-          ? 'diamond'
-          : null;
-      // Shovel: 1 head + 2 sticks
-      const shvTier = matTier(pat[0][0]);
-      if (shvTier && pat[1][0] === 'stick' && pat[2][0] === 'stick') {
-        return makeResult(`${shvTier}_shovel`, 1);
-      }
-      // Sword: 2 blades + 1 stick
-      const swdTier = matTier(pat[0][0]);
-      if (swdTier && matTier(pat[1][0]) === swdTier && pat[2][0] === 'stick') {
-        return makeResult(`${swdTier}_sword`, 1);
-      }
-    }
-
-    // 3x3 Pickaxe (3 head across top + 2 sticks down middle)
-    if (w === 3 && h === 3 && nonEmpty.length === 5) {
-      const matTier = (id: string) =>
-        id.endsWith('_planks')
-          ? 'wooden'
-          : id === 'cobblestone' || id === 'cobbled_deepslate'
-          ? 'stone'
-          : id === 'iron_ingot'
-          ? 'iron'
-          : id === 'diamond'
-          ? 'diamond'
-          : null;
-      const tier = matTier(pat[0][0]);
-      if (
-        tier &&
-        matTier(pat[0][1]) === tier &&
-        matTier(pat[0][2]) === tier &&
-        pat[1][1] === 'stick' &&
-        pat[2][1] === 'stick'
-      ) {
-        return makeResult(`${tier}_pickaxe`, 1);
-      }
-    }
-
-    // 2x3 Axe (3 head in corner + 2 sticks)
-    if (w === 2 && h === 3 && nonEmpty.length === 5) {
-      const matTier = (id: string) =>
-        id.endsWith('_planks')
-          ? 'wooden'
-          : id === 'cobblestone' || id === 'cobbled_deepslate'
-          ? 'stone'
-          : id === 'iron_ingot'
-          ? 'iron'
-          : id === 'diamond'
-          ? 'diamond'
-          : null;
-      const tL = matTier(pat[0][0]);
-      if (
-        tL &&
-        matTier(pat[0][1]) === tL &&
-        matTier(pat[1][0]) === tL &&
-        pat[1][1] === 'stick' &&
-        pat[2][1] === 'stick'
-      ) {
-        return makeResult(`${tL}_axe`, 1);
-      }
-      const tR = matTier(pat[0][1]);
-      if (
-        tR &&
-        matTier(pat[0][0]) === tR &&
-        matTier(pat[1][1]) === tR &&
-        pat[1][0] === 'stick' &&
-        pat[2][0] === 'stick'
-      ) {
-        return makeResult(`${tR}_axe`, 1);
-      }
-    }
-
-    // 2x1 Horizontal (Cushions & Carpets)
-    if (w === 2 && h === 1 && nonEmpty.length === 2 && allSame(first)) {
-      if (first.endsWith('_wool')) {
-        const color = first.replace('_wool', '');
-        return makeResult(`${color}_cushion`, 1) || makeResult(`${color}_carpet`, 3);
-      }
-    }
-
-    // 3x1 Horizontal (Slabs / Shelf / Straw Bed)
-    if (w === 3 && h === 1 && nonEmpty.length === 3 && allSame(first)) {
-      if (first === 'poplar_slab') return makeResult('poplar_shelf', 2);
-      const base = first.replace(/_planks$/, '');
-      return (
-        makeResult(`${first}_slab`, 6) ||
-        makeResult(`${base}_slab`, 6) ||
-        makeResult(`${first.replace(/s$/, '')}_slab`, 6)
-      );
-    }
-
-    // 3x2 (Straw Bed: 3 wheat on top of 3 planks, or Trapdoor / Fence)
-    if (w === 3 && h === 2 && nonEmpty.length === 6) {
-      if (
-        pat[0].every((x) => x === 'wheat') &&
-        pat[1].every((x) => x.endsWith('_planks'))
-      ) {
-        return makeResult('straw_bed', 1);
-      }
-      if (
-        pat[0][0].endsWith('_planks') &&
-        pat[0][1] === 'stick' &&
-        pat[0][2].endsWith('_planks') &&
-        pat[1][0].endsWith('_planks') &&
-        pat[1][1] === 'stick' &&
-        pat[1][2].endsWith('_planks')
-      ) {
-        const wood = pat[0][0].replace('_planks', '');
-        return makeResult(`${wood}_fence`, 3);
-      }
-      if (allSame(first) && first.endsWith('_planks')) {
-        const wood = first.replace('_planks', '');
-        return makeResult(`${wood}_trapdoor`, 2);
-      }
-    }
-
-    // 3x3 Stair Pattern (6 blocks -> 4 stairs, including 26.3 Wool Stairs & Poplar Stairs)
-    if (w === 3 && h === 3 && nonEmpty.length === 6 && allSame(first)) {
-      const isLeftStair =
-        pat[0][0] !== '' &&
-        pat[0][1] === '' &&
-        pat[0][2] === '' &&
-        pat[1][0] !== '' &&
-        pat[1][1] !== '' &&
-        pat[1][2] === '' &&
-        pat[2][0] !== '' &&
-        pat[2][1] !== '' &&
-        pat[2][2] !== '';
-      const isRightStair =
-        pat[0][0] === '' &&
-        pat[0][1] === '' &&
-        pat[0][2] !== '' &&
-        pat[1][0] === '' &&
-        pat[1][1] !== '' &&
-        pat[1][2] !== '' &&
-        pat[2][0] !== '' &&
-        pat[2][1] !== '' &&
-        pat[2][2] !== '';
-      if (isLeftStair || isRightStair) {
-        const base = first.replace(/_planks$/, '');
-        return (
-          makeResult(`${first}_stairs`, 4) ||
-          makeResult(`${base}_stairs`, 4) ||
-          makeResult(`${first.replace(/s$/, '')}_stairs`, 4)
-        );
-      }
-    }
-
-    // 3x3 Ring (8 items around empty center -> Furnace or Chest)
-    if (w === 3 && h === 3 && nonEmpty.length === 8 && pat[1][1] === '') {
-      if (allSame('cobblestone')) return makeResult('furnace', 1);
-      if (allSame('_planks')) return makeResult('chest', 1);
-    }
-
-    // Also fallback to any recipe in getRecipes() whose ingredient counts match
-    for (const r of Inventory.getRecipes()) {
-      if (r.type !== 'crafting') continue;
-      let matches = true;
-      let totalRequired = 0;
-      for (const ing of r.ingredients) {
-        const countInGrid = nonEmpty.filter((x) => x === ing.id).length;
-        if (countInGrid !== ing.count) {
-          matches = false;
-          break;
+    // 1. Check official shaped recipes matching bounding box dimensions
+    const shapedList = shapedByDim.get(`${boxH}x${boxW}`);
+    if (shapedList) {
+      for (const r of shapedList) {
+        // Normal orientation match
+        let normalMatch = true;
+        for (let row = 0; row < boxH && normalMatch; row++) {
+          for (let col = 0; col < boxW; col++) {
+            const ch = r.pattern![row][col];
+            const actual = pat[row][col];
+            if (ch === ' ') {
+              if (actual !== '') { normalMatch = false; break; }
+            } else {
+              const allowed = r.key![ch];
+              if (!allowed || !allowed.includes(actual)) { normalMatch = false; break; }
+            }
+          }
         }
-        totalRequired += ing.count;
+        if (normalMatch) return makeResult(r.resultId, r.resultCount || 1);
+
+        // Horizontally mirrored orientation match
+        let mirrorMatch = true;
+        for (let row = 0; row < boxH && mirrorMatch; row++) {
+          for (let col = 0; col < boxW; col++) {
+            const ch = r.pattern![row][boxW - 1 - col];
+            const actual = pat[row][col];
+            if (ch === ' ') {
+              if (actual !== '') { mirrorMatch = false; break; }
+            } else {
+              const allowed = r.key![ch];
+              if (!allowed || !allowed.includes(actual)) { mirrorMatch = false; break; }
+            }
+          }
+        }
+        if (mirrorMatch) return makeResult(r.resultId, r.resultCount || 1);
       }
-      if (matches && totalRequired === nonEmpty.length) {
-        return makeResult(r.resultId, r.resultCount);
+    }
+
+    // 2. Check official shapeless recipes matching non-empty count
+    const shapelessList = shapelessByCount.get(nonEmpty.length);
+    if (shapelessList) {
+      for (const r of shapelessList) {
+        const avail = [...nonEmpty];
+        let matched = true;
+        for (const ingList of r.ingredients!) {
+          const idx = avail.findIndex((item) => ingList.includes(item));
+          if (idx === -1) { matched = false; break; }
+          avail.splice(idx, 1);
+        }
+        if (matched) return makeResult(r.resultId, r.resultCount || 1);
       }
     }
 
     return null;
   }
+
+
 
   consumeCraftingGrid(grid: Array<ItemStack | null>): void {
     for (let i = 0; i < grid.length; i++) {
@@ -639,6 +559,10 @@ export class Inventory {
   }
 
   static getRecipes(): CraftingRecipe[] {
+    return officialCraftingRecipes;
+  }
+
+  private static _legacyUnusedRecipes() {
     const recipes: CraftingRecipe[] = [
       // 26.3 Poplar Wood Set Recipes
       {
@@ -826,6 +750,503 @@ export class Inventory {
         ingredients: [{ id: 'poplar_planks', count: 2 }],
         type: 'crafting',
       },
+      {
+        id: 'stick_oak',
+        resultId: 'stick',
+        resultCount: 4,
+        ingredients: [{ id: 'oak_planks', count: 2 }],
+        type: 'crafting',
+      },
+      // Core Vanilla Minecraft Recipes
+      {
+        id: 'flint_and_steel',
+        resultId: 'flint_and_steel',
+        resultCount: 1,
+        ingredients: [
+          { id: 'iron_ingot', count: 1 },
+          { id: 'flint', count: 1 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'crafting_table',
+        resultId: 'crafting_table',
+        resultCount: 1,
+        ingredients: [{ id: 'oak_planks', count: 4 }],
+        type: 'crafting',
+      },
+      {
+        id: 'crafting_table_poplar',
+        resultId: 'crafting_table',
+        resultCount: 1,
+        ingredients: [{ id: 'poplar_planks', count: 4 }],
+        type: 'crafting',
+      },
+      {
+        id: 'furnace',
+        resultId: 'furnace',
+        resultCount: 1,
+        ingredients: [{ id: 'cobblestone', count: 8 }],
+        type: 'crafting',
+      },
+      {
+        id: 'chest',
+        resultId: 'chest',
+        resultCount: 1,
+        ingredients: [{ id: 'oak_planks', count: 8 }],
+        type: 'crafting',
+      },
+      {
+        id: 'chest_poplar',
+        resultId: 'chest',
+        resultCount: 1,
+        ingredients: [{ id: 'poplar_planks', count: 8 }],
+        type: 'crafting',
+      },
+      {
+        id: 'torch',
+        resultId: 'torch',
+        resultCount: 4,
+        ingredients: [
+          { id: 'coal', count: 1 },
+          { id: 'stick', count: 1 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'campfire',
+        resultId: 'campfire',
+        resultCount: 1,
+        ingredients: [
+          { id: 'stick', count: 3 },
+          { id: 'coal', count: 1 },
+          { id: 'oak_log', count: 3 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'bread',
+        resultId: 'bread',
+        resultCount: 1,
+        ingredients: [{ id: 'wheat', count: 3 }],
+        type: 'crafting',
+      },
+      {
+        id: 'bucket',
+        resultId: 'bucket',
+        resultCount: 1,
+        ingredients: [{ id: 'iron_ingot', count: 3 }],
+        type: 'crafting',
+      },
+      {
+        id: 'shears',
+        resultId: 'shears',
+        resultCount: 1,
+        ingredients: [{ id: 'iron_ingot', count: 2 }],
+        type: 'crafting',
+      },
+      {
+        id: 'bow',
+        resultId: 'bow',
+        resultCount: 1,
+        ingredients: [
+          { id: 'stick', count: 3 },
+          { id: 'string', count: 3 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'arrow',
+        resultId: 'arrow',
+        resultCount: 4,
+        ingredients: [
+          { id: 'flint', count: 1 },
+          { id: 'stick', count: 1 },
+          { id: 'feather', count: 1 },
+        ],
+        type: 'crafting',
+      },
+      // Wood Planks from Logs
+      {
+        id: 'oak_planks',
+        resultId: 'oak_planks',
+        resultCount: 4,
+        ingredients: [{ id: 'oak_log', count: 1 }],
+        type: 'crafting',
+      },
+      {
+        id: 'birch_planks',
+        resultId: 'birch_planks',
+        resultCount: 4,
+        ingredients: [{ id: 'birch_log', count: 1 }],
+        type: 'crafting',
+      },
+      {
+        id: 'spruce_planks',
+        resultId: 'spruce_planks',
+        resultCount: 4,
+        ingredients: [{ id: 'spruce_log', count: 1 }],
+        type: 'crafting',
+      },
+      {
+        id: 'jungle_planks',
+        resultId: 'jungle_planks',
+        resultCount: 4,
+        ingredients: [{ id: 'jungle_log', count: 1 }],
+        type: 'crafting',
+      },
+      {
+        id: 'acacia_planks',
+        resultId: 'acacia_planks',
+        resultCount: 4,
+        ingredients: [{ id: 'acacia_log', count: 1 }],
+        type: 'crafting',
+      },
+      {
+        id: 'dark_oak_planks',
+        resultId: 'dark_oak_planks',
+        resultCount: 4,
+        ingredients: [{ id: 'dark_oak_log', count: 1 }],
+        type: 'crafting',
+      },
+      {
+        id: 'cherry_planks',
+        resultId: 'cherry_planks',
+        resultCount: 4,
+        ingredients: [{ id: 'cherry_log', count: 1 }],
+        type: 'crafting',
+      },
+      // Tools & Weapons
+      {
+        id: 'wooden_pickaxe',
+        resultId: 'wooden_pickaxe',
+        resultCount: 1,
+        ingredients: [
+          { id: 'oak_planks', count: 3 },
+          { id: 'stick', count: 2 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'wooden_axe',
+        resultId: 'wooden_axe',
+        resultCount: 1,
+        ingredients: [
+          { id: 'oak_planks', count: 3 },
+          { id: 'stick', count: 2 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'wooden_sword',
+        resultId: 'wooden_sword',
+        resultCount: 1,
+        ingredients: [
+          { id: 'oak_planks', count: 2 },
+          { id: 'stick', count: 1 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'wooden_shovel',
+        resultId: 'wooden_shovel',
+        resultCount: 1,
+        ingredients: [
+          { id: 'oak_planks', count: 1 },
+          { id: 'stick', count: 2 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'stone_pickaxe',
+        resultId: 'stone_pickaxe',
+        resultCount: 1,
+        ingredients: [
+          { id: 'cobblestone', count: 3 },
+          { id: 'stick', count: 2 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'stone_axe',
+        resultId: 'stone_axe',
+        resultCount: 1,
+        ingredients: [
+          { id: 'cobblestone', count: 3 },
+          { id: 'stick', count: 2 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'stone_sword',
+        resultId: 'stone_sword',
+        resultCount: 1,
+        ingredients: [
+          { id: 'cobblestone', count: 2 },
+          { id: 'stick', count: 1 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'stone_shovel',
+        resultId: 'stone_shovel',
+        resultCount: 1,
+        ingredients: [
+          { id: 'cobblestone', count: 1 },
+          { id: 'stick', count: 2 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'iron_pickaxe',
+        resultId: 'iron_pickaxe',
+        resultCount: 1,
+        ingredients: [
+          { id: 'iron_ingot', count: 3 },
+          { id: 'stick', count: 2 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'iron_axe',
+        resultId: 'iron_axe',
+        resultCount: 1,
+        ingredients: [
+          { id: 'iron_ingot', count: 3 },
+          { id: 'stick', count: 2 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'iron_sword',
+        resultId: 'iron_sword',
+        resultCount: 1,
+        ingredients: [
+          { id: 'iron_ingot', count: 2 },
+          { id: 'stick', count: 1 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'iron_shovel',
+        resultId: 'iron_shovel',
+        resultCount: 1,
+        ingredients: [
+          { id: 'iron_ingot', count: 1 },
+          { id: 'stick', count: 2 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'diamond_pickaxe',
+        resultId: 'diamond_pickaxe',
+        resultCount: 1,
+        ingredients: [
+          { id: 'diamond', count: 3 },
+          { id: 'stick', count: 2 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'diamond_axe',
+        resultId: 'diamond_axe',
+        resultCount: 1,
+        ingredients: [
+          { id: 'diamond', count: 3 },
+          { id: 'stick', count: 2 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'diamond_sword',
+        resultId: 'diamond_sword',
+        resultCount: 1,
+        ingredients: [
+          { id: 'diamond', count: 2 },
+          { id: 'stick', count: 1 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'diamond_shovel',
+        resultId: 'diamond_shovel',
+        resultCount: 1,
+        ingredients: [
+          { id: 'diamond', count: 1 },
+          { id: 'stick', count: 2 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'golden_pickaxe',
+        resultId: 'golden_pickaxe',
+        resultCount: 1,
+        ingredients: [
+          { id: 'gold_ingot', count: 3 },
+          { id: 'stick', count: 2 },
+        ],
+        type: 'crafting',
+      },
+      {
+        id: 'golden_sword',
+        resultId: 'golden_sword',
+        resultCount: 1,
+        ingredients: [
+          { id: 'gold_ingot', count: 2 },
+          { id: 'stick', count: 1 },
+        ],
+        type: 'crafting',
+      },
+      // Armor
+      {
+        id: 'iron_helmet',
+        resultId: 'iron_helmet',
+        resultCount: 1,
+        ingredients: [{ id: 'iron_ingot', count: 5 }],
+        type: 'crafting',
+      },
+      {
+        id: 'iron_chestplate',
+        resultId: 'iron_chestplate',
+        resultCount: 1,
+        ingredients: [{ id: 'iron_ingot', count: 8 }],
+        type: 'crafting',
+      },
+      {
+        id: 'iron_leggings',
+        resultId: 'iron_leggings',
+        resultCount: 1,
+        ingredients: [{ id: 'iron_ingot', count: 7 }],
+        type: 'crafting',
+      },
+      {
+        id: 'iron_boots',
+        resultId: 'iron_boots',
+        resultCount: 1,
+        ingredients: [{ id: 'iron_ingot', count: 4 }],
+        type: 'crafting',
+      },
+      {
+        id: 'diamond_helmet',
+        resultId: 'diamond_helmet',
+        resultCount: 1,
+        ingredients: [{ id: 'diamond', count: 5 }],
+        type: 'crafting',
+      },
+      {
+        id: 'diamond_chestplate',
+        resultId: 'diamond_chestplate',
+        resultCount: 1,
+        ingredients: [{ id: 'diamond', count: 8 }],
+        type: 'crafting',
+      },
+      {
+        id: 'diamond_leggings',
+        resultId: 'diamond_leggings',
+        resultCount: 1,
+        ingredients: [{ id: 'diamond', count: 7 }],
+        type: 'crafting',
+      },
+      {
+        id: 'diamond_boots',
+        resultId: 'diamond_boots',
+        resultCount: 1,
+        ingredients: [{ id: 'diamond', count: 4 }],
+        type: 'crafting',
+      },
+      // Compacting & Decompacting
+      {
+        id: 'iron_block',
+        resultId: 'iron_block',
+        resultCount: 1,
+        ingredients: [{ id: 'iron_ingot', count: 9 }],
+        type: 'crafting',
+      },
+      {
+        id: 'iron_ingot_from_block',
+        resultId: 'iron_ingot',
+        resultCount: 9,
+        ingredients: [{ id: 'iron_block', count: 1 }],
+        type: 'crafting',
+      },
+      {
+        id: 'diamond_block',
+        resultId: 'diamond_block',
+        resultCount: 1,
+        ingredients: [{ id: 'diamond', count: 9 }],
+        type: 'crafting',
+      },
+      {
+        id: 'diamond_from_block',
+        resultId: 'diamond',
+        resultCount: 9,
+        ingredients: [{ id: 'diamond_block', count: 1 }],
+        type: 'crafting',
+      },
+      {
+        id: 'gold_block',
+        resultId: 'gold_block',
+        resultCount: 1,
+        ingredients: [{ id: 'gold_ingot', count: 9 }],
+        type: 'crafting',
+      },
+      {
+        id: 'gold_ingot_from_block',
+        resultId: 'gold_ingot',
+        resultCount: 9,
+        ingredients: [{ id: 'gold_block', count: 1 }],
+        type: 'crafting',
+      },
+      {
+        id: 'coal_block',
+        resultId: 'coal_block',
+        resultCount: 1,
+        ingredients: [{ id: 'coal', count: 9 }],
+        type: 'crafting',
+      },
+      {
+        id: 'coal_from_block',
+        resultId: 'coal',
+        resultCount: 9,
+        ingredients: [{ id: 'coal_block', count: 1 }],
+        type: 'crafting',
+      },
+      // Stairs, Slabs & Trapdoors
+      {
+        id: 'oak_stairs',
+        resultId: 'oak_stairs',
+        resultCount: 4,
+        ingredients: [{ id: 'oak_planks', count: 6 }],
+        type: 'crafting',
+      },
+      {
+        id: 'oak_slab',
+        resultId: 'oak_slab',
+        resultCount: 6,
+        ingredients: [{ id: 'oak_planks', count: 3 }],
+        type: 'crafting',
+      },
+      {
+        id: 'oak_trapdoor',
+        resultId: 'oak_trapdoor',
+        resultCount: 2,
+        ingredients: [{ id: 'oak_planks', count: 6 }],
+        type: 'crafting',
+      },
+      {
+        id: 'cobblestone_stairs',
+        resultId: 'cobblestone_stairs',
+        resultCount: 4,
+        ingredients: [{ id: 'cobblestone', count: 6 }],
+        type: 'crafting',
+      },
+      {
+        id: 'cobblestone_slab',
+        resultId: 'cobblestone_slab',
+        resultCount: 6,
+        ingredients: [{ id: 'cobblestone', count: 3 }],
+        type: 'crafting',
+      },
     ];
     return recipes;
   }
@@ -891,6 +1312,17 @@ export const SMELTING_RECIPES: Record<string, { result: string; cookTicks: numbe
   potato: { result: 'baked_potato', cookTicks: 200 },
   kelp: { result: 'dried_kelp', cookTicks: 200 },
 };
+
+// Populate official smelting recipes from 26.3
+for (const raw of officialRecipesData as OfficialRecipeRaw[]) {
+  if (raw.type === 'smelting' && raw.ingredient && raw.resultId) {
+    for (const ing of raw.ingredient) {
+      if (!SMELTING_RECIPES[ing]) {
+        SMELTING_RECIPES[ing] = { result: raw.resultId, cookTicks: raw.cookTicks || 200 };
+      }
+    }
+  }
+}
 
 export const FUEL_VALUES: Record<string, number> = {
   coal: 1600,

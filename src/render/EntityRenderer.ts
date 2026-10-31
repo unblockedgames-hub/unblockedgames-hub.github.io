@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { DYE_HEX_MAP, Registries } from '../core/Registries';
+import { AudioEngine } from '../core/AudioEngine';
 import { TextureAtlas } from './TextureAtlas';
 import { CushionEntityData } from '../world/WorldGen26_3';
 
@@ -33,7 +34,7 @@ export interface FallingBlockEntity {
 
 export interface MobEntity {
   id: string;
-  type: 'pig' | 'cow' | 'sheep' | 'remote_player' | 'zombie';
+  type: 'pig' | 'cow' | 'sheep' | 'remote_player' | 'zombie' | 'skeleton' | 'creeper' | 'spider';
   name?: string;
   x: number;
   y: number;
@@ -52,6 +53,9 @@ export interface MobEntity {
   dead: boolean;
   mesh: THREE.Group;
   legs?: THREE.Mesh[];
+  fuseTimer?: number;
+  shootTimer?: number;
+  burnTimer?: number;
 }
 
 /**
@@ -205,8 +209,8 @@ export class EntityRenderer {
       const faceTexs = [
         this.cropSubTexture(img, u + dz + dx, v + dz, dz, dy, true), // +X (left flank)
         this.cropSubTexture(img, u, v + dz, dz, dy, true), // -X (right flank)
-        this.cropSubTexture(img, u + dz + dx + dz, v + dz, dx, dy), // +Y (top back)
-        this.cropSubTexture(img, u + dz, v + dz, dx, dy), // -Y (belly)
+        this.cropSubTexture(img, u + dz, v + dz, dx, dy), // +Y (top back)
+        this.cropSubTexture(img, u + dz + dx + dz, v + dz, dx, dy), // -Y (belly)
         this.cropSubTexture(img, u + dz, v, dx, dz), // +Z (front chest)
         this.cropSubTexture(img, u + dz + dx, v, dx, dz), // -Z (rear)
       ];
@@ -484,9 +488,110 @@ export class EntityRenderer {
         rLeg.applyTexture(img, 0, 16);
         lLeg.applyTexture(img, 0, 16);
       });
+    } else if (type === 'skeleton') {
+      const head = this.createUprightPartMesh(8, 8, 8, 0, 0xcccccc);
+      head.mesh.position.set(0, 28 / 16, 0);
+      const body = this.createUprightPartMesh(8, 12, 4, 0, 0xbbbbbb);
+      body.mesh.position.set(0, 18 / 16, 0);
+
+      const rArm = this.createUprightPartMesh(2, 12, 2, 0, 0xcccccc);
+      rArm.mesh.geometry.translate(0, -6 / 16, 0);
+      rArm.mesh.position.set(-5 / 16, 22 / 16, 0);
+      rArm.mesh.rotation.x = -Math.PI / 2;
+
+      const lArm = this.createUprightPartMesh(2, 12, 2, 0, 0xcccccc);
+      lArm.mesh.geometry.translate(0, -6 / 16, 0);
+      lArm.mesh.position.set(5 / 16, 22 / 16, 0);
+      lArm.mesh.rotation.x = -Math.PI / 2;
+
+      const rLeg = this.createUprightPartMesh(2, 12, 2, 0, 0xcccccc);
+      rLeg.mesh.geometry.translate(0, -6 / 16, 0);
+      rLeg.mesh.position.set(-2 / 16, 12 / 16, 0);
+
+      const lLeg = this.createUprightPartMesh(2, 12, 2, 0, 0xcccccc);
+      lLeg.mesh.geometry.translate(0, -6 / 16, 0);
+      lLeg.mesh.position.set(2 / 16, 12 / 16, 0);
+
+      legs.push(rLeg.mesh, lLeg.mesh);
+      group.add(head.mesh, body.mesh, rArm.mesh, lArm.mesh, rLeg.mesh, lLeg.mesh);
+
+      this.loadEntityImage('/assets/minecraft/textures/entity/skeleton/skeleton.png', (img) => {
+        head.applyTexture(img, 0, 0);
+        body.applyTexture(img, 16, 16);
+        rArm.applyTexture(img, 40, 16);
+        lArm.applyTexture(img, 40, 16);
+        rLeg.applyTexture(img, 0, 16);
+        lLeg.applyTexture(img, 0, 16);
+      });
+    } else if (type === 'creeper') {
+      const head = this.createUprightPartMesh(8, 8, 8, 0, 0x2e8b57);
+      head.mesh.position.set(0, 24 / 16, 0);
+      const body = this.createUprightPartMesh(8, 12, 4, 0, 0x3cb371);
+      body.mesh.position.set(0, 14 / 16, 0);
+
+      const legPositions = [
+        [-2 / 16, 6 / 16, -4 / 16],
+        [2 / 16, 6 / 16, -4 / 16],
+        [-2 / 16, 6 / 16, 4 / 16],
+        [2 / 16, 6 / 16, 4 / 16],
+      ];
+      for (const [lx, ly, lz] of legPositions) {
+        const leg = this.createUprightPartMesh(4, 6, 4, 0, 0x2e8b57);
+        leg.mesh.geometry.translate(0, -3 / 16, 0);
+        leg.mesh.position.set(lx, ly, lz);
+        legs.push(leg.mesh);
+        group.add(leg.mesh);
+      }
+      group.add(head.mesh, body.mesh);
+
+      this.loadEntityImage('/assets/minecraft/textures/entity/creeper/creeper.png', (img) => {
+        head.applyTexture(img, 0, 0);
+        body.applyTexture(img, 16, 16);
+        for (const l of legs) {
+          for (let i = 0; i < 6; i++) {
+            (l.material as THREE.MeshLambertMaterial[])[i].map = this.cropSubTexture(img, 0, 16, 4, 6);
+            (l.material as THREE.MeshLambertMaterial[])[i].needsUpdate = true;
+          }
+        }
+      });
+    } else if (type === 'spider') {
+      const head = this.createUprightPartMesh(6, 6, 6, 0, 0x332222);
+      head.mesh.position.set(0, 6 / 16, -6 / 16);
+      const body = this.createUprightPartMesh(10, 6, 12, 0, 0x2a1a1a);
+      body.mesh.position.set(0, 6 / 16, 3 / 16);
+
+      for (let i = 0; i < 8; i++) {
+        const side = i < 4 ? -1 : 1;
+        const legIdx = i % 4;
+        const leg = this.createUprightPartMesh(12, 2, 2, 0, 0x111111);
+        leg.mesh.geometry.translate((side * 6) / 16, 0, 0);
+        leg.mesh.position.set((side * 4) / 16, 4 / 16, ((legIdx - 1.5) * 4) / 16);
+        leg.mesh.rotation.z = side * 0.25;
+        legs.push(leg.mesh);
+        group.add(leg.mesh);
+      }
+      group.add(head.mesh, body.mesh);
+
+      this.loadEntityImage('/assets/minecraft/textures/entity/spider/spider.png', (img) => {
+        head.applyTexture(img, 32, 4);
+        body.applyTexture(img, 0, 12);
+        for (const l of legs) {
+          for (let i = 0; i < 6; i++) {
+            (l.material as THREE.MeshLambertMaterial[])[i].color.setHex(0x1a1a1a);
+            (l.material as THREE.MeshLambertMaterial[])[i].needsUpdate = true;
+          }
+        }
+      });
     }
 
-    const maxHealth = type === 'zombie' ? 20 : type === 'sheep' ? 8 : 10;
+    const maxHealth =
+      type === 'zombie' || type === 'skeleton' || type === 'creeper'
+        ? 20
+        : type === 'spider'
+        ? 16
+        : type === 'sheep'
+        ? 8
+        : 10;
     group.position.set(x, y, z);
     this.scene.add(group);
     this.mobs.set(id, {
@@ -529,7 +634,9 @@ export class EntityRenderer {
       const halfW =
         mob.type === 'cow'
           ? 0.55
-          : mob.type === 'zombie' || mob.type === 'remote_player'
+          : mob.type === 'spider'
+          ? 0.7
+          : mob.type === 'zombie' || mob.type === 'skeleton' || mob.type === 'creeper' || mob.type === 'remote_player'
           ? 0.35
           : 0.48;
       const height =
@@ -537,7 +644,11 @@ export class EntityRenderer {
           ? 1.45
           : mob.type === 'sheep'
           ? 1.35
-          : mob.type === 'zombie' || mob.type === 'remote_player'
+          : mob.type === 'spider'
+          ? 0.8
+          : mob.type === 'creeper'
+          ? 1.7
+          : mob.type === 'zombie' || mob.type === 'skeleton' || mob.type === 'remote_player'
           ? 1.95
           : 1.05;
       const minX = mob.x - halfW;
@@ -673,6 +784,28 @@ export class EntityRenderer {
         }
         if (Math.random() < 0.08) {
           this.spawnDroppedItem(bx, by, bz, 'iron_ingot');
+        }
+      } else if (mob.type === 'skeleton') {
+        const boneCount = 1 + Math.floor(Math.random() * 2);
+        for (let i = 0; i < boneCount; i++) {
+          this.spawnDroppedItem(bx, by, bz, 'bone');
+        }
+        const arrowCount = Math.floor(Math.random() * 3);
+        for (let i = 0; i < arrowCount; i++) {
+          this.spawnDroppedItem(bx, by, bz, 'arrow');
+        }
+      } else if (mob.type === 'creeper') {
+        const powderCount = 1 + Math.floor(Math.random() * 2);
+        for (let i = 0; i < powderCount; i++) {
+          this.spawnDroppedItem(bx, by, bz, 'gunpowder');
+        }
+      } else if (mob.type === 'spider') {
+        const strCount = 1 + Math.floor(Math.random() * 2);
+        for (let i = 0; i < strCount; i++) {
+          this.spawnDroppedItem(bx, by, bz, 'string');
+        }
+        if (Math.random() < 0.33) {
+          this.spawnDroppedItem(bx, by, bz, 'spider_eye');
         }
       }
       return { hit: true, killed: true, mob };
@@ -848,7 +981,8 @@ export class EntityRenderer {
     onPickupItem?: (itemId: string, count: number) => boolean,
     isSolidAt?: (bx: number, by: number, bz: number) => boolean,
     onMobAttackPlayer?: (damage: number, mobType: string) => void,
-    onFallingBlockLanded?: (bx: number, by: number, bz: number, numId: number, meta: number, blockId: string) => void
+    onFallingBlockLanded?: (bx: number, by: number, bz: number, numId: number, meta: number, blockId: string) => void,
+    daylight?: number
   ) {
     // Smooth Gravity Physics for Falling Sand & Gravel Entities
     for (const [id, fb] of this.fallingBlocks) {
@@ -963,21 +1097,103 @@ export class EntityRenderer {
 
       const groundY = getGroundHeight(Math.floor(mob.x), Math.floor(mob.z));
 
+      // Sunlight Burning for Zombies and Skeletons during day
+      if (daylight !== undefined && daylight > 0.8 && (mob.type === 'zombie' || mob.type === 'skeleton')) {
+        const topY = getGroundHeight(Math.floor(mob.x), Math.floor(mob.z));
+        if (mob.y >= topY - 0.5) {
+          mob.burnTimer = (mob.burnTimer || 0.8) - dt;
+          if (mob.burnTimer <= 0) {
+            mob.health -= 1;
+            mob.hurtTimer = 0.25;
+            this.setMobHurtTint(mob, true);
+            AudioEngine.play(mob.type === 'zombie' ? 'entity.zombie.hurt' : 'entity.skeleton.hurt', 0.6);
+            mob.burnTimer = 0.8;
+            if (mob.health <= 0) {
+              mob.dead = true;
+              mob.deathTimer = 0.55;
+              continue;
+            }
+          }
+        }
+      }
+
       mob.aiTimer -= dt;
-      if (mob.type === 'zombie' && playerPos && mob.hurtTimer <= 0) {
-        // Aggressive zombie pathing towards player
+      const isHostile = mob.type === 'zombie' || mob.type === 'skeleton' || mob.type === 'creeper' || mob.type === 'spider';
+      if (isHostile && playerPos && mob.hurtTimer <= 0) {
         const pdx = playerPos.x - mob.x;
         const pdy = playerPos.y - mob.y;
         const pdz = playerPos.z - mob.z;
         const distHoriz = Math.hypot(pdx, pdz);
         const dist3D = Math.hypot(pdx, pdy, pdz);
-        // Only track and attack if within vertical reach (< 4 blocks) and 3D reach!
-        if (distHoriz < 16 && Math.abs(pdy) < 4.0) {
+
+        if (distHoriz < 16 && Math.abs(pdy) < 6.0) {
           mob.yaw = Math.atan2(pdx, pdz);
-          mob.vx = Math.sin(mob.yaw) * 2.3;
-          mob.vz = Math.cos(mob.yaw) * 2.3;
-          if (dist3D < 1.6 && Math.abs(pdy) < 1.8 && onMobAttackPlayer) {
-            onMobAttackPlayer(3, 'zombie');
+
+          if (mob.type === 'zombie') {
+            mob.vx = Math.sin(mob.yaw) * 2.3;
+            mob.vz = Math.cos(mob.yaw) * 2.3;
+            if (dist3D < 1.6 && Math.abs(pdy) < 1.8 && onMobAttackPlayer) {
+              onMobAttackPlayer(3, 'zombie');
+            }
+          } else if (mob.type === 'skeleton') {
+            if (distHoriz > 10) {
+              mob.vx = Math.sin(mob.yaw) * 2.2;
+              mob.vz = Math.cos(mob.yaw) * 2.2;
+            } else if (distHoriz < 6) {
+              mob.vx = -Math.sin(mob.yaw) * 1.8;
+              mob.vz = -Math.cos(mob.yaw) * 1.8;
+            } else {
+              mob.vx = 0;
+              mob.vz = 0;
+            }
+            mob.shootTimer = (mob.shootTimer !== undefined ? mob.shootTimer : 2.0) - dt;
+            if (mob.shootTimer <= 0) {
+              mob.shootTimer = 2.0 + Math.random() * 0.5;
+              AudioEngine.play('entity.skeleton.shoot', 0.85);
+              if (onMobAttackPlayer) onMobAttackPlayer(3, 'skeleton');
+            }
+          } else if (mob.type === 'creeper') {
+            if (dist3D < 3.2) {
+              mob.vx = 0;
+              mob.vz = 0;
+              mob.fuseTimer = (mob.fuseTimer !== undefined ? mob.fuseTimer : 1.5) - dt;
+              const flash = Math.floor(mob.fuseTimer * 8) % 2 === 0;
+              for (const part of mob.mesh.children) {
+                if (part instanceof THREE.Mesh) {
+                  const mats = Array.isArray(part.material) ? part.material : [part.material];
+                  for (const m of mats) {
+                    if (m instanceof THREE.MeshLambertMaterial) {
+                      m.color.setHex(flash ? 0xffffff : 0x2e8b57);
+                    }
+                  }
+                }
+              }
+              if (mob.fuseTimer === 1.5 - dt || Math.abs(mob.fuseTimer - 1.4) < dt) {
+                AudioEngine.play('entity.creeper.primed', 0.95);
+              }
+              if (mob.fuseTimer <= 0) {
+                AudioEngine.play('entity.generic.explode', 1.0);
+                if (onMobAttackPlayer) onMobAttackPlayer(12, 'creeper');
+                mob.dead = true;
+                mob.deathTimer = 0.1;
+                this.scene.remove(mob.mesh);
+                this.mobs.delete(id);
+                continue;
+              }
+            } else {
+              mob.fuseTimer = undefined;
+              mob.vx = Math.sin(mob.yaw) * 2.1;
+              mob.vz = Math.cos(mob.yaw) * 2.1;
+            }
+          } else if (mob.type === 'spider') {
+            mob.vx = Math.sin(mob.yaw) * 3.4;
+            mob.vz = Math.cos(mob.yaw) * 3.4;
+            if (distHoriz < 5 && mob.y <= groundY + 0.1 && Math.random() < 0.08) {
+              mob.vy = 4.2;
+            }
+            if (dist3D < 1.7 && Math.abs(pdy) < 1.6 && onMobAttackPlayer) {
+              onMobAttackPlayer(2, 'spider');
+            }
           }
         }
       } else if (mob.aiTimer <= 0 && mob.hurtTimer <= 0) {

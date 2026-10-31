@@ -318,6 +318,13 @@ export class Game {
         return;
       }
 
+      // Keyboard keybind support for Use Item / Place Block
+      if (kb?.use && e.code === kb.use && this.ui.state === 'IN_GAME') {
+        e.preventDefault();
+        this.handleRightClickInteractOrPlace();
+        return;
+      }
+
       // Keyboard keybind support for Pick Block
       if (kb?.pickItem && e.code === kb.pickItem && this.ui.state === 'IN_GAME') {
         e.preventDefault();
@@ -560,25 +567,23 @@ export class Game {
         this.player.triggerSwing();
         this.firstPersonHand.triggerSwing();
 
-        // 1. Check if attacking a Mob Entity in front of the player
+        // 1. Check if attacking a Mob Entity in front of the player (3.5m reach)
         const lookDir = new THREE.Vector3();
         this.camera.getWorldDirection(lookDir);
-        const maxMobReach = this.player.currentHit
-          ? Math.min(
-              3.5,
-              Math.hypot(
-                this.player.currentHit.bx + 0.5 - this.camera.position.x,
-                this.player.currentHit.by + 0.5 - this.camera.position.y,
-                this.player.currentHit.bz + 0.5 - this.camera.position.z
-              )
-            )
-          : 3.5;
         const mobHit = this.entityRenderer.raycastMob(
           this.camera.position,
           lookDir,
-          maxMobReach
+          3.5
         );
-        if (mobHit) {
+        const blockDist = this.player.currentHit
+          ? Math.hypot(
+              this.player.currentHit.bx + 0.5 - this.camera.position.x,
+              this.player.currentHit.by + 0.5 - this.camera.position.y,
+              this.player.currentHit.bz + 0.5 - this.camera.position.z
+            )
+          : Infinity;
+
+        if (mobHit && mobHit.distance <= blockDist + 0.35) {
           this.player.isMining = false;
           this.player.resetMining();
           const held = this.inventory.getHeldStack();
@@ -611,7 +616,23 @@ export class Game {
             }
           );
           if (res.hit) {
-            AudioEngine.playBlockSound('wool', 'break');
+            const hurtSound =
+              mobHit.mob.type === 'cow'
+                ? 'entity.cow.hurt'
+                : mobHit.mob.type === 'pig'
+                ? 'entity.pig.hurt'
+                : mobHit.mob.type === 'sheep'
+                ? 'entity.sheep.hurt'
+                : mobHit.mob.type === 'zombie'
+                ? 'entity.zombie.hurt'
+                : mobHit.mob.type === 'skeleton'
+                ? 'entity.skeleton.hurt'
+                : mobHit.mob.type === 'spider'
+                ? 'entity.spider.hurt'
+                : mobHit.mob.type === 'creeper'
+                ? 'entity.creeper.hurt'
+                : 'entity.player.hurt';
+            AudioEngine.play(hurtSound, 0.85);
             const heartCount = Math.max(1, Math.min(6, Math.round(damage / 2)));
             this.particleSystem.spawnDamageIndicator(
               mobHit.mob.x,
@@ -814,6 +835,17 @@ export class Game {
       }
     }
 
+    // If breaking a 2-block door, remove both bottom and top halves
+    if (blockDef.shape === 'door_bottom' || blockDef.shape === 'door_top' || blockDef.shape === 'door' || blockDef.shortId.endsWith('_door')) {
+      const curMeta = this.world.getMeta(hit.bx, hit.by, hit.bz);
+      const isTop = (curMeta & 4) !== 0;
+      const otherY = isTop ? hit.by - 1 : hit.by + 1;
+      const otherBlock = this.world.getBlock(hit.bx, otherY, hit.bz);
+      if (otherBlock === hit.blockNumId) {
+        this.world.setBlock(hit.bx, otherY, hit.bz, 0);
+      }
+    }
+
     this.world.setBlock(hit.bx, hit.by, hit.bz, 0);
 
     // Drop container contents if breaking a furnace, chest, or barrel
@@ -861,23 +893,70 @@ export class Game {
     // Spawn 3D Dropped Item in Survival Mode (respecting tool harvest requirements!)
     if (this.player.gameMode === 'survival') {
       const held = this.inventory.getHeldStack();
-      const requiresPickaxe = blockDef.soundGroup === 'stone';
-      const canHarvest =
-        !requiresPickaxe || (held && held.item.toolType === 'pickaxe');
+      const tool = held?.item;
+      const toolType = tool?.toolType;
+      const toolSpeed = tool?.toolSpeed || 1; // 2=wood, 4=stone, 6=iron, 8=diamond, 9=netherite, 12=gold
 
-      if (canHarvest && blockDef.shortId !== 'short_grass' && blockDef.shortId !== 'leaf_litter') {
-        let dropId = blockDef.shortId;
-        if (dropId === 'stone') dropId = 'cobblestone';
-        else if (dropId === 'grass_block' || dropId === 'podzol') dropId = 'dirt';
-        else if (dropId === 'coal_ore') dropId = 'coal';
-        else if (dropId === 'diamond_ore') dropId = 'diamond';
-        else if (dropId === 'straw_bed_head') dropId = 'straw_bed';
-        else if (dropId.includes('leaves')) {
-          dropId = Math.random() < 0.25 ? 'stick' : '';
+      // Harvest level checks
+      let canHarvest = true;
+      const id = blockDef.shortId;
+      if (id.includes('diamond_ore') || id.includes('gold_ore') || id.includes('redstone_ore') || id.includes('emerald_ore')) {
+        canHarvest = toolType === 'pickaxe' && toolSpeed >= 6; // Iron+ pickaxe
+      } else if (id.includes('iron_ore') || id.includes('lapis_ore') || id.includes('copper_ore')) {
+        canHarvest = toolType === 'pickaxe' && toolSpeed >= 4; // Stone+ pickaxe
+      } else if (id === 'obsidian' || id === 'crying_obsidian') {
+        canHarvest = toolType === 'pickaxe' && toolSpeed >= 8; // Diamond+ pickaxe
+      } else if (blockDef.soundGroup === 'stone') {
+        canHarvest = toolType === 'pickaxe' && toolSpeed >= 2; // Wood+ pickaxe
+      }
+
+      if (canHarvest && id !== 'short_grass' && id !== 'leaf_litter' && id !== 'nether_portal') {
+        let dropId = id;
+        let dropCount = 1;
+
+        if (id === 'stone') dropId = 'cobblestone';
+        else if (id === 'deepslate') dropId = 'cobbled_deepslate';
+        else if (id === 'grass_block' || id === 'podzol' || id.includes('dirt_path') || id === 'farmland') dropId = 'dirt';
+        else if (id === 'coal_ore' || id === 'deepslate_coal_ore') dropId = 'coal';
+        else if (id === 'diamond_ore' || id === 'deepslate_diamond_ore') dropId = 'diamond';
+        else if (id === 'iron_ore' || id === 'deepslate_iron_ore') dropId = 'raw_iron';
+        else if (id === 'copper_ore' || id === 'deepslate_copper_ore') {
+          dropId = 'raw_copper';
+          dropCount = 2 + Math.floor(Math.random() * 4); // 2..5
+        } else if (id === 'gold_ore' || id === 'deepslate_gold_ore') dropId = 'raw_gold';
+        else if (id === 'redstone_ore' || id === 'deepslate_redstone_ore') {
+          dropId = 'redstone';
+          dropCount = 4 + Math.floor(Math.random() * 2); // 4..5
+        } else if (id === 'lapis_ore' || id === 'deepslate_lapis_ore') {
+          dropId = 'lapis_lazuli';
+          dropCount = 4 + Math.floor(Math.random() * 6); // 4..9
+        } else if (id === 'emerald_ore' || id === 'deepslate_emerald_ore') dropId = 'emerald';
+        else if (id === 'nether_gold_ore') {
+          dropId = 'gold_nugget';
+          dropCount = 2 + Math.floor(Math.random() * 5); // 2..6
+        } else if (id === 'nether_quartz_ore') dropId = 'quartz';
+        else if (id === 'glowstone') {
+          dropId = 'glowstone_dust';
+          dropCount = 2 + Math.floor(Math.random() * 3); // 2..4
+        } else if (id === 'clay') {
+          dropId = 'clay_ball';
+          dropCount = 4;
+        } else if (id === 'gravel') {
+          dropId = Math.random() < 0.1 ? 'flint' : 'gravel';
+        } else if (id === 'straw_bed_head') dropId = 'straw_bed';
+        else if (id.endsWith('_door')) dropId = id;
+        else if (id === 'glass' || id.endsWith('_glass') || id === 'glass_pane' || id.endsWith('_glass_pane')) {
+          dropId = ''; // Glass drops nothing without silk touch
+        } else if (id.includes('leaves')) {
+          const roll = Math.random();
+          if (roll < 0.05) dropId = 'oak_sapling';
+          else if (roll < 0.07 && (id.includes('oak') || id.includes('dark_oak'))) dropId = 'apple';
+          else if (roll < 0.28) dropId = 'stick';
+          else dropId = '';
         }
 
         if (dropId) {
-          this.entityRenderer.spawnDroppedItem(hit.bx, hit.by, hit.bz, dropId);
+          this.entityRenderer.spawnDroppedItem(hit.bx, hit.by, hit.bz, dropId, dropCount);
         }
       }
     }
@@ -1007,21 +1086,131 @@ export class Game {
 
     const targetDef = Registries.getBlock(hit.blockNumId);
 
-    // 2. Check if Right-Clicking a 26.3 Straw Bed -> Set Spawn & Rest!
+    // Trapdoor Interaction (Toggle open/close)
+    if (targetDef.shape === 'trapdoor' || targetDef.shortId.endsWith('_trapdoor')) {
+      const curMeta = this.world.getMeta(hit.bx, hit.by, hit.bz);
+      const newMeta = curMeta ^ 8;
+      this.world.setBlock(hit.bx, hit.by, hit.bz, hit.blockNumId, newMeta);
+      const open = (newMeta & 8) !== 0;
+      AudioEngine.play(open ? 'block.wooden_trapdoor.open' : 'block.wooden_trapdoor.close', 0.85);
+      this.player.triggerSwing();
+      this.firstPersonHand.triggerSwing();
+      this.player.updateRaycast();
+      return;
+    }
+
+    // Door Interaction (Toggle open/close on both halves)
+    if (targetDef.shape === 'door_bottom' || targetDef.shape === 'door_top' || targetDef.shape === 'door' || targetDef.shortId.endsWith('_door')) {
+      const curMeta = this.world.getMeta(hit.bx, hit.by, hit.bz);
+      const isTop = (curMeta & 4) !== 0;
+      const otherY = isTop ? hit.by - 1 : hit.by + 1;
+      const otherBlock = this.world.getBlock(hit.bx, otherY, hit.bz);
+      const newMeta = curMeta ^ 8;
+      this.world.setBlock(hit.bx, hit.by, hit.bz, hit.blockNumId, newMeta);
+      if (otherBlock === hit.blockNumId) {
+        const otherMeta = this.world.getMeta(hit.bx, otherY, hit.bz);
+        this.world.setBlock(hit.bx, otherY, hit.bz, otherBlock, otherMeta ^ 8);
+      }
+      const open = (newMeta & 8) !== 0;
+      AudioEngine.play(open ? 'block.wooden_door.open' : 'block.wooden_door.close', 0.85);
+      this.player.triggerSwing();
+      this.firstPersonHand.triggerSwing();
+      this.player.updateRaycast();
+      return;
+    }
+
+    // Fence Gate Interaction (Toggle open/close)
+    if (targetDef.shape === 'fence_gate' || targetDef.shortId.endsWith('_fence_gate')) {
+      const curMeta = this.world.getMeta(hit.bx, hit.by, hit.bz);
+      const newMeta = curMeta ^ 8;
+      this.world.setBlock(hit.bx, hit.by, hit.bz, hit.blockNumId, newMeta);
+      const open = (newMeta & 8) !== 0;
+      AudioEngine.play(open ? 'block.fence_gate.open' : 'block.fence_gate.close', 0.85);
+      this.player.triggerSwing();
+      this.firstPersonHand.triggerSwing();
+      this.player.updateRaycast();
+      return;
+    }
+
+    // Bucket Fill (Water or Lava)
+    if (held && held.item.shortId === 'bucket') {
+      if (targetDef.fluid === 'water' || targetDef.shortId === 'water') {
+        this.world.setBlock(hit.bx, hit.by, hit.bz, 0);
+        AudioEngine.play('item.bucket.fill', 0.9);
+        this.player.triggerSwing();
+        this.firstPersonHand.triggerSwing();
+        if (this.player.gameMode === 'survival') {
+          this.inventory.consumeHeld(1);
+          this.inventory.addItem('water_bucket', 1);
+        }
+        return;
+      }
+      if (targetDef.fluid === 'lava' || targetDef.shortId === 'lava') {
+        this.world.setBlock(hit.bx, hit.by, hit.bz, 0);
+        AudioEngine.play('item.bucket.fill_lava', 0.9);
+        this.player.triggerSwing();
+        this.firstPersonHand.triggerSwing();
+        if (this.player.gameMode === 'survival') {
+          this.inventory.consumeHeld(1);
+          this.inventory.addItem('lava_bucket', 1);
+        }
+        return;
+      }
+    }
+
+    // Flint and Steel Usage (Ignite Nether Portal)
+    if (held && held.item.shortId === 'flint_and_steel') {
+      this.player.triggerSwing();
+      this.firstPersonHand.triggerSwing();
+      AudioEngine.play('item.flintandsteel.use', 0.9);
+      if (this.tryIgniteNetherPortal(hit.bx, hit.by, hit.bz, hit.nx, hit.ny, hit.nz)) {
+        return;
+      }
+      return;
+    }
+
+    // 2. Check if Right-Clicking Bed / Straw Bed
     if (
       targetDef.shortId === 'straw_bed' ||
-      targetDef.shortId === 'straw_bed_head'
+      targetDef.shortId === 'straw_bed_head' ||
+      targetDef.shortId.endsWith('_bed')
     ) {
+      if (this.world.dimension === 'nether') {
+        // Authentic Nether Bed explosion!
+        AudioEngine.play('entity.generic.explode', 1.0);
+        this.world.setBlock(hit.bx, hit.by, hit.bz, 0);
+        for (let ox = -2; ox <= 2; ox++) {
+          for (let oy = -2; oy <= 2; oy++) {
+            for (let oz = -2; oz <= 2; oz++) {
+              if (ox * ox + oy * oy + oz * oz <= 5) {
+                const b = this.world.getBlock(hit.bx + ox, hit.by + oy, hit.bz + oz);
+                if (b !== Registries.getBlock('bedrock').numId) {
+                  this.world.setBlock(hit.bx + ox, hit.by + oy, hit.bz + oz, 0);
+                }
+              }
+            }
+          }
+        }
+        for (let i = 0; i < 20; i++) {
+          this.particleSystem.spawnBlockBreakBurst(hit.bx, hit.by, hit.bz, 'netherrack', 0x771111);
+        }
+        this.player.applyDamage(16, 'explosion');
+        return;
+      }
       AudioEngine.playBlockSound('straw_bed', 'place');
       this.world.timeOfDay = 1000;
+      if (targetDef.shortId.includes('straw')) {
+        this.world.setBlock(hit.bx, hit.by, hit.bz, 0);
+        this.ui.addChatMessage('§6[Straw Bed] §eThe straw bed crumbled after your rest!');
+      }
       this.ui.unlockAdvancement('straw_dreams');
       this.ui.showToast(
         'Sweet Wilderness Dreams!',
-        'Rested on a 26.3 Straw Bed',
+        'Rested on a Bed',
         'straw_bed'
       );
       this.ui.addChatMessage(
-        '§6[Straw Bed] §aRested in the wilderness Straw Bed! Respawn point set & morning has arrived.'
+        '§6[Bed] §aRespawn point set & morning has arrived.'
       );
       return;
     }
@@ -1090,6 +1279,43 @@ export class Game {
       return;
     }
 
+    // Water Bucket Usage
+    if (held.item.shortId === 'water_bucket') {
+      this.player.triggerSwing();
+      this.firstPersonHand.triggerSwing();
+      if (this.world.dimension === 'nether') {
+        AudioEngine.play('block.fire.extinguish', 0.9);
+        for (let i = 0; i < 8; i++) {
+          this.world.particleSystem.spawnCampfireSmoke(placeX, placeY, placeZ);
+        }
+      } else {
+        const waterId = Registries.getBlock('water').numId;
+        this.world.setBlock(placeX, placeY, placeZ, waterId);
+        AudioEngine.play('item.bucket.empty', 0.9);
+      }
+      if (this.player.gameMode === 'survival') {
+        this.inventory.consumeHeld(1);
+        this.inventory.addItem('bucket', 1);
+      }
+      this.ui.updateHUDOnly();
+      return;
+    }
+
+    // Lava Bucket Usage
+    if (held.item.shortId === 'lava_bucket') {
+      this.player.triggerSwing();
+      this.firstPersonHand.triggerSwing();
+      const lavaId = Registries.getBlock('lava')?.numId || Registries.getBlock('water').numId;
+      this.world.setBlock(placeX, placeY, placeZ, lavaId);
+      AudioEngine.play('item.bucket.empty_lava', 0.9);
+      if (this.player.gameMode === 'survival') {
+        this.inventory.consumeHeld(1);
+        this.inventory.addItem('bucket', 1);
+      }
+      this.ui.updateHUDOnly();
+      return;
+    }
+
     // 5. Place BlockItem
     if (held.item.isBlock && held.item.blockNumId !== undefined) {
       const dx = Math.abs(placeX + 0.5 - this.player.position.x);
@@ -1104,6 +1330,40 @@ export class Game {
       if (placeDef.shortId === 'furnace' || placeDef.shortId === 'chest' || placeDef.shortId === 'barrel') {
         // Place directional container blocks facing TOWARDS the player
         facingMeta = (facingMeta + 2) % 4;
+      } else if (placeDef.shape === 'stairs') {
+        const yawDeg = (((this.player.yaw * 180) / Math.PI) % 360 + 360) % 360;
+        let stairFacing = 0; // 0=North, 1=East, 2=South, 3=West
+        if (yawDeg >= 45 && yawDeg < 135) stairFacing = 1;
+        else if (yawDeg >= 135 && yawDeg < 225) stairFacing = 2;
+        else if (yawDeg >= 225 && yawDeg < 315) stairFacing = 3;
+        const isUpsideDown = hit.ny === -1;
+        facingMeta = stairFacing | (isUpsideDown ? 4 : 0);
+      } else if (placeDef.shape === 'trapdoor') {
+        const yawDeg = (((this.player.yaw * 180) / Math.PI) % 360 + 360) % 360;
+        let tdFacing = 0;
+        if (yawDeg >= 45 && yawDeg < 135) tdFacing = 1;
+        else if (yawDeg >= 135 && yawDeg < 225) tdFacing = 2;
+        else if (yawDeg >= 225 && yawDeg < 315) tdFacing = 3;
+        const isTop = hit.ny === -1;
+        facingMeta = tdFacing | (isTop ? 4 : 0);
+      }
+
+      if (placeDef.shortId.endsWith('_door')) {
+        const yawDeg = (((this.player.yaw * 180) / Math.PI) % 360 + 360) % 360;
+        let doorFacing = 0;
+        if (yawDeg >= 45 && yawDeg < 135) doorFacing = 1;
+        else if (yawDeg >= 135 && yawDeg < 225) doorFacing = 2;
+        else if (yawDeg >= 225 && yawDeg < 315) doorFacing = 3;
+        this.world.setBlock(placeX, placeY, placeZ, held.item.blockNumId, doorFacing);
+        this.world.setBlock(placeX, placeY + 1, placeZ, held.item.blockNumId, doorFacing | 4);
+        AudioEngine.play('block.wooden_door.open', 0.85);
+        this.player.triggerSwing();
+        this.firstPersonHand.triggerSwing();
+        if (this.player.gameMode === 'survival') {
+          this.inventory.consumeHeld(1);
+        }
+        this.ui.updateHUDOnly();
+        return;
       }
 
       if (placeDef.shortId === 'straw_bed') {
@@ -1149,6 +1409,173 @@ export class Game {
       this.player.updateRaycast();
       this.ui.updateHUDOnly();
     }
+  }
+
+  private tryIgniteNetherPortal(bx: number, by: number, bz: number, nx: number, ny: number, nz: number): boolean {
+    const obsidianId = Registries.getBlock('obsidian')?.numId;
+    const portalId = Registries.getBlock('nether_portal')?.numId;
+    if (!obsidianId || !portalId) return false;
+
+    let startX = bx + nx;
+    let startY = by + ny;
+    let startZ = bz + nz;
+    if (this.world.getBlock(bx, by, bz) === obsidianId && ny === 1) {
+      startX = bx;
+      startY = by + 1;
+      startZ = bz;
+    }
+
+    // Check both X-axis and Z-axis frames
+    for (const axis of ['x', 'z'] as const) {
+      const isX = axis === 'x';
+      const currZ = startZ;
+      const currX = startX;
+
+      let floorY = -1;
+      for (let y = startY; y >= Math.max(1, startY - 10); y--) {
+        const b = this.world.getBlock(currX, y, currZ);
+        if (b === obsidianId) {
+          floorY = y;
+          break;
+        }
+      }
+      if (floorY === -1) continue;
+
+      const innerBottomY = floorY + 1;
+      let minPos = isX ? currX : currZ;
+      let maxPos = isX ? currX : currZ;
+
+      while (minPos > (isX ? currX : currZ) - 15) {
+        const checkPos = minPos - 1;
+        const b = isX
+          ? this.world.getBlock(checkPos, innerBottomY, currZ)
+          : this.world.getBlock(currX, innerBottomY, checkPos);
+        if (b === obsidianId) break;
+        minPos--;
+      }
+      while (maxPos < (isX ? currX : currZ) + 15) {
+        const checkPos = maxPos + 1;
+        const b = isX
+          ? this.world.getBlock(checkPos, innerBottomY, currZ)
+          : this.world.getBlock(currX, innerBottomY, checkPos);
+        if (b === obsidianId) break;
+        maxPos++;
+      }
+
+      const innerWidth = maxPos - minPos + 1;
+      if (innerWidth < 2 || innerWidth > 21) continue;
+
+      let topY = -1;
+      for (let y = innerBottomY; y <= innerBottomY + 21; y++) {
+        const b = isX
+          ? this.world.getBlock(minPos, y, currZ)
+          : this.world.getBlock(currX, y, minPos);
+        if (b === obsidianId) {
+          topY = y;
+          break;
+        }
+      }
+      if (topY === -1) continue;
+      const innerHeight = topY - innerBottomY;
+      if (innerHeight < 3 || innerHeight > 21) continue;
+
+      let valid = true;
+      for (let p = minPos; p <= maxPos; p++) {
+        const bot = isX ? this.world.getBlock(p, floorY, currZ) : this.world.getBlock(currX, floorY, p);
+        const top = isX ? this.world.getBlock(p, topY, currZ) : this.world.getBlock(currX, topY, p);
+        if (bot !== obsidianId || top !== obsidianId) {
+          valid = false;
+          break;
+        }
+      }
+      if (!valid) continue;
+
+      for (let y = innerBottomY; y < topY; y++) {
+        const left = isX ? this.world.getBlock(minPos - 1, y, currZ) : this.world.getBlock(currX, y, minPos - 1);
+        const right = isX ? this.world.getBlock(maxPos + 1, y, currZ) : this.world.getBlock(currX, y, maxPos + 1);
+        if (left !== obsidianId || right !== obsidianId) {
+          valid = false;
+          break;
+        }
+      }
+      if (!valid) continue;
+
+      const meta = isX ? 0 : 1;
+      for (let p = minPos; p <= maxPos; p++) {
+        for (let y = innerBottomY; y < topY; y++) {
+          const px = isX ? p : currX;
+          const pz = isX ? currZ : p;
+          this.world.setBlock(px, y, pz, portalId, meta);
+        }
+      }
+      AudioEngine.play('block.portal.trigger', 0.9);
+      this.ui.unlockAdvancement('nether');
+      this.ui.showToast('We Need to Go Deeper', 'Build a Nether Portal', 'obsidian');
+      return true;
+    }
+    return false;
+  }
+
+  public teleportDimension(targetDimension: 'overworld' | 'nether') {
+    if (this.world.dimension === targetDimension) return;
+    const oldX = this.player.position.x;
+    const oldZ = this.player.position.z;
+
+    const newX = targetDimension === 'nether' ? Math.floor(oldX / 8) : Math.floor(oldX * 8);
+    const newZ = targetDimension === 'nether' ? Math.floor(oldZ / 8) : Math.floor(oldZ * 8);
+
+    this.world.switchDimension(targetDimension);
+    this.world.updateChunksAroundPlayer(newX, newZ);
+
+    let arrivalY = 64;
+    if (targetDimension === 'nether') {
+      for (let y = 40; y <= 85; y++) {
+        if (this.world.getBlock(newX, y, newZ) === 0 && this.world.getBlock(newX, y + 1, newZ) === 0) {
+          arrivalY = y;
+          break;
+        }
+      }
+    } else {
+      arrivalY = Math.max(64, this.world.getTopSolidY(newX, newZ));
+    }
+
+    const obsidianId = Registries.getBlock('obsidian').numId;
+    const portalId = Registries.getBlock('nether_portal').numId;
+    const floorY = arrivalY - 1;
+    for (let x = -1; x <= 2; x++) {
+      this.world.setBlock(newX + x, floorY, newZ, obsidianId);
+      this.world.setBlock(newX + x, floorY + 4, newZ, obsidianId);
+    }
+    for (let y = 1; y <= 3; y++) {
+      this.world.setBlock(newX - 1, floorY + y, newZ, obsidianId);
+      this.world.setBlock(newX + 2, floorY + y, newZ, obsidianId);
+      this.world.setBlock(newX, floorY + y, newZ, portalId, 0);
+      this.world.setBlock(newX + 1, floorY + y, newZ, portalId, 0);
+    }
+
+    this.player.position.set(newX + 0.5, arrivalY, newZ + 0.5);
+    this.player.velocity.set(0, 0, 0);
+    this.player.portalTimer = 0;
+    this.player.inPortal = false;
+
+    if (targetDimension === 'nether') {
+      this.skyColor.setRGB(0.2, 0.03, 0.03);
+      if (this.scene.fog instanceof THREE.FogExp2) {
+        this.scene.fog.color.copy(this.skyColor);
+        this.scene.fog.density = 0.035;
+      }
+      this.ui.addChatMessage('§cEntered The Nether dimension.');
+      this.ui.unlockAdvancement('nether');
+    } else {
+      this.skyColor.setRGB(0.47, 0.65, 1.0);
+      if (this.scene.fog instanceof THREE.FogExp2) {
+        this.scene.fog.color.copy(this.skyColor);
+        this.scene.fog.density = 0.015;
+      }
+      this.ui.addChatMessage('§aReturned to the Overworld.');
+    }
+
+    AudioEngine.play('block.portal.travel', 0.9);
   }
 
   private updateDayNightCycle(dt: number) {
@@ -1244,41 +1671,55 @@ export class Game {
       if (this.mobSpawnTimer >= 2.5) {
         this.mobSpawnTimer = 0;
         const isNight = this.world.timeOfDay >= 13000 && this.world.timeOfDay < 23000;
-        let zombies = 0;
+        let hostiles = 0;
         let passives = 0;
         for (const [, m] of this.entityRenderer.mobs) {
-          if (m.type === 'zombie') zombies++;
+          if (m.type === 'zombie' || m.type === 'skeleton' || m.type === 'creeper' || m.type === 'spider') hostiles++;
           else if (m.type === 'pig' || m.type === 'cow' || m.type === 'sheep') passives++;
         }
 
-        // Surface & Underground Cave Zombie Spawning
-        const canSpawnHostile = OptionsManager.current.difficulty !== 'Peaceful' && zombies < 8;
+        // Surface & Underground Cave Hostile Mob Spawning
+        const canSpawnHostile = OptionsManager.current.difficulty !== 'Peaceful' && hostiles < 16;
         if (canSpawnHostile) {
           const px = Math.floor(this.player.position.x);
           const py = Math.floor(this.player.position.y);
           const pz = Math.floor(this.player.position.z);
+          const hostilePool: ('zombie' | 'skeleton' | 'creeper' | 'spider')[] = ['zombie', 'skeleton', 'creeper', 'spider'];
 
-          if (py < 58) {
-            // Cave spawn candidate in dark hollows near player
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 10 + Math.random() * 14;
-            const cx = Math.floor(px + Math.cos(angle) * dist);
-            const cz = Math.floor(pz + Math.sin(angle) * dist);
-            const cy = Math.max(5, Math.min(py + Math.floor((Math.random() - 0.5) * 8), 55));
-            const curB = this.world.getBlock(cx, cy, cz);
-            const floorB = this.world.getBlock(cx, cy - 1, cz);
-            const ceilB = this.world.getBlock(cx, cy + 1, cz);
-            if (curB === 0 && ceilB === 0 && floorB !== 0 && Registries.getBlock(floorB)?.solid) {
-              this.entityRenderer.spawnMob(`zombie_${Date.now()}`, 'zombie', cx, cy, cz);
+          // 1. Underground Cave Spawning: search near player's depth for dark cave floors
+          const angle = Math.random() * Math.PI * 2;
+          const dist = 10 + Math.random() * 18;
+          const cx = Math.floor(px + Math.cos(angle) * dist);
+          const cz = Math.floor(pz + Math.sin(angle) * dist);
+          const startY = Math.min(100, py + 12);
+          const endY = Math.max(4, py - 14);
+
+          for (let testY = startY; testY >= endY; testY--) {
+            const floor = this.world.getBlock(cx, testY - 1, cz);
+            const cur = this.world.getBlock(cx, testY, cz);
+            const ceil = this.world.getBlock(cx, testY + 1, cz);
+            if (floor !== 0 && Registries.getBlock(floor)?.solid && cur === 0 && ceil === 0) {
+              const packCount = 1 + Math.floor(Math.random() * 2);
+              for (let p = 0; p < packCount; p++) {
+                const ox = (Math.random() - 0.5) * 2;
+                const oz = (Math.random() - 0.5) * 2;
+                const chosen = hostilePool[Math.floor(Math.random() * hostilePool.length)];
+                this.entityRenderer.spawnMob(`${chosen}_${Date.now()}_${p}`, chosen, cx + 0.5 + ox, testY, cz + 0.5 + oz);
+              }
+              break;
             }
-          } else if (isNight) {
+          }
+
+          // 2. Surface Night Spawning
+          if (isNight) {
             const angle = Math.random() * Math.PI * 2;
             const dist = 24 + Math.random() * 16;
             const sx = Math.floor(px + Math.cos(angle) * dist);
             const sz = Math.floor(pz + Math.sin(angle) * dist);
             const sy = this.world.getTopSolidY(sx, sz);
             if (sy >= 62) {
-              this.entityRenderer.spawnMob(`zombie_${Date.now()}`, 'zombie', sx, sy, sz);
+              const chosen = hostilePool[Math.floor(Math.random() * hostilePool.length)];
+              this.entityRenderer.spawnMob(`${chosen}_${Date.now()}`, chosen, sx + 0.5, sy, sz + 0.5);
             }
           }
         } else if (!isNight && passives < 12) {
@@ -1290,12 +1731,20 @@ export class Game {
           if (sy >= 62) {
             const types: ('sheep' | 'cow' | 'pig')[] = ['sheep', 'cow', 'pig'];
             const t = types[Math.floor(Math.random() * types.length)];
-            this.entityRenderer.spawnMob(`${t}_${Date.now()}`, t, sx, sy, sz);
+            this.entityRenderer.spawnMob(`${t}_${Date.now()}`, t, sx + 0.5, sy, sz + 0.5);
           }
         }
       }
 
       this.player.update(dt, controlsActive);
+
+      // Check Nether Portal Automatic Teleportation Trigger
+      if (this.player.inPortal && controlsActive) {
+        if (this.player.portalTimer >= (this.player.gameMode === 'creative' ? 0.2 : 3.5)) {
+          this.player.portalTimer = 0;
+          this.teleportDimension(this.world.dimension === 'overworld' ? 'nether' : 'overworld');
+        }
+      }
       if (controlsActive) {
         this.updateMining(dt);
       } else {
@@ -1315,6 +1764,7 @@ export class Game {
       }
 
       this.particleSystem.update(dt);
+      const curDaylight = this.sunLight.intensity / 0.95;
       this.entityRenderer.update(
         dt,
         (x, z) => this.world.getTopSolidY(x, z),
@@ -1349,7 +1799,8 @@ export class Game {
             blockId,
             blockId === 'sand' ? 0xe3d8a8 : 0x888484
           );
-        }
+        },
+        curDaylight
       );
 
       const heldStack = this.inventory.getHeldStack();

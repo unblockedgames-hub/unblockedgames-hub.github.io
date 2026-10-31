@@ -48,6 +48,11 @@ export class TextureAtlas {
     for (let i = 0; i < 10; i++) {
       neededTextures.add(`destroy_stage_${i}`);
     }
+    const doorWoods = ['oak', 'poplar', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'cherry', 'bamboo', 'crimson', 'warped', 'iron'];
+    for (const w of doorWoods) {
+      neededTextures.add(`${w}_door_top`);
+      neededTextures.add(`${w}_door_bottom`);
+    }
 
     // Virtual composite tile names synthesized from multi-part 26.3 sheets
     const virtualTiles = new Set<string>([

@@ -63,6 +63,13 @@ export const BIOMES_26_3: Record<string, BiomeInfo> = {
     foliageColor: [0.68, 0.65, 0.33],
     waterColor: [0.20, 0.42, 0.82],
   },
+  'minecraft:nether_wastes': {
+    id: 'minecraft:nether_wastes',
+    name: 'Nether Wastes',
+    grassColor: [0.55, 0.15, 0.15],
+    foliageColor: [0.55, 0.15, 0.15],
+    waterColor: [0.55, 0.15, 0.15],
+  },
   'minecraft:savanna': {
     id: 'minecraft:savanna',
     name: 'Savanna',
@@ -259,17 +266,8 @@ export class Chunk {
     ) => {
       const isWater = def.fluid === 'water';
       const hasRandomRotation =
-        def.shortId === 'grass_block' ||
-        def.shortId === 'dirt' ||
-        def.shortId === 'podzol' ||
-        def.shortId === 'stone' ||
         def.shortId === 'sand' ||
-        def.shortId === 'gravel' ||
-        def.shortId === 'deepslate' ||
-        def.shortId === 'bedrock' ||
-        def.shortId === 'andesite' ||
-        def.shortId === 'diorite' ||
-        def.shortId === 'granite';
+        def.shortId === 'red_sand';
 
       const rotTop = hasRandomRotation
         ? Math.abs((wx * 3129871) ^ (wz * 618791) ^ (Math.floor(y0) * 17)) & 3
@@ -456,7 +454,14 @@ export class Chunk {
     const shouldRenderNeighborFace = (selfDef: BlockDefinition, neighborNum: number): boolean => {
       if (neighborNum === 0) return true;
       const nDef = Registries.getBlock(neighborNum);
-      if (selfDef.fluid === 'water' && nDef.fluid === 'water') return false;
+      if (selfDef.fluid === 'water') {
+        if (nDef.fluid === 'water') return false;
+        if (nDef.solid && !nDef.transparent) return false;
+      }
+      // Cull adjacent leaves interior faces to drastically boost framerate in canopies
+      if (selfDef.shortId.includes('leaves') && nDef.shortId.includes('leaves')) {
+        return false;
+      }
       if (nDef.transparent || nDef.shape !== 'cube') {
         // Cull identical leaves or glass interiors to keep framerate high while showing outer faces
         if (nDef.numId === selfDef.numId && (selfDef.shortId === 'glass' || selfDef.fluid)) {
@@ -504,25 +509,118 @@ export class Chunk {
               const topY = getWorldBlock(wx, y + 1, wz) === bNum ? y + 1 : y + 0.88;
               pushBox(lx, y, lz, lx + 1, topY, lz + 1, def, biome, mask);
             }
-          } else if (def.shape === 'slab_bottom' || def.shape === 'trapdoor') {
+          } else if (def.shape === 'slab_bottom') {
             const topHalf = (meta & 4) !== 0;
             const y0 = topHalf ? y + 0.5 : y;
             const y1 = topHalf ? y + 1.0 : y + 0.5;
-            pushBox(lx, y0, lz, lx + 1, y1, lz + 1, def, biome, 0x3f);
+            let mask = 0x3f;
+            if (!topHalf && !shouldRenderNeighborFace(def, getWorldBlock(wx, y - 1, wz))) mask &= ~2;
+            if (topHalf && !shouldRenderNeighborFace(def, getWorldBlock(wx, y + 1, wz))) mask &= ~1;
+            pushBox(lx, y0, lz, lx + 1, y1, lz + 1, def, biome, mask);
           } else if (def.shape === 'slab_top') {
-            pushBox(lx, y + 0.65, lz, lx + 1, y + 1.0, lz + 1, def, biome, 0x3f);
-          } else if (def.shape === 'stairs') {
-            // Render bottom slab + upper step based on facing (meta & 3: 0=North, 1=East, 2=South, 3=West)
-            pushBox(lx, y, lz, lx + 1, y + 0.5, lz + 1, def, biome, 0x3f);
+            let mask = 0x3f;
+            if (!shouldRenderNeighborFace(def, getWorldBlock(wx, y + 1, wz))) mask &= ~1;
+            pushBox(lx, y + 0.5, lz, lx + 1, y + 1.0, lz + 1, def, biome, mask);
+          } else if (def.shape === 'trapdoor') {
+            const isOpen = (meta & 8) !== 0;
+            const isTop = (meta & 4) !== 0;
             const facing = meta & 3;
-            if (facing === 0) {
-              pushBox(lx, y + 0.5, lz, lx + 1, y + 1, lz + 0.5, def, biome, 0x3f);
-            } else if (facing === 1) {
-              pushBox(lx + 0.5, y + 0.5, lz, lx + 1, y + 1, lz + 1, def, biome, 0x3f);
-            } else if (facing === 2) {
-              pushBox(lx, y + 0.5, lz + 0.5, lx + 1, y + 1, lz + 1, def, biome, 0x3f);
+            if (!isOpen) {
+              // Flat closed trapdoor (3/16 thick = 0.1875)
+              const y0 = isTop ? y + 0.8125 : y;
+              const y1 = isTop ? y + 1.0 : y + 0.1875;
+              let mask = 0x3f;
+              if (!isTop && !shouldRenderNeighborFace(def, getWorldBlock(wx, y - 1, wz))) mask &= ~2;
+              if (isTop && !shouldRenderNeighborFace(def, getWorldBlock(wx, y + 1, wz))) mask &= ~1;
+              pushBox(lx, y0, lz, lx + 1, y1, lz + 1, def, biome, mask);
             } else {
-              pushBox(lx, y + 0.5, lz, lx + 0.5, y + 1, lz + 1, def, biome, 0x3f);
+              // Upright open trapdoor against attached wall (3/16 thick)
+              if (facing === 0) {
+                pushBox(lx, y, lz, lx + 1, y + 1, lz + 0.1875, def, biome, 0x3f);
+              } else if (facing === 1) {
+                pushBox(lx + 0.8125, y, lz, lx + 1, y + 1, lz + 1, def, biome, 0x3f);
+              } else if (facing === 2) {
+                pushBox(lx, y, lz + 0.8125, lx + 1, y + 1, lz + 1, def, biome, 0x3f);
+              } else {
+                pushBox(lx, y, lz, lx + 0.1875, y + 1, lz + 1, def, biome, 0x3f);
+              }
+            }
+          } else if (def.shape === 'stairs') {
+            // Render bottom half + upper step based on facing & upside-down (meta: facing=0..3, upsideDown=meta&4)
+            const isUpsideDown = (meta & 4) !== 0;
+            const facing = meta & 3;
+            const yBase0 = isUpsideDown ? y + 0.5 : y;
+            const yBase1 = isUpsideDown ? y + 1.0 : y + 0.5;
+            const yStep0 = isUpsideDown ? y : y + 0.5;
+            const yStep1 = isUpsideDown ? y + 0.5 : y + 1.0;
+
+            let baseMask = 0x3f;
+            if (!isUpsideDown && !shouldRenderNeighborFace(def, getWorldBlock(wx, y - 1, wz))) baseMask &= ~2;
+            if (isUpsideDown && !shouldRenderNeighborFace(def, getWorldBlock(wx, y + 1, wz))) baseMask &= ~1;
+            pushBox(lx, yBase0, lz, lx + 1, yBase1, lz + 1, def, biome, baseMask);
+
+            if (facing === 0) {
+              pushBox(lx, yStep0, lz, lx + 1, yStep1, lz + 0.5, def, biome, 0x3f);
+            } else if (facing === 1) {
+              pushBox(lx + 0.5, yStep0, lz, lx + 1, yStep1, lz + 1, def, biome, 0x3f);
+            } else if (facing === 2) {
+              pushBox(lx, yStep0, lz + 0.5, lx + 1, yStep1, lz + 1, def, biome, 0x3f);
+            } else {
+              pushBox(lx, yStep0, lz, lx + 0.5, yStep1, lz + 1, def, biome, 0x3f);
+            }
+          } else if (def.shape === 'portal') {
+            // Translucent purple nether portal plane
+            const axisX = (meta & 1) === 0;
+            if (axisX) {
+              pushBox(lx, y, lz + 0.375, lx + 1, y + 1, lz + 0.625, def, biome, 0x3f);
+            } else {
+              pushBox(lx + 0.375, y, lz, lx + 0.625, y + 1, lz + 1, def, biome, 0x3f);
+            }
+          } else if (def.shape === 'door_bottom' || def.shape === 'door_top' || def.shape === 'door' || def.shortId.endsWith('_door')) {
+            const isOpen = (meta & 8) !== 0;
+            const isTop = (meta & 4) !== 0;
+            const facing = meta & 3;
+            // Use top half texture for upper door block, bottom texture for lower door block
+            const doorTex = isTop ? def.textures.top : (def.textures.bottom || def.textures.north);
+            const doorDef: BlockDefinition = {
+              ...def,
+              textures: {
+                top: doorTex,
+                bottom: doorTex,
+                north: doorTex,
+                south: doorTex,
+                east: doorTex,
+                west: doorTex,
+              },
+            };
+            if (!isOpen) {
+              if (facing === 0) pushBox(lx, y, lz, lx + 1, y + 1, lz + 0.1875, doorDef, biome, 0x3f);
+              else if (facing === 1) pushBox(lx + 0.8125, y, lz, lx + 1, y + 1, lz + 1, doorDef, biome, 0x3f);
+              else if (facing === 2) pushBox(lx, y, lz + 0.8125, lx + 1, y + 1, lz + 1, doorDef, biome, 0x3f);
+              else pushBox(lx, y, lz, lx + 0.1875, y + 1, lz + 1, doorDef, biome, 0x3f);
+            } else {
+              if (facing === 0) pushBox(lx, y, lz, lx + 0.1875, y + 1, lz + 1, doorDef, biome, 0x3f);
+              else if (facing === 1) pushBox(lx, y, lz, lx + 1, y + 1, lz + 0.1875, doorDef, biome, 0x3f);
+              else if (facing === 2) pushBox(lx + 0.8125, y, lz, lx + 1, y + 1, lz + 1, doorDef, biome, 0x3f);
+              else pushBox(lx, y, lz + 0.8125, lx + 1, y + 1, lz + 1, doorDef, biome, 0x3f);
+            }
+          } else if (def.shape === 'fence_gate' || def.shortId.endsWith('_fence_gate')) {
+            const isOpen = (meta & 8) !== 0;
+            const facing = meta & 1; // 0 = Z-axis, 1 = X-axis
+            if (!isOpen) {
+              if (facing === 0) {
+                pushBox(lx, y + 0.25, lz + 0.375, lx + 1, y + 0.9375, lz + 0.625, def, biome, 0x3f);
+              } else {
+                pushBox(lx + 0.375, y + 0.25, lz, lx + 0.625, y + 0.9375, lz + 1, def, biome, 0x3f);
+              }
+            } else {
+              if (facing === 0) {
+                pushBox(lx, y + 0.25, lz + 0.05, lx + 0.1875, y + 0.9375, lz + 0.95, def, biome, 0x3f);
+                pushBox(lx + 0.8125, y + 0.25, lz + 0.05, lx + 1, y + 0.9375, lz + 0.95, def, biome, 0x3f);
+              } else {
+                pushBox(lx + 0.05, y + 0.25, lz, lx + 0.95, y + 0.9375, lz + 0.1875, def, biome, 0x3f);
+                pushBox(lx + 0.05, y + 0.25, lz + 0.8125, lx + 0.95, y + 0.9375, lz + 1, def, biome, 0x3f);
+              }
             }
           } else if (def.shape === 'bed_foot' || def.shape === 'bed_head') {
             // 26.3 Straw Bed 9/16 (0.5625) height wilderness bed

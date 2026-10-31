@@ -16,7 +16,10 @@ export type BlockShapeType =
   | 'fluid'
   | 'door_bottom'
   | 'door_top'
-  | 'trapdoor';
+  | 'door'
+  | 'fence_gate'
+  | 'trapdoor'
+  | 'portal';
 
 export interface BlockDefinition {
   numId: number;
@@ -553,6 +556,18 @@ export class Registries {
       is26_3: true,
     });
 
+    this.registerBlock({
+      shortId: 'nether_portal',
+      shape: 'portal',
+      transparent: true,
+      solid: false,
+      lightEmission: 11,
+      hardness: -1,
+      soundGroup: 'glass',
+      textures: this.allFaces('nether_portal'),
+      category: 'functional',
+    });
+
     // 3. 16 Colored Cushions (26.3 Entity/Block Interactive Seating)
     for (const color of DYE_COLORS) {
       this.registerItem({
@@ -949,6 +964,9 @@ export class Registries {
       ['obsidian', 'natural', 'stone', 50.0],
       ['crying_obsidian', 'natural', 'stone', 50.0],
       ['netherrack', 'natural', 'stone', 0.4],
+      ['nether_quartz_ore', 'natural', 'stone', 3.0],
+      ['nether_gold_ore', 'natural', 'stone', 3.0],
+      ['soul_sand', 'natural', 'sand', 0.5],
       ['end_stone', 'natural', 'stone', 3.0],
       ['moss_block', 'natural', 'grass', 0.1],
       ['snow_block', 'natural', 'wool', 0.2],
@@ -1006,14 +1024,32 @@ export class Registries {
       if (modelInfo && blockTexSet.has(modelInfo.top) && blockTexSet.has(modelInfo.north)) {
         this.registerBlock({
           shortId,
-          shape: modelInfo.isCross ? 'cross' : shortId.endsWith('_slab') ? 'slab_bottom' : shortId.endsWith('_stairs') ? 'stairs' : 'cube',
+          shape: modelInfo.isCross
+            ? 'cross'
+            : shortId.endsWith('_slab')
+            ? 'slab_bottom'
+            : shortId.endsWith('_stairs')
+            ? 'stairs'
+            : shortId.endsWith('_trapdoor')
+            ? 'trapdoor'
+            : shortId.endsWith('_fence_gate')
+            ? 'fence_gate'
+            : shortId.endsWith('_fence')
+            ? 'fence'
+            : shortId.endsWith('_door')
+            ? 'door'
+            : 'cube',
           transparent:
             modelInfo.isCross ||
             shortId.includes('glass') ||
             shortId.includes('leaves') ||
             shortId.includes('grate') ||
             shortId.endsWith('_slab') ||
-            shortId.endsWith('_stairs'),
+            shortId.endsWith('_stairs') ||
+            shortId.endsWith('_trapdoor') ||
+            shortId.endsWith('_fence_gate') ||
+            shortId.endsWith('_fence') ||
+            shortId.endsWith('_door'),
           solid: !modelInfo.isCross,
           lightEmission: shortId.includes('froglight') || shortId.includes('lamp') || shortId.includes('lantern') ? 15 : 0,
           hardness: 1.5,
@@ -1036,10 +1072,16 @@ export class Registries {
           is26_3: shortId.includes('poplar') || shortId.includes('straw') || shortId.includes('cushion'),
         });
       } else if (blockTexSet.has(shortId)) {
+        const isStair = shortId.endsWith('_stairs');
+        const isTrapdoor = shortId.endsWith('_trapdoor');
+        const isSlab = shortId.endsWith('_slab');
+        const isFence = shortId.endsWith('_fence');
+        const isFenceGate = shortId.endsWith('_fence_gate');
+        const isDoor = shortId.endsWith('_door');
         this.registerBlock({
           shortId,
-          shape: 'cube',
-          transparent: shortId.includes('glass') || shortId.includes('leaves') || shortId.includes('grate'),
+          shape: isStair ? 'stairs' : isTrapdoor ? 'trapdoor' : isSlab ? 'slab_bottom' : isFence ? 'fence' : isFenceGate ? 'fence_gate' : isDoor ? 'door' : 'cube',
+          transparent: isStair || isTrapdoor || isSlab || isFence || isFenceGate || isDoor || shortId.includes('glass') || shortId.includes('leaves') || shortId.includes('grate'),
           solid: true,
           lightEmission: shortId.includes('froglight') || shortId.includes('lamp') ? 15 : 0,
           hardness: 1.5,
@@ -1069,6 +1111,14 @@ export class Registries {
       ['stone_axe', 'axe', 4],
       ['stone_shovel', 'shovel', 4],
       ['stone_sword', 'sword', 4],
+      ['golden_pickaxe', 'pickaxe', 12],
+      ['golden_axe', 'axe', 12],
+      ['golden_shovel', 'shovel', 12],
+      ['golden_sword', 'sword', 12],
+      ['netherite_pickaxe', 'pickaxe', 9],
+      ['netherite_axe', 'axe', 9],
+      ['netherite_shovel', 'shovel', 9],
+      ['netherite_sword', 'sword', 9],
     ];
     for (const [shortId, toolType, toolSpeed] of tools) {
       this.registerItem({
@@ -1109,6 +1159,31 @@ export class Registries {
       ['string', 'natural'],
       ['bone', 'natural'],
       ['flint', 'natural'],
+      ['flint_and_steel', 'combat_tools'],
+      ['bucket', 'combat_tools'],
+      ['raw_iron', 'natural'],
+      ['raw_gold', 'natural'],
+      ['raw_copper', 'natural'],
+      ['copper_ingot', 'natural'],
+      ['redstone', 'redstone'],
+      ['lapis_lazuli', 'natural'],
+      ['gold_nugget', 'natural'],
+      ['iron_nugget', 'natural'],
+      ['quartz', 'natural'],
+      ['clay_ball', 'natural'],
+      ['glowstone_dust', 'natural'],
+      ['wheat_seeds', 'natural'],
+      ['rotten_flesh', 'combat_tools'],
+      ['bow', 'combat_tools'],
+      ['arrow', 'combat_tools'],
+      ['iron_helmet', 'combat_tools'],
+      ['iron_chestplate', 'combat_tools'],
+      ['iron_leggings', 'combat_tools'],
+      ['iron_boots', 'combat_tools'],
+      ['diamond_helmet', 'combat_tools'],
+      ['diamond_chestplate', 'combat_tools'],
+      ['diamond_leggings', 'combat_tools'],
+      ['diamond_boots', 'combat_tools'],
       ['shears', 'combat_tools'],
       ['water_bucket', 'combat_tools'],
       ['lava_bucket', 'combat_tools'],

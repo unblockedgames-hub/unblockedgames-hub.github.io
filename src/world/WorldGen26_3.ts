@@ -180,6 +180,15 @@ export class WorldGen26_3 {
     return Math.floor(height);
   }
 
+  static getBlockAt(wx: number, wy: number, wz: number): number {
+    if (wy <= 0) return Registries.getBlock('bedrock').numId;
+    if (wy >= CHUNK_HEIGHT) return 0;
+    const h = this.getTerrainHeight(wx, wz);
+    if (wy <= h) return Registries.getBlock('stone').numId;
+    if (wy <= 62) return Registries.getBlock('water').numId;
+    return 0;
+  }
+
   /**
    * Mirrors `net.minecraft.world.level.levelgen.feature.trunkplacers.PoplarTrunkPlacer`
    * and `net.minecraft.world.level.levelgen.feature.foliageplacers.PoplarFoliagePlacer`
@@ -497,11 +506,11 @@ export class WorldGen26_3 {
           }
         }
 
-        // 3D Cave Carver: carves continuous subterranean caves and breaches hillsides creating natural entrances
+        // 3D Cave Carver: authentic winding subterranean tunnels
         for (let y = 4; y < h; y++) {
-          const c1 = this.smoothNoise3D(wx, y * 1.3, wz, 15, 333) * 2.0 - 1.0;
-          const c2 = this.smoothNoise3D(wx, y * 1.3, wz, 15, 444) * 2.0 - 1.0;
-          if (c1 * c1 + c2 * c2 < 0.042) {
+          const c1 = this.smoothNoise3D(wx, y * 1.1, wz, 22, 333) * 2.0 - 1.0;
+          const c2 = this.smoothNoise3D(wx, y * 1.1, wz, 22, 444) * 2.0 - 1.0;
+          if (c1 * c1 + c2 * c2 < 0.038) {
             // Keep ocean floor intact under sea level lakes/rivers
             if (h >= SEA_LEVEL || y > SEA_LEVEL) {
               chunk.setBlock(lx, y, lz, 0);
@@ -511,32 +520,29 @@ export class WorldGen26_3 {
       }
     }
 
-    // Exact Minecraft 26.3 Ore & Subsurface Feature Distributions
-    // Balanced ore distributions matching vanilla Minecraft
+    // Authentic Minecraft 26.3 Ore Distributions
     const oreConfigs = [
       // 1. Coal (Y=0..128)
-      { regular: coalOreId, deep: deepslateCoalOreId, count: 12, minY: 0, maxY: 128, radius: 1.6 },
-      // 2. Iron Middle (Y=8..64)
-      { regular: ironOreId, deep: deepslateIronOreId, count: 5, minY: 8, maxY: 64, radius: 1.3 },
-      // 3. Iron Small (Y=0..72)
-      { regular: ironOreId, deep: deepslateIronOreId, count: 5, minY: 0, maxY: 72, radius: 1.0 },
-      // 4. Copper (Y=16..100)
-      { regular: copperOreId, deep: deepslateCopperOreId, count: 6, minY: 16, maxY: 100, radius: 1.5 },
-      // 5. Gold (Y=4..32)
-      { regular: goldOreId, deep: deepslateGoldOreId, count: 3, minY: 4, maxY: 32, radius: 1.2 },
-      // 6. Redstone (Y=1..16)
-      { regular: redstoneOreId, deep: deepslateRedstoneOreId, count: 4, minY: 1, maxY: 16, radius: 1.2 },
-      // 7. Diamond (Y=1..16)
-      { regular: diamondOreId, deep: deepslateDiamondOreId, count: 3, minY: 1, maxY: 16, radius: 1.0 },
-      // 8. Lapis (Y=8..36)
-      { regular: lapisOreId, deep: deepslateLapisOreId, count: 2, minY: 8, maxY: 36, radius: 1.1 },
-      // 9. Underground Dirt & Gravel pockets (Y=10..120)
-      { regular: dirtId, deep: dirtId, count: 4, minY: 10, maxY: 120, radius: 2.0 },
-      { regular: gravelId, deep: gravelId, count: 6, minY: 10, maxY: 120, radius: 2.0 },
-      // 10. Granite, Diorite, Andesite pockets (Y=10..80)
-      { regular: graniteId, deep: tuffId, count: 3, minY: 10, maxY: 80, radius: 1.8 },
-      { regular: dioriteId, deep: tuffId, count: 3, minY: 10, maxY: 80, radius: 1.8 },
-      { regular: andesiteId, deep: tuffId, count: 3, minY: 10, maxY: 80, radius: 1.8 },
+      { regular: coalOreId, deep: deepslateCoalOreId, count: 6, minY: 0, maxY: 128, radius: 1.4 },
+      // 2. Iron (Y=0..72)
+      { regular: ironOreId, deep: deepslateIronOreId, count: 4, minY: 0, maxY: 72, radius: 1.2 },
+      // 3. Copper (Y=16..100)
+      { regular: copperOreId, deep: deepslateCopperOreId, count: 3, minY: 16, maxY: 100, radius: 1.3 },
+      // 4. Gold (Y=4..32)
+      { regular: goldOreId, deep: deepslateGoldOreId, count: 2, minY: 4, maxY: 32, radius: 1.1 },
+      // 5. Redstone (Y=1..16)
+      { regular: redstoneOreId, deep: deepslateRedstoneOreId, count: 2, minY: 1, maxY: 16, radius: 1.1 },
+      // 6. Diamond (Y=1..16) - 1 vein with air exposure reduction
+      { regular: diamondOreId, deep: deepslateDiamondOreId, count: 1, minY: 1, maxY: 16, radius: 1.0 },
+      // 7. Lapis (Y=8..36)
+      { regular: lapisOreId, deep: deepslateLapisOreId, count: 1, minY: 8, maxY: 36, radius: 1.1 },
+      // 8. Underground Dirt & Gravel pockets (Y=10..120)
+      { regular: dirtId, deep: dirtId, count: 3, minY: 10, maxY: 120, radius: 1.8 },
+      { regular: gravelId, deep: gravelId, count: 4, minY: 10, maxY: 120, radius: 1.8 },
+      // 9. Granite, Diorite, Andesite pockets (Y=10..80)
+      { regular: graniteId, deep: tuffId, count: 2, minY: 10, maxY: 80, radius: 1.6 },
+      { regular: dioriteId, deep: tuffId, count: 2, minY: 10, maxY: 80, radius: 1.6 },
+      { regular: andesiteId, deep: tuffId, count: 2, minY: 10, maxY: 80, radius: 1.6 },
     ];
 
     for (let cIdx = 0; cIdx < oreConfigs.length; cIdx++) {
@@ -561,10 +567,26 @@ export class WorldGen26_3 {
               if (by <= 0 || by >= CHUNK_HEIGHT) continue;
               if (ox * ox + oy * oy * 1.3 + oz * oz <= rSq) {
                 const current = chunk.getBlock(bx, by, bz);
-                if (current === stoneId) {
-                  chunk.setBlock(bx, by, bz, cfg.regular);
-                } else if (current === deepslateId) {
-                  chunk.setBlock(bx, by, bz, cfg.deep);
+                if (current === stoneId || current === deepslateId) {
+                  // Official 26.3 Reduced Air Exposure: ores bordering open cave air have a 60% chance to be discarded
+                  const isOre = cfg.regular !== dirtId && cfg.regular !== gravelId && cfg.regular !== graniteId && cfg.regular !== dioriteId && cfg.regular !== andesiteId;
+                  if (isOre) {
+                    const nearAir =
+                      (bx > 0 && chunk.getBlock(bx - 1, by, bz) === 0) ||
+                      (bx < 15 && chunk.getBlock(bx + 1, by, bz) === 0) ||
+                      (by > 0 && chunk.getBlock(bx, by - 1, bz) === 0) ||
+                      (by < 127 && chunk.getBlock(bx, by + 1, bz) === 0) ||
+                      (bz > 0 && chunk.getBlock(bx, by, bz - 1) === 0) ||
+                      (bz < 15 && chunk.getBlock(bx, by, bz + 1) === 0);
+                    if (nearAir && ((bx * 31 + by * 17 + bz * 7) & 3) !== 0) {
+                      continue; // Discard exposed ore in open cave air
+                    }
+                  }
+                  if (current === stoneId) {
+                    chunk.setBlock(bx, by, bz, cfg.regular);
+                  } else {
+                    chunk.setBlock(bx, by, bz, cfg.deep);
+                  }
                 }
               }
             }
@@ -708,5 +730,102 @@ export class WorldGen26_3 {
         }
       }
     }
+  }
+
+  static generateNetherChunk(cx: number, cz: number): { chunk: Chunk; cushions: CushionEntityData[] } {
+    const chunk = new Chunk(cx, cz);
+    const cushions: CushionEntityData[] = [];
+    const bedrockId = Registries.getBlock('bedrock').numId;
+    const netherrackId = Registries.getBlock('netherrack').numId;
+    const lavaId = Registries.getBlock('lava').numId;
+    const quartzId = Registries.getBlock('nether_quartz_ore')?.numId || netherrackId;
+    const goldId = Registries.getBlock('nether_gold_ore')?.numId || netherrackId;
+    const glowstoneId = Registries.getBlock('glowstone').numId;
+    const soulSandId = Registries.getBlock('soul_sand')?.numId || netherrackId;
+
+    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const wx = cx * CHUNK_SIZE + lx;
+        const wz = cz * CHUNK_SIZE + lz;
+        chunk.setBiome(lx, lz, 'minecraft:nether_wastes');
+
+        // Bedrock floor and ceiling
+        chunk.setBlock(lx, 0, lz, bedrockId);
+        chunk.setBlock(lx, CHUNK_HEIGHT - 1, lz, bedrockId);
+
+        // Solid netherrack baseline
+        for (let y = 1; y < CHUNK_HEIGHT - 1; y++) {
+          chunk.setBlock(lx, y, lz, netherrackId);
+        }
+
+        // 3D Nether Cavern Carver
+        for (let y = 14; y < 118; y++) {
+          const n1 = this.smoothNoise3D(wx, y * 0.9, wz, 20, 888) * 2.0 - 1.0;
+          const n2 = this.smoothNoise3D(wx, y * 0.9, wz, 20, 999) * 2.0 - 1.0;
+          if (n1 * n1 + n2 * n2 < 0.28) {
+            chunk.setBlock(lx, y, lz, 0);
+          }
+        }
+
+        // Lava sea at Y=1..31
+        for (let y = 1; y <= 31; y++) {
+          if (chunk.getBlock(lx, y, lz) === 0) {
+            chunk.setBlock(lx, y, lz, lavaId);
+          }
+        }
+
+        // Soul sand shores along lava
+        if (chunk.getBlock(lx, 31, lz) === lavaId && chunk.getBlock(lx, 32, lz) === netherrackId) {
+          chunk.setBlock(lx, 32, lz, soulSandId);
+        }
+      }
+    }
+
+    // Nether Quartz & Gold ore veins
+    const netherOres = [
+      { id: quartzId, count: 14, radius: 1.2 },
+      { id: goldId, count: 8, radius: 1.1 },
+    ];
+    for (const ore of netherOres) {
+      for (let v = 0; v < ore.count; v++) {
+        const ox = Math.floor(this.hash2D(cx + v, cz, 401) * 16);
+        const oz = Math.floor(this.hash2D(cx, cz + v, 402) * 16);
+        const oy = Math.floor(10 + this.hash2D(cx + v, cz + v, 403) * 105);
+        const rSq = ore.radius * ore.radius;
+        const ceilR = Math.ceil(ore.radius);
+        for (let dx = -ceilR; dx <= ceilR; dx++) {
+          const bx = ox + dx;
+          if (bx < 0 || bx >= CHUNK_SIZE) continue;
+          for (let dz = -ceilR; dz <= ceilR; dz++) {
+            const bz = oz + dz;
+            if (bz < 0 || bz >= CHUNK_SIZE) continue;
+            for (let dy = -ceilR; dy <= ceilR; dy++) {
+              const by = oy + dy;
+              if (by <= 1 || by >= 126) continue;
+              if (dx * dx + dy * dy + dz * dz <= rSq) {
+                if (chunk.getBlock(bx, by, bz) === netherrackId) {
+                  chunk.setBlock(bx, by, bz, ore.id);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Glowstone stalactites hanging from cavern ceilings
+    for (let i = 0; i < 4; i++) {
+      const gx = Math.floor(this.hash2D(cx * 7 + i, cz, 701) * 16);
+      const gz = Math.floor(this.hash2D(cx, cz * 7 + i, 702) * 16);
+      for (let gy = 110; gy >= 45; gy--) {
+        if (chunk.getBlock(gx, gy, gz) === netherrackId && chunk.getBlock(gx, gy - 1, gz) === 0) {
+          chunk.setBlock(gx, gy - 1, gz, glowstoneId);
+          if (gy - 2 > 35) chunk.setBlock(gx, gy - 2, gz, glowstoneId);
+          break;
+        }
+      }
+    }
+
+    return { chunk, cushions };
   }
 }

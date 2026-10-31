@@ -80,6 +80,8 @@ export class Player {
   miningProgress = 0; // 0.0 to 1.0
   miningHitSoundTimer = 0;
   creativeBreakCooldown = 0;
+  portalTimer = 0;
+  inPortal = false;
 
   // Target block highlight wireframe & 3D Destroy Stage Crack Overlay
   highlightBox: THREE.LineSegments;
@@ -208,7 +210,15 @@ export class Player {
     this.invulnerableTimer = 0.5;
     this.hurtTimer = 0.45;
     this.hurtDirection = Math.random() < 0.5 ? -1 : 1;
-    this.health = Math.max(0, this.health - amount);
+
+    let finalAmount = amount;
+    if (source !== 'suffocation' && source !== 'starvation' && source !== 'drown' && source !== 'void' && source !== 'fall') {
+      const defense = this.inventory.getArmorValue();
+      const reduction = Math.min(0.80, defense * 0.04);
+      finalAmount = Math.max(1, Math.round(amount * (1.0 - reduction)));
+    }
+
+    this.health = Math.max(0, this.health - finalAmount);
     this.lastDeathCause = source;
     AudioEngine.play('entity.player.hurt', 0.9);
 
@@ -218,6 +228,12 @@ export class Player {
         this.lastDeathMessage = `${username} fell from a high place`;
       } else if (source === 'zombie') {
         this.lastDeathMessage = `${username} was slain by Zombie`;
+      } else if (source === 'skeleton') {
+        this.lastDeathMessage = `${username} was shot by Skeleton`;
+      } else if (source === 'creeper') {
+        this.lastDeathMessage = `${username} was blown up by Creeper`;
+      } else if (source === 'spider') {
+        this.lastDeathMessage = `${username} was slain by Spider`;
       } else if (source === 'suffocation') {
         this.lastDeathMessage = `${username} suffocated in a wall`;
       } else if (source === 'starvation') {
@@ -323,9 +339,19 @@ export class Player {
     if (b === 0) return 0;
     const def = Registries.getBlock(b);
     if (!def.solid) return 0;
-    if (def.shape === 'slab_bottom' || def.shape === 'trapdoor') {
+    if (def.shape === 'slab_bottom') {
       const meta = this.world.getMeta(bx, by, bz);
       return (meta & 4) !== 0 ? 1.0 : 0.5;
+    }
+    if (def.shape === 'stairs') {
+      return 0.5;
+    }
+    if (def.shape === 'trapdoor') {
+      const meta = this.world.getMeta(bx, by, bz);
+      const isOpen = (meta & 8) !== 0;
+      if (isOpen) return 0; // Can walk through open trapdoor!
+      const isTop = (meta & 4) !== 0;
+      return isTop ? 1.0 : 0.1875;
     }
     if (def.shape === 'bed_foot' || def.shape === 'bed_head' || def.shape === 'campfire') {
       return 0.45;
@@ -396,8 +422,8 @@ export class Player {
       return;
     }
 
-    // 0. Unstick safeguard if embedded inside solid block
-    if (this.collidesAt(this.position.x, this.position.y, this.position.z)) {
+    // 0. Unstick safeguard if embedded inside solid block (only in creative/spectator; in survival, player takes suffocation damage)
+    if (this.gameMode !== 'survival' && this.collidesAt(this.position.x, this.position.y, this.position.z)) {
       for (let pop = 0.2; pop <= 2.0; pop += 0.2) {
         if (!this.collidesAt(this.position.x, this.position.y + pop, this.position.z)) {
           this.position.y += pop;
@@ -490,13 +516,26 @@ export class Player {
     const wishVx = (-sinYaw * forward + cosYaw * strafe) * targetSpeed;
     const wishVz = (-cosYaw * forward - sinYaw * strafe) * targetSpeed;
 
-    // Check water state
+    // Check water and nether portal state
     const feetBlock = this.world.getBlock(
       Math.floor(this.position.x),
       Math.floor(this.position.y + 0.35),
       Math.floor(this.position.z)
     );
     this.inWater = Registries.getBlock(feetBlock).fluid === 'water';
+    const portalNum = Registries.getBlock('nether_portal')?.numId;
+    this.inPortal =
+      feetBlock === portalNum ||
+      this.world.getBlock(
+        Math.floor(this.position.x),
+        Math.floor(this.position.y + 1.2),
+        Math.floor(this.position.z)
+      ) === portalNum;
+    if (this.inPortal) {
+      this.portalTimer += dt;
+    } else {
+      this.portalTimer = Math.max(0, this.portalTimer - dt * 2.0);
+    }
 
     if (this.flying || this.gameMode === 'spectator') {
       // Smooth flying inertia like Creative fly mode
@@ -532,15 +571,15 @@ export class Player {
           this.velocity.y = 0;
           this.fallDistance = 0;
         } else {
-          // Vanilla Gravity (-28 m/s^2)
-          this.velocity.y -= 28.0 * dt;
+          // Authentic Vanilla Gravity (0.08 blocks/tick^2 = 32.0 m/s^2)
+          this.velocity.y -= 32.0 * dt;
           this.velocity.y = Math.max(-55.0, this.velocity.y);
         }
 
         const jKey = kb?.jump || 'Space';
         const jumpPressed = this.keys.has(jKey);
         if (controlsActive && jumpPressed && this.onGround && this.jumpCooldown <= 0) {
-          this.velocity.y = 8.45;
+          this.velocity.y = 8.4; // Authentic Minecraft initial jump impulse (~1.25 blocks max height)
           this.onGround = false;
           this.jumpCooldown = 0.5; // 10 ticks cooldown like vanilla Minecraft!
           // Vanilla sprint-jump horizontal impulse (+0.2 blocks/tick)
@@ -574,7 +613,7 @@ export class Player {
       this.collidesAt(nextX, this.position.y + 0.05, this.position.z)
     ) {
       this.position.x = nextX;
-      this.position.y = Math.floor(this.position.y) + 0.501;
+      this.position.y += 0.5;
     } else {
       this.velocity.x = 0;
     }
@@ -598,7 +637,7 @@ export class Player {
       this.collidesAt(this.position.x, this.position.y + 0.05, nextZ)
     ) {
       this.position.z = nextZ;
-      this.position.y = Math.floor(this.position.y) + 0.501;
+      this.position.y += 0.5;
     } else {
       this.velocity.z = 0;
     }
@@ -662,6 +701,7 @@ export class Player {
         if (this.suffocationTimer >= 1.0) {
           this.suffocationTimer = 0;
           this.applyDamage(1, 'suffocation');
+          AudioEngine.play('entity.player.hurt', 0.85);
         }
       } else {
         this.suffocationTimer = 0;

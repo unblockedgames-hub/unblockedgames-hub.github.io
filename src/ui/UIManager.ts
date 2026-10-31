@@ -80,6 +80,7 @@ interface SavedWorldEntry {
   lastPlayed: string;
   gameMode: 'creative' | 'survival' | 'spectator';
   isHardcore?: boolean;
+  allowCommands?: boolean;
   seed: string;
 }
 
@@ -136,6 +137,7 @@ export class UIManager {
   private lastSlotLeftClickTime = 0;
   private lastSlotLeftClickKey = '';
   private showRecipeBook = false;
+  private recipeBookPage = 0;
   private focusedEditBox: 'world_search' | 'world_name' | 'world_seed' | 'direct_ip' | 'wisp_url' | 'wisp_user' | 'creative_search' | 'chat' | null = null;
   public optionsReturnState: UIState = 'TITLE';
 
@@ -145,6 +147,7 @@ export class UIManager {
   private newWorldSeed = '';
   private newWorldMode: 'survival' | 'hardcore' | 'creative' = 'survival';
   private newWorldDifficulty: 'Peaceful' | 'Easy' | 'Normal' | 'Hard' = 'Normal';
+  private newWorldAllowCommands = true;
   private createWorldTab: 0 | 1 | 2 = 0;
 
   private savedWorlds: SavedWorldEntry[] = [];
@@ -1343,7 +1346,7 @@ export class UIManager {
     );
 
     // Bottom-left version text & Bottom-right copyright text
-    this.font.draw(ctx, 'Minecraft 26.3', 2, sh - 10, '#FFFFFF', true);
+    this.font.draw(ctx, 'Minecraft 26.3 (Web Port by BroChilllz)', 2, sh - 10, '#FFFFFF', true);
     const copyText = 'Copyright Mojang AB. Do not distribute!';
     this.font.draw(
       ctx,
@@ -1616,7 +1619,8 @@ export class UIManager {
       this.player.position.set(data.player.x, data.player.y, data.player.z);
       this.player.yaw = data.player.yaw || 0;
       this.player.pitch = data.player.pitch || 0;
-      this.player.gameMode = data.player.gameMode || 'survival';
+      const w = this.savedWorlds.find((entry) => entry.id === this.activeWorldId);
+      this.player.gameMode = data.player?.gameMode || w?.gameMode || 'survival';
       this.player.flying = !!data.player.flying || this.player.gameMode === 'spectator';
       if (typeof data.player.health === 'number') this.player.health = data.player.health;
       if (typeof data.player.hunger === 'number') this.player.hunger = data.player.hunger;
@@ -1680,6 +1684,7 @@ export class UIManager {
     }
     this.player.gameMode = w.gameMode;
     this.player.flying = false;
+    this.world.allowCommands = w.allowCommands !== undefined ? w.allowCommands : true;
     this.inventory.clearAll();
     this.world.resetWorld(w.seed, 'wilderness_26_3', w.name);
     this.onStartGame?.(false);
@@ -1786,7 +1791,16 @@ export class UIManager {
         }
       );
 
-      this.addButton(centerX - 104, 144, 208, 20, 'Allow Commands: ON', () => {});
+      this.addButton(
+        centerX - 104,
+        144,
+        208,
+        20,
+        `Allow Commands: ${this.newWorldAllowCommands ? 'ON' : 'OFF'}`,
+        () => {
+          this.newWorldAllowCommands = !this.newWorldAllowCommands;
+        }
+      );
     } else if (this.createWorldTab === 1) {
       // World Tab
       this.addButton(
@@ -1833,6 +1847,7 @@ export class UIManager {
         lastPlayed: `${isHardcore ? 'Hardcore' : this.newWorldMode === 'creative' ? 'Creative' : 'Survival'} Mode`,
         gameMode: this.newWorldMode === 'creative' ? 'creative' : 'survival',
         isHardcore,
+        allowCommands: this.newWorldAllowCommands,
         seed: finalSeed,
       };
       this.savedWorlds.unshift(created);
@@ -3149,9 +3164,9 @@ export class UIManager {
       this.optionsReturnState = 'PAUSE';
       this.setState('OPTIONS');
     });
-    this.addButton(centerX + 4, baseY + 72, 98, 20, 'Open to LAN', () => {
-      this.addChatMessage('§aLocal game hosted on port §e25565§a (Wisp v2 proxy active at /wisp/)');
-      this.setState('IN_GAME');
+    this.addButton(centerX + 4, baseY + 72, 98, 20, `Allow Commands: ${this.world.allowCommands ? 'ON' : 'OFF'}`, () => {
+      this.world.allowCommands = !this.world.allowCommands;
+      this.addChatMessage(`§eCommands are now ${this.world.allowCommands ? 'allowed' : 'disabled'} for this session.`);
     });
 
     this.addButton(
@@ -3325,6 +3340,12 @@ export class UIManager {
       this.gui.fill(0, 0, sw, sh, `rgba(180, 0, 0, ${alpha.toFixed(3)})`);
     }
 
+    // Purple nether portal swirl vignette when standing in portal
+    if (this.player.portalTimer > 0) {
+      const pAlpha = Math.min(0.65, this.player.portalTimer * 0.25);
+      this.gui.fill(0, 0, sw, sh, `rgba(80, 16, 110, ${pAlpha.toFixed(3)})`);
+    }
+
     // Crosshair (15x15)
     if (this.state === 'IN_GAME') {
       this.gui.blitSprite(
@@ -3442,6 +3463,40 @@ export class UIManager {
           this.gui.blitSprite(fullSprite, hx, curY, 9, 9);
         } else if (hp === 1) {
           this.gui.blitSprite(halfSprite, hx, curY, 9, 9);
+        }
+      }
+
+      // Armor Bar above hearts
+      const armorVal = this.inventory.getArmorValue();
+      if (armorVal > 0) {
+        const armorY = heartY - 10;
+        for (let i = 0; i < 10; i++) {
+          const ax = hbX + i * 8;
+          this.gui.blitSprite(
+            '/assets/minecraft/textures/gui/sprites/hud/armor_empty.png',
+            ax,
+            armorY,
+            9,
+            9
+          );
+          const pts = armorVal - i * 2;
+          if (pts >= 2) {
+            this.gui.blitSprite(
+              '/assets/minecraft/textures/gui/sprites/hud/armor_full.png',
+              ax,
+              armorY,
+              9,
+              9
+            );
+          } else if (pts === 1) {
+            this.gui.blitSprite(
+              '/assets/minecraft/textures/gui/sprites/hud/armor_half.png',
+              ax,
+              armorY,
+              9,
+              9
+            );
+          }
         }
       }
 
@@ -4049,11 +4104,17 @@ export class UIManager {
     );
     this.font.draw(this.gui.ctx, 'Recipes', rx + 25, ry + 13, '#FFFFFF', true);
     const recipes = Inventory.getRecipes().filter((r) => r.type === 'crafting');
-    for (let i = 0; i < Math.min(20, recipes.length); i++) {
-      const col = i % 5;
-      const row = Math.floor(i / 5);
+    const totalPages = Math.max(1, Math.ceil(recipes.length / 20));
+    this.recipeBookPage = Math.max(0, Math.min(totalPages - 1, this.recipeBookPage));
+    const startIdx = this.recipeBookPage * 20;
+    const endIdx = Math.min(recipes.length, startIdx + 20);
+
+    for (let i = startIdx; i < endIdx; i++) {
+      const slotPos = i - startIdx;
+      const col = slotPos % 5;
+      const row = Math.floor(slotPos / 5);
       const sx = rx + 11 + col * 25;
-      const sy = ry + 31 + row * 25;
+      const sy = ry + 28 + row * 25;
       const rec = recipes[i];
       const outItem = Registries.getItem(rec.resultId);
       if (!outItem) continue;
@@ -4083,6 +4144,21 @@ export class UIManager {
             AudioEngine.play('ui.button.click', 0.8);
           }
         },
+      });
+    }
+
+    // Page indicator and navigation buttons
+    const pageText = `${this.recipeBookPage + 1}/${totalPages}`;
+    this.font.drawCentered(this.gui.ctx, pageText, rx + 73, ry + 142, '#555555', false);
+
+    if (this.recipeBookPage > 0) {
+      this.addButton(rx + 16, ry + 136, 16, 16, '<', () => {
+        this.recipeBookPage--;
+      });
+    }
+    if (this.recipeBookPage < totalPages - 1) {
+      this.addButton(rx + 116, ry + 136, 16, 16, '>', () => {
+        this.recipeBookPage++;
       });
     }
   }
@@ -4785,6 +4861,18 @@ export class UIManager {
   // ============================================================================
   private handleChatSubmit(msg: string): void {
     if (msg.startsWith('/')) {
+      if (
+        !this.world.allowCommands &&
+        this.player.gameMode !== 'creative' &&
+        !msg.startsWith('/help') &&
+        !msg.startsWith('/me') &&
+        !msg.startsWith('/msg') &&
+        !msg.startsWith('/tell')
+      ) {
+        this.addChatMessage('§cCommands are not allowed in this world.');
+        this.updateHUDOnly();
+        return;
+      }
       CommandEngine.execute(
         msg,
         this.player,

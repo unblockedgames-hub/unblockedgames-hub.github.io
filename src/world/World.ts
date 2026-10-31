@@ -18,6 +18,12 @@ export class World {
   timeOfDay = 1000; // 0..24000 ticks (1000 = Morning, 6000 = Noon, 13000 = Dusk, 18000 = Midnight)
   worldName = 'Wilderness Bound (26.3)';
   blockDiffs = new Map<string, { numId: number; meta: number }>();
+  dimension: 'overworld' | 'nether' = 'overworld';
+  allowCommands: boolean = true;
+  overworldChunks = new Map<string, Chunk>();
+  netherChunks = new Map<string, Chunk>();
+  overworldDiffs = new Map<string, { numId: number; meta: number }>();
+  netherDiffs = new Map<string, { numId: number; meta: number }>();
 
   constructor(scene: THREE.Scene, entityRenderer: EntityRenderer, particleSystem: ParticleSystem) {
     this.scene = scene;
@@ -51,16 +57,20 @@ export class World {
     const key = this.chunkKey(cx, cz);
     let chunk = this.chunks.get(key);
     if (!chunk) {
-      const gen = WorldGen26_3.generateChunk(cx, cz);
-      chunk = gen.chunk;
+      if (this.dimension === 'nether') {
+        const gen = WorldGen26_3.generateNetherChunk(cx, cz);
+        chunk = gen.chunk;
+      } else {
+        const gen = WorldGen26_3.generateChunk(cx, cz);
+        chunk = gen.chunk;
+        for (const c of gen.cushions) {
+          this.entityRenderer.addCushion(c);
+        }
+        if (gen.camp) {
+          this.abandonedCamps.push(gen.camp);
+        }
+      }
       this.chunks.set(key, chunk);
-
-      for (const c of gen.cushions) {
-        this.entityRenderer.addCushion(c);
-      }
-      if (gen.camp) {
-        this.abandonedCamps.push(gen.camp);
-      }
 
       // Apply any saved player block edits in this chunk
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -89,12 +99,46 @@ export class World {
     return chunk;
   }
 
+  switchDimension(target: 'overworld' | 'nether'): void {
+    if (this.dimension === target) return;
+    for (const chunk of this.chunks.values()) {
+      if (chunk.solidMesh) this.scene.remove(chunk.solidMesh);
+      if (chunk.waterMesh) this.scene.remove(chunk.waterMesh);
+    }
+    if (this.dimension === 'overworld') {
+      this.overworldChunks = new Map(this.chunks);
+      this.overworldDiffs = new Map(this.blockDiffs);
+    } else {
+      this.netherChunks = new Map(this.chunks);
+      this.netherDiffs = new Map(this.blockDiffs);
+    }
+    this.dimension = target;
+    this.chunks.clear();
+    this.blockDiffs.clear();
+    const sourceChunks = target === 'overworld' ? this.overworldChunks : this.netherChunks;
+    const sourceDiffs = target === 'overworld' ? this.overworldDiffs : this.netherDiffs;
+    for (const [k, v] of sourceChunks) {
+      v.dirty = true;
+      this.chunks.set(k, v);
+    }
+    for (const [k, v] of sourceDiffs) {
+      this.blockDiffs.set(k, v);
+    }
+  }
+
   getBlock(wx: number, wy: number, wz: number): number {
     if (wy < 0 || wy >= CHUNK_HEIGHT) return 0;
     const cx = Math.floor(wx / CHUNK_SIZE);
     const cz = Math.floor(wz / CHUNK_SIZE);
     const chunk = this.chunks.get(this.chunkKey(cx, cz));
-    if (!chunk) return 0;
+    if (!chunk) {
+      if (this.dimension === 'nether') {
+        if (wy <= 0 || wy >= 127) return Registries.getBlock('bedrock').numId;
+        if (wy <= 31) return Registries.getBlock('lava').numId;
+        return Registries.getBlock('netherrack').numId;
+      }
+      return WorldGen26_3.getBlockAt(wx, Math.floor(wy), wz);
+    }
     const lx = ((wx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
     const lz = ((wz % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
     return chunk.getBlock(lx, Math.floor(wy), lz);
@@ -233,19 +277,7 @@ export class World {
     // Rebuild up to 3 dirty chunks per frame for smooth FPS
     let rebuilt = 0;
     const boundGetBlock = (wx: number, wy: number, wz: number): number => {
-      const cx = Math.floor(wx / CHUNK_SIZE);
-      const cz = Math.floor(wz / CHUNK_SIZE);
-      const chunk = this.chunks.get(this.chunkKey(cx, cz));
-      if (!chunk) {
-        // If neighbor is ungenerated and below sea level, treat as water to eliminate border walls
-        if (wy <= 62 && wy >= 58) {
-          return Registries.getBlock('water').numId;
-        }
-        return 0;
-      }
-      const lx = ((wx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-      const lz = ((wz % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-      return chunk.getBlock(lx, Math.floor(wy), lz);
+      return this.getBlock(wx, wy, wz);
     };
 
     for (let dz = -radius; dz <= radius; dz++) {
