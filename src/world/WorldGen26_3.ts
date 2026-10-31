@@ -142,21 +142,109 @@ export class WorldGen26_3 {
     const temp = this.smoothNoise(wx, wz, 180, 777);
     const humid = this.smoothNoise(wx, wz, 180, 1337);
 
-    if (temp < 0.22) {
-      return 'minecraft:snowy_plains';
+    if (temp < 0.18) {
+      if (humid < 0.35) return 'minecraft:snowy_plains';
+      if (humid < 0.7) return 'minecraft:snowy_taiga';
+      return 'minecraft:ice_spikes';
     }
-    if (temp < 0.42) {
-      return humid < 0.45 ? 'minecraft:plains' : 'minecraft:birch_forest';
+    if (temp < 0.35) {
+      if (humid < 0.35) return 'minecraft:windswept_hills';
+      if (humid < 0.65) return 'minecraft:taiga';
+      return 'minecraft:old_growth_pine_taiga';
     }
-    if (temp < 0.70) {
-      if (humid < 0.35) return 'minecraft:forest';
-      if (humid < 0.65) return 'minecraft:dappled_forest';
-      return 'minecraft:poplar_grove';
+    if (temp < 0.60) {
+      if (humid < 0.28) return 'minecraft:plains';
+      if (humid < 0.45) return 'minecraft:birch_forest';
+      if (humid < 0.62) return 'minecraft:dappled_forest';
+      if (humid < 0.78) return 'minecraft:poplar_grove';
+      if (humid < 0.90) return 'minecraft:dark_forest';
+      return 'minecraft:pale_garden';
     }
-    if (temp < 0.85) {
-      return humid < 0.4 ? 'minecraft:savanna' : 'minecraft:cherry_grove';
+    if (temp < 0.80) {
+      if (humid < 0.25) return 'minecraft:sunflower_plains';
+      if (humid < 0.45) return 'minecraft:forest';
+      if (humid < 0.65) return 'minecraft:flower_forest';
+      if (humid < 0.82) return 'minecraft:swamp';
+      return 'minecraft:cherry_grove';
     }
-    return humid < 0.35 ? 'minecraft:desert' : 'minecraft:badlands';
+    if (temp < 0.90) {
+      if (humid < 0.35) return 'minecraft:savanna';
+      if (humid < 0.65) return 'minecraft:jungle';
+      return 'minecraft:bamboo_jungle';
+    }
+    if (humid < 0.35) return 'minecraft:desert';
+    if (humid < 0.65) return 'minecraft:badlands';
+    return 'minecraft:wooded_badlands';
+  }
+
+  static findNearestBiome(
+    px: number,
+    pz: number,
+    targetBiome: string
+  ): { x: number; z: number; dist: number } | null {
+    const rawTarget = targetBiome.toLowerCase().replace('minecraft:', '');
+    const normTarget = `minecraft:${rawTarget}`;
+
+    const cur = this.getBiomeAt(px, pz);
+    if (cur === normTarget || cur.replace('minecraft:', '') === rawTarget) {
+      return { x: Math.floor(px), z: Math.floor(pz), dist: 0 };
+    }
+
+    // Outward spiral search sampling up to 3840 blocks away
+    for (let r = 32; r <= 3840; r += 48) {
+      const stepCount = Math.max(8, Math.floor((r * 2 * Math.PI) / 48));
+      for (let s = 0; s < stepCount; s++) {
+        const ang = (s / stepCount) * Math.PI * 2;
+        const tx = Math.floor(px + Math.cos(ang) * r);
+        const tz = Math.floor(pz + Math.sin(ang) * r);
+        const sample = this.getBiomeAt(tx, tz);
+        if (sample === normTarget || sample.replace('minecraft:', '') === rawTarget) {
+          const d = Math.round(Math.hypot(tx - px, tz - pz));
+          return { x: tx, z: tz, dist: d };
+        }
+      }
+    }
+    return null;
+  }
+
+  static findNearestStructure(
+    px: number,
+    pz: number,
+    targetStructure: string
+  ): { x: number; z: number; dist: number } {
+    const norm = targetStructure.startsWith('minecraft:') ? targetStructure : `minecraft:${targetStructure}`;
+    let structHash = this.seed ^ 0x5a5a;
+    for (let i = 0; i < norm.length; i++) {
+      structHash = (Math.imul(31, structHash) + norm.charCodeAt(i)) | 0;
+    }
+    structHash = Math.abs(structHash);
+
+    const spacing = norm.includes('mansion') ? 80 : norm.includes('ancient_city') ? 24 : 32;
+    const regSize = spacing * 16;
+    const regX = Math.floor(px / regSize);
+    const regZ = Math.floor(pz / regSize);
+
+    let bestDist = Infinity;
+    let bestX = Math.floor(px);
+    let bestZ = Math.floor(pz);
+
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        const rx = regX + dx;
+        const rz = regZ + dz;
+        const offX = Math.floor(this.hash2D(rx, rz, (structHash % 1000) + 11) * (spacing - 8) + 4) * 16;
+        const offZ = Math.floor(this.hash2D(rx, rz, (structHash % 1000) + 22) * (spacing - 8) + 4) * 16;
+        const sx = rx * regSize + offX;
+        const sz = rz * regSize + offZ;
+        const d = Math.hypot(sx - px, sz - pz);
+        if (d < bestDist) {
+          bestDist = d;
+          bestX = sx;
+          bestZ = sz;
+        }
+      }
+    }
+    return { x: bestX, z: bestZ, dist: Math.round(bestDist) };
   }
 
   static getTerrainHeight(wx: number, wz: number): number {

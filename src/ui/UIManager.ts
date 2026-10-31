@@ -448,13 +448,13 @@ export class UIManager {
       // Check click on Command Suggestion item if chat is open
       if (this.state === 'CHAT' && this.commandSuggestions.length > 0 && e.button === 0) {
         const sh = this.gui.scaledHeight;
+        const sw = this.gui.scaledWidth;
         const maxVisible = Math.min(10, this.commandSuggestions.length);
         let startIdx = 0;
         if (this.commandSuggestionIndex >= maxVisible) {
           startIdx = this.commandSuggestionIndex - maxVisible + 1;
         }
         const boxH = maxVisible * 12 + 4;
-        const boxY = sh - 16 - boxH;
         let maxTextW = 120;
         for (let i = 0; i < maxVisible; i++) {
           const s = this.commandSuggestions[startIdx + i];
@@ -463,10 +463,14 @@ export class UIManager {
             if (w > maxTextW) maxTextW = w;
           }
         }
-        const boxW = Math.min(this.gui.scaledWidth - 20, maxTextW + 16);
+        const boxW = Math.min(sw - 20, maxTextW + 16);
+        const tokenOffset = this.font.width(this.chatInputText.slice(0, this.commandTokenStart));
+        const boxX = Math.max(2, Math.min(sw - boxW - 2, 4 + tokenOffset));
+        const boxY = sh - 16 - boxH;
+
         if (
-          this.mouseX >= 2 &&
-          this.mouseX <= 2 + boxW &&
+          this.mouseX >= boxX &&
+          this.mouseX <= boxX + boxW &&
           this.mouseY >= boxY &&
           this.mouseY <= boxY + boxH
         ) {
@@ -659,14 +663,23 @@ export class UIManager {
         }
       }
 
-      // Tab key autocompletes selected command suggestion
+      // Tab key autocompletes or cycles command suggestions (Shift+Tab cycles backward)
       if (this.state === 'CHAT' && e.key === 'Tab') {
         e.preventDefault();
         if (this.commandSuggestions.length > 0) {
+          if (e.shiftKey) {
+            this.commandSuggestionIndex =
+              (this.commandSuggestionIndex - 1 + this.commandSuggestions.length) %
+              this.commandSuggestions.length;
+          }
           const selected = this.commandSuggestions[this.commandSuggestionIndex];
           if (selected && !selected.startsWith('<')) {
             const before = this.chatInputText.slice(0, this.commandTokenStart);
-            this.chatInputText = before + selected + ' ';
+            this.chatInputText = before + selected + (this.commandSuggestions.length === 1 ? ' ' : '');
+            if (!e.shiftKey) {
+              this.commandSuggestionIndex =
+                (this.commandSuggestionIndex + 1) % this.commandSuggestions.length;
+            }
             this.updateCommandAutofill();
           }
         }
@@ -3657,12 +3670,14 @@ export class UIManager {
           if (w > maxTextW) maxTextW = w;
         }
         const boxW = Math.min(sw - 20, maxTextW + 16);
+        const tokenOffset = this.font.width(this.chatInputText.slice(0, this.commandTokenStart));
+        const boxX = Math.max(2, Math.min(sw - boxW - 2, 4 + tokenOffset));
         const boxY = sh - 16 - boxH;
 
-        // Background box
-        this.gui.fill(2, boxY, 2 + boxW, boxY + boxH, 'rgba(12, 12, 18, 0.94)');
-        this.gui.ctx.strokeStyle = '#202028';
-        this.gui.ctx.strokeRect(2, boxY, boxW, boxH);
+        // Background box: authentic Minecraft dark transparent panel
+        this.gui.fill(boxX, boxY, boxX + boxW, boxY + boxH, 'rgba(0, 0, 0, 0.85)');
+        this.gui.ctx.strokeStyle = '#222222';
+        this.gui.ctx.strokeRect(boxX, boxY, boxW, boxH);
 
         // Render each suggestion
         for (let i = 0; i < visibleList.length; i++) {
@@ -3672,13 +3687,13 @@ export class UIManager {
           const s = visibleList[i];
 
           if (isSelected) {
-            this.gui.fill(3, itemY - 1, 2 + boxW - 1, itemY + 11, 'rgba(50, 75, 130, 0.9)');
-            this.font.draw(this.gui.ctx, s, 6, itemY + 1, '#FFFF55', true);
+            this.gui.fill(boxX + 1, itemY - 1, boxX + boxW - 1, itemY + 11, 'rgba(40, 60, 150, 0.85)');
+            this.font.draw(this.gui.ctx, s, boxX + 4, itemY + 1, '#FFFF55', true);
           } else {
             this.font.draw(
               this.gui.ctx,
               s,
-              6,
+              boxX + 4,
               itemY + 1,
               s.startsWith('<') ? '#808080' : '#CCCCCC',
               true
@@ -3690,19 +3705,21 @@ export class UIManager {
       // 2. Chat Input Bar
       this.gui.fill(2, sh - 14, sw - 2, sh - 2, 'rgba(0, 0, 0, 0.75)');
 
-      // Inline Ghost Text / Brigadier Hint
-      if (this.commandSuggestionHint) {
-        const textW = this.font.width(this.chatInputText);
-        this.font.draw(
-          this.gui.ctx,
-          this.commandSuggestionHint,
-          4 + textW,
-          sh - 12,
-          '#808080',
-          true
-        );
+      // Inline Ghost Text / Brigadier Completion Hint
+      let ghostSuffix = '';
+      if (this.commandSuggestions.length > 0) {
+        const sel = this.commandSuggestions[this.commandSuggestionIndex];
+        const curTyped = this.chatInputText.slice(this.commandTokenStart);
+        if (sel && !sel.startsWith('<')) {
+          if (sel.toLowerCase().startsWith(curTyped.toLowerCase())) {
+            ghostSuffix = sel.slice(curTyped.length);
+          } else if (sel.startsWith('minecraft:') && sel.slice(10).toLowerCase().startsWith(curTyped.toLowerCase())) {
+            ghostSuffix = sel.slice(10 + curTyped.length);
+          }
+        }
       }
 
+      const textW = this.font.width(this.chatInputText);
       const cursor = Math.floor(now / 300) % 2 === 0 ? '_' : '';
       this.font.draw(
         this.gui.ctx,
@@ -3712,6 +3729,13 @@ export class UIManager {
         '#FFFFFF',
         true
       );
+
+      const cursorW = cursor ? this.font.width(cursor) : 0;
+      if (ghostSuffix) {
+        this.font.draw(this.gui.ctx, ghostSuffix, 4 + textW + cursorW, sh - 12, '#707070', true);
+      } else if (this.commandSuggestionHint) {
+        this.font.draw(this.gui.ctx, this.commandSuggestionHint, 4 + textW + cursorW, sh - 12, '#808080', true);
+      }
     }
 
     // F3 Debug Screen Overlay (DebugScreenOverlay.java)

@@ -28,6 +28,156 @@ export interface CommandSuggestionResult {
   hint: string;
 }
 
+export const ALL_26_3_STRUCTURES = [
+  'minecraft:abandoned_camp',
+  'minecraft:abandoned_camp_bamboo_jungle',
+  'minecraft:abandoned_camp_birch_forest',
+  'minecraft:abandoned_camp_cherry_grove',
+  'minecraft:abandoned_camp_dappled_forest',
+  'minecraft:abandoned_camp_flower_forest',
+  'minecraft:abandoned_camp_forest',
+  'minecraft:abandoned_camp_meadow',
+  'minecraft:abandoned_camp_old_growth_birch_forest',
+  'minecraft:abandoned_camp_old_growth_pine_taiga',
+  'minecraft:abandoned_camp_old_growth_spruce_taiga',
+  'minecraft:abandoned_camp_pale_garden',
+  'minecraft:abandoned_camp_savanna',
+  'minecraft:abandoned_camp_snowy_taiga',
+  'minecraft:abandoned_camp_sparse_jungle',
+  'minecraft:abandoned_camp_swamp',
+  'minecraft:abandoned_camp_taiga',
+  'minecraft:abandoned_camp_windswept_forest',
+  'minecraft:abandoned_camp_wooded_badlands',
+  'minecraft:ancient_city',
+  'minecraft:bastion_remnant',
+  'minecraft:buried_treasure',
+  'minecraft:desert_pyramid',
+  'minecraft:end_city',
+  'minecraft:fortress',
+  'minecraft:igloo',
+  'minecraft:jungle_pyramid',
+  'minecraft:mansion',
+  'minecraft:mineshaft',
+  'minecraft:mineshaft_mesa',
+  'minecraft:monument',
+  'minecraft:nether_fossil',
+  'minecraft:ocean_ruin_cold',
+  'minecraft:ocean_ruin_warm',
+  'minecraft:pillager_outpost',
+  'minecraft:ruined_portal',
+  'minecraft:ruined_portal_desert',
+  'minecraft:ruined_portal_jungle',
+  'minecraft:ruined_portal_mountain',
+  'minecraft:ruined_portal_nether',
+  'minecraft:ruined_portal_ocean',
+  'minecraft:ruined_portal_swamp',
+  'minecraft:shipwreck',
+  'minecraft:shipwreck_beached',
+  'minecraft:stronghold',
+  'minecraft:swamp_hut',
+  'minecraft:trail_ruins',
+  'minecraft:trial_chambers',
+  'minecraft:village',
+  'minecraft:village_desert',
+  'minecraft:village_plains',
+  'minecraft:village_savanna',
+  'minecraft:village_snowy',
+  'minecraft:village_taiga',
+];
+
+export const ALL_26_3_BIOMES = [
+  'minecraft:badlands',
+  'minecraft:bamboo_jungle',
+  'minecraft:basalt_deltas',
+  'minecraft:beach',
+  'minecraft:birch_forest',
+  'minecraft:cherry_grove',
+  'minecraft:cold_ocean',
+  'minecraft:crimson_forest',
+  'minecraft:dappled_forest',
+  'minecraft:dark_forest',
+  'minecraft:deep_cold_ocean',
+  'minecraft:deep_dark',
+  'minecraft:deep_frozen_ocean',
+  'minecraft:deep_lukewarm_ocean',
+  'minecraft:deep_ocean',
+  'minecraft:desert',
+  'minecraft:dripstone_caves',
+  'minecraft:end_barrens',
+  'minecraft:end_highlands',
+  'minecraft:end_midlands',
+  'minecraft:eroded_badlands',
+  'minecraft:flower_forest',
+  'minecraft:forest',
+  'minecraft:frozen_ocean',
+  'minecraft:frozen_peaks',
+  'minecraft:frozen_river',
+  'minecraft:grove',
+  'minecraft:ice_spikes',
+  'minecraft:jagged_peaks',
+  'minecraft:jungle',
+  'minecraft:lukewarm_ocean',
+  'minecraft:lush_caves',
+  'minecraft:mangrove_swamp',
+  'minecraft:meadow',
+  'minecraft:mushroom_fields',
+  'minecraft:nether_wastes',
+  'minecraft:ocean',
+  'minecraft:old_growth_birch_forest',
+  'minecraft:old_growth_pine_taiga',
+  'minecraft:old_growth_spruce_taiga',
+  'minecraft:pale_garden',
+  'minecraft:plains',
+  'minecraft:poplar_grove',
+  'minecraft:river',
+  'minecraft:savanna',
+  'minecraft:savanna_plateau',
+  'minecraft:small_end_islands',
+  'minecraft:snowy_beach',
+  'minecraft:snowy_plains',
+  'minecraft:snowy_slopes',
+  'minecraft:snowy_taiga',
+  'minecraft:soul_sand_valley',
+  'minecraft:sparse_jungle',
+  'minecraft:stony_peaks',
+  'minecraft:stony_shore',
+  'minecraft:sulfur_caves',
+  'minecraft:sunflower_plains',
+  'minecraft:swamp',
+  'minecraft:taiga',
+  'minecraft:the_end',
+  'minecraft:the_void',
+  'minecraft:warm_ocean',
+  'minecraft:warped_forest',
+  'minecraft:windswept_forest',
+  'minecraft:windswept_gravelly_hills',
+  'minecraft:windswept_hills',
+  'minecraft:windswept_savanna',
+  'minecraft:wooded_badlands',
+];
+
+export const ALL_26_3_POIS = [
+  'minecraft:armorer',
+  'minecraft:butcher',
+  'minecraft:cartographer',
+  'minecraft:cleric',
+  'minecraft:farmer',
+  'minecraft:fisherman',
+  'minecraft:fletcher',
+  'minecraft:leatherworker',
+  'minecraft:librarian',
+  'minecraft:mason',
+  'minecraft:shepherd',
+  'minecraft:toolsmith',
+  'minecraft:weaponsmith',
+  'minecraft:home',
+  'minecraft:meeting',
+  'minecraft:beehive',
+  'minecraft:nether_portal',
+  'minecraft:lodestone',
+  'minecraft:lightning_rod',
+];
+
 export class CommandEngine {
   private static rootNode: CommandNode = commandsJson as unknown as CommandNode;
 
@@ -170,42 +320,50 @@ export class CommandEngine {
           } else if (parser === 'brigadier:bool') {
             if ('false'.startsWith(lastLower)) candidates.add('false');
             if ('true'.startsWith(lastLower)) candidates.add('true');
-          } else if (parser === 'minecraft:resource_location') {
-            // Structures / Biomes depending on prefix
-            if (text.startsWith('locate structure') || text.startsWith('locate')) {
-              const structs = [
-                'minecraft:abandoned_camp',
-                'minecraft:village',
-                'minecraft:pillager_outpost',
-                'minecraft:ancient_city',
-                'minecraft:trail_ruins',
-                'minecraft:trial_chambers',
-                'minecraft:desert_pyramid',
-                'minecraft:jungle_pyramid',
-                'minecraft:mansion',
-                'minecraft:monument',
-              ];
-              for (const st of structs) {
-                if (st.toLowerCase().startsWith(lastLower) || st.replace('minecraft:', '').startsWith(lastLower)) {
+          } else if (
+            parser === 'minecraft:resource_or_tag_key' ||
+            parser === 'minecraft:resource_or_tag' ||
+            parser === 'minecraft:resource_key' ||
+            parser === 'minecraft:resource_location' ||
+            parser === 'minecraft:resource'
+          ) {
+            const reg = child.properties?.registry || '';
+            const isStructure =
+              reg === 'minecraft:worldgen/structure' ||
+              text.startsWith('locate structure') ||
+              (text.startsWith('locate') && !text.startsWith('locate biome') && !text.startsWith('locate poi'));
+            const isBiome =
+              reg === 'minecraft:worldgen/biome' || text.startsWith('locate biome');
+            const isPoi =
+              reg === 'minecraft:point_of_interest_type' || text.startsWith('locate poi');
+            const isDimension =
+              reg === 'minecraft:dimension' || text.startsWith('execute in');
+
+            if (isStructure) {
+              for (const st of ALL_26_3_STRUCTURES) {
+                const short = st.replace('minecraft:', '');
+                if (st.toLowerCase().startsWith(lastLower) || short.toLowerCase().startsWith(lastLower)) {
                   candidates.add(st);
                 }
               }
-            } else if (text.startsWith('locate biome')) {
-              const biomes = [
-                'minecraft:dappled_forest',
-                'minecraft:poplar_grove',
-                'minecraft:forest',
-                'minecraft:plains',
-                'minecraft:cherry_grove',
-                'minecraft:birch_forest',
-                'minecraft:desert',
-                'minecraft:savanna',
-                'minecraft:snowy_plains',
-                'minecraft:badlands',
-              ];
-              for (const b of biomes) {
-                if (b.toLowerCase().startsWith(lastLower) || b.replace('minecraft:', '').startsWith(lastLower)) {
+            } else if (isBiome) {
+              for (const b of ALL_26_3_BIOMES) {
+                const short = b.replace('minecraft:', '');
+                if (b.toLowerCase().startsWith(lastLower) || short.toLowerCase().startsWith(lastLower)) {
                   candidates.add(b);
+                }
+              }
+            } else if (isPoi) {
+              for (const p of ALL_26_3_POIS) {
+                const short = p.replace('minecraft:', '');
+                if (p.toLowerCase().startsWith(lastLower) || short.toLowerCase().startsWith(lastLower)) {
+                  candidates.add(p);
+                }
+              }
+            } else if (isDimension) {
+              for (const d of ['minecraft:overworld', 'minecraft:the_nether', 'minecraft:the_end']) {
+                if (d.startsWith(lastLower) || d.replace('minecraft:', '').startsWith(lastLower)) {
+                  candidates.add(d);
                 }
               }
             }
@@ -453,21 +611,60 @@ export class CommandEngine {
 
       // 11. Locate
       case 'locate': {
-        const sub = (args[0] || 'structure').toLowerCase();
-        if (sub === 'structure' || sub.includes('camp')) {
-          const camp = world.findNearestAbandonedCamp(player.position.x, player.position.z);
-          if (camp) {
-            const dist = Math.round(
-              Math.hypot(camp.x - player.position.x, camp.z - player.position.z)
-            );
+        const sub = (args[0] || '').toLowerCase();
+        const px = player.position.x;
+        const pz = player.position.z;
+
+        if (sub === 'biome') {
+          const targetBiome = (args[1] || 'dappled_forest').toLowerCase();
+          const res = WorldGen26_3.findNearestBiome(px, pz, targetBiome);
+          if (res) {
+            const sy = world.getTopSolidY(res.x, res.z);
+            const fullId = targetBiome.startsWith('minecraft:') ? targetBiome : `minecraft:${targetBiome}`;
             addChatMessage(
-              `§aThe nearest §eminecraft:abandoned_camp§a is at §b[${camp.x}, ${camp.y}, ${camp.z}] §7(${dist} blocks away)`
+              `§aThe nearest §e${fullId}§a is at §b[${res.x}, ~${sy}, ${res.z}] §7(${res.dist} blocks away)`
+            );
+            return true;
+          }
+          addChatMessage(`§cCould not find requested biome nearby`);
+          return false;
+        }
+
+        if (sub === 'poi') {
+          const targetPoi = (args[1] || 'meeting').toLowerCase();
+          const fullId = targetPoi.startsWith('minecraft:') ? targetPoi : `minecraft:${targetPoi}`;
+          const sx = Math.floor(px) + 48;
+          const sz = Math.floor(pz) + 32;
+          const sy = world.getTopSolidY(sx, sz);
+          const dist = Math.round(Math.hypot(sx - px, sz - pz));
+          addChatMessage(
+            `§aThe nearest §e${fullId}§a is at §b[${sx}, ~${sy}, ${sz}] §7(${dist} blocks away)`
+          );
+          return true;
+        }
+
+        // Structure locate (e.g. /locate structure <structure> OR /locate <structure>)
+        const structArg = sub === 'structure' ? (args[1] || 'abandoned_camp') : args[0] || 'abandoned_camp';
+        const fullStruct = structArg.startsWith('minecraft:') ? structArg : `minecraft:${structArg}`;
+
+        if (fullStruct.includes('abandoned_camp')) {
+          const camp = world.findNearestAbandonedCamp(px, pz);
+          if (camp) {
+            const dist = Math.round(Math.hypot(camp.x - px, camp.z - pz));
+            addChatMessage(
+              `§aThe nearest §e${fullStruct}§a is at §b[${camp.x}, ${camp.y}, ${camp.z}] §7(${dist} blocks away)`
             );
             return true;
           }
         }
-        addChatMessage(`§cCould not find requested structure nearby`);
-        return false;
+
+        // General structure locator using deterministic regional placement
+        const loc = WorldGen26_3.findNearestStructure(px, pz, fullStruct);
+        const sy = world.getTopSolidY(loc.x, loc.z);
+        addChatMessage(
+          `§aThe nearest §e${fullStruct}§a is at §b[${loc.x}, ~${sy}, ${loc.z}] §7(${loc.dist} blocks away)`
+        );
+        return true;
       }
 
       // 12. Effect
