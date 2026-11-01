@@ -1,5 +1,6 @@
 import { Chunk, CHUNK_SIZE, CHUNK_HEIGHT } from './Chunk';
 import { Registries } from '../core/Registries';
+import structuresBundle from './structures_bundle.json';
 
 export interface CushionEntityData {
   id: string;
@@ -30,7 +31,7 @@ export interface AbandonedCampLocation {
  *   including official `minecraft:cushion` entities, `minecraft:straw_bed`, `minecraft:white_wool_stairs`, and `minecraft:campfire`.
  */
 export class WorldGen26_3 {
-  static structuresMap: Record<string, any> = {};
+  static structuresMap: Record<string, any> = { ...(structuresBundle as any) };
   static seed = Math.floor(Math.random() * 0x7fffffff);
   static worldType: 'wilderness_26_3' | 'dappled_showcase' | 'superflat' = 'wilderness_26_3';
 
@@ -61,7 +62,13 @@ export class WorldGen26_3 {
     try {
       const res = await fetch('/reports/abandoned_camp_structures.json');
       if (res.ok) {
-        this.structuresMap = await res.json();
+        Object.assign(this.structuresMap, await res.json());
+      }
+    } catch {}
+    try {
+      const res2 = await fetch('/reports/structures_bundle.json');
+      if (res2.ok) {
+        Object.assign(this.structuresMap, await res2.json());
       }
     } catch {}
   }
@@ -212,6 +219,11 @@ export class WorldGen26_3 {
     if (norm.startsWith('village')) norm = 'village';
     else if (norm.startsWith('abandoned_camp')) norm = 'abandoned_camp';
     else if (norm.startsWith('ruined_portal')) norm = 'ruined_portal';
+    else if (norm.startsWith('desert_pyramid')) norm = 'desert_pyramid';
+    else if (norm.startsWith('jungle_pyramid')) norm = 'jungle_pyramid';
+    else if (norm.startsWith('igloo')) norm = 'igloo';
+    else if (norm.startsWith('swamp_hut')) norm = 'swamp_hut';
+    else if (norm.startsWith('pillager_outpost')) norm = 'pillager_outpost';
 
     let structHash = this.seed ^ 0x5a5a;
     for (let i = 0; i < norm.length; i++) {
@@ -219,7 +231,7 @@ export class WorldGen26_3 {
     }
     structHash = Math.abs(structHash);
 
-    const spacing = norm.includes('mansion') ? 80 : norm.includes('ancient_city') ? 24 : 32;
+    const spacing = norm.includes('mansion') ? 80 : norm.includes('ruined_portal') ? 24 : 32;
     const offX = Math.floor(this.hash2D(rx, rz, (structHash % 1000) + 11) * (spacing - 8) + 4);
     const offZ = Math.floor(this.hash2D(rx, rz, (structHash % 1000) + 22) * (spacing - 8) + 4);
     return {
@@ -234,7 +246,7 @@ export class WorldGen26_3 {
     targetStructure: string
   ): { x: number; z: number; dist: number } {
     const norm = targetStructure.startsWith('minecraft:') ? targetStructure : `minecraft:${targetStructure}`;
-    const spacing = norm.includes('mansion') ? 80 : norm.includes('ancient_city') ? 24 : 32;
+    const spacing = norm.includes('mansion') ? 80 : norm.includes('ruined_portal') ? 24 : 32;
     const regSize = spacing * 16;
     const regX = Math.floor(px / regSize);
     const regZ = Math.floor(pz / regSize);
@@ -243,13 +255,22 @@ export class WorldGen26_3 {
     let bestX = Math.floor(px);
     let bestZ = Math.floor(pz);
 
-    for (let dx = -3; dx <= 3; dx++) {
-      for (let dz = -3; dz <= 3; dz++) {
+    for (let dx = -5; dx <= 5; dx++) {
+      for (let dz = -5; dz <= 5; dz++) {
         const rx = regX + dx;
         const rz = regZ + dz;
         const target = this.getStructureChunk(rx, rz, norm);
         const sx = target.cx * 16 + 8;
         const sz = target.cz * 16 + 8;
+        const biome = this.getBiomeAt(sx, sz);
+
+        if (norm.includes('desert') && !biome.includes('desert') && !biome.includes('badlands')) continue;
+        if (norm.includes('jungle') && !biome.includes('jungle')) continue;
+        if (norm.includes('swamp') && !biome.includes('swamp')) continue;
+        if (norm.includes('snowy') && !biome.includes('snowy') && !biome.includes('ice')) continue;
+        if (norm.includes('taiga') && !biome.includes('taiga')) continue;
+        if (norm.includes('savanna') && !biome.includes('savanna')) continue;
+
         const d = Math.hypot(sx - px, sz - pz);
         if (d < bestDist) {
           bestDist = d;
@@ -258,6 +279,25 @@ export class WorldGen26_3 {
         }
       }
     }
+
+    if (bestDist === Infinity) {
+      for (let dx = -3; dx <= 3; dx++) {
+        for (let dz = -3; dz <= 3; dz++) {
+          const rx = regX + dx;
+          const rz = regZ + dz;
+          const target = this.getStructureChunk(rx, rz, norm);
+          const sx = target.cx * 16 + 8;
+          const sz = target.cz * 16 + 8;
+          const d = Math.hypot(sx - px, sz - pz);
+          if (d < bestDist) {
+            bestDist = d;
+            bestX = sx;
+            bestZ = sz;
+          }
+        }
+      }
+    }
+
     return { x: bestX, z: bestZ, dist: Math.round(bestDist) };
   }
 
@@ -518,151 +558,591 @@ export class WorldGen26_3 {
     };
   }
 
-  static placeVillage(
+  static applyStructureTemplate(
     chunk: Chunk,
-    cx: number,
-    cz: number,
+    templateKey: string,
+    offsetX: number,
     baseY: number,
-    biomeId: string
-  ): { villagers: Array<{ type: string; x: number; y: number; z: number }> } {
-    const villagers: Array<{ type: string; x: number; y: number; z: number }> = [];
-    const isDesert = biomeId.includes('desert');
-    const isTaiga = biomeId.includes('taiga') || biomeId.includes('snowy');
-    const isSavanna = biomeId.includes('savanna');
-
-    const wallBlock = isDesert ? 'sandstone' : isTaiga ? 'spruce_planks' : isSavanna ? 'acacia_planks' : 'oak_planks';
-    const logBlock = isDesert ? 'sandstone' : isTaiga ? 'spruce_log' : isSavanna ? 'acacia_log' : 'oak_log';
-    const cobbleBlock = isDesert ? 'sandstone' : 'cobblestone';
-    const pathBlock = isDesert ? 'sandstone' : 'dirt_path';
-
-    const wallId = Registries.getBlock(wallBlock).numId;
-    const logId = Registries.getBlock(logBlock).numId;
-    const cobbleId = Registries.getBlock(cobbleBlock).numId;
-    const pathId = Registries.getBlock(pathBlock)?.numId || cobbleId;
-    const glassId = Registries.getBlock('glass').numId;
-    const waterId = Registries.getBlock('water').numId;
-    const torchId = Registries.getBlock('torch').numId;
-    const craftingId = Registries.getBlock('crafting_table').numId;
-    const bedId = Registries.getBlock('straw_bed').numId;
-    const chestId = Registries.getBlock('chest').numId;
-    const fenceId = Registries.getBlock(isTaiga ? 'spruce_planks' : 'oak_planks').numId;
-
-    const setSafe = (lx: number, y: number, lz: number, numId: number) => {
-      if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE && y >= 1 && y < CHUNK_HEIGHT) {
-        chunk.setBlock(lx, y, lz, numId);
-      }
-    };
-
-    // 1. Central Village Well at lx: 6..9, lz: 6..9
-    for (let x = 6; x <= 9; x++) {
-      for (let z = 6; z <= 9; z++) {
-        for (let y = baseY - 4; y <= baseY; y++) {
-          setSafe(x, y, z, cobbleId);
-        }
-        if (x >= 7 && x <= 8 && z >= 7 && z <= 8) {
-          setSafe(x, baseY, z, waterId);
-          setSafe(x, baseY - 1, z, waterId);
-          setSafe(x, baseY - 2, z, waterId);
-        }
-        const isCorner = (x === 6 || x === 9) && (z === 6 || z === 9);
-        if (isCorner) {
-          setSafe(x, baseY + 1, z, fenceId);
-          setSafe(x, baseY + 2, z, fenceId);
-        }
-        setSafe(x, baseY + 3, z, cobbleId);
-      }
+    offsetZ: number,
+    foundationBlock: string = 'cobblestone'
+  ): { size: [number, number, number]; placed: boolean } {
+    const nbtObj = this.structuresMap[templateKey];
+    if (!nbtObj || !nbtObj.palette || !nbtObj.blocks) {
+      return { size: [0, 0, 0], placed: false };
     }
 
-    // 2. Village House (lx: 1..5, lz: 1..5)
-    for (let x = 1; x <= 5; x++) {
-      for (let z = 1; z <= 5; z++) {
-        setSafe(x, baseY, z, cobbleId);
-        for (let y = baseY + 1; y <= baseY + 4; y++) setSafe(x, y, z, 0);
-        const isWall = x === 1 || x === 5 || z === 1 || z === 5;
-        const isCorner = (x === 1 || x === 5) && (z === 1 || z === 5);
-        if (isWall) {
-          for (let y = baseY + 1; y <= baseY + 3; y++) {
-            if (isCorner) {
-              setSafe(x, y, z, logId);
-            } else if (y === baseY + 2 && (x === 3 || z === 3) && !(x === 3 && z === 1)) {
-              setSafe(x, y, z, glassId);
-            } else if (x === 3 && z === 1 && (y === baseY + 1 || y === baseY + 2)) {
-              setSafe(x, y, z, 0); // Doorway
+    const palette = nbtObj.palette;
+    const size: [number, number, number] = nbtObj.size || [10, 10, 10];
+    const [sx, sy, sz] = size;
+    const foundationId = Registries.getBlock(foundationBlock)?.numId || Registries.getBlock('cobblestone').numId;
+
+    // 1. Fill solid foundation under footprint down to terrain
+    for (let bx = 0; bx < sx; bx++) {
+      for (let bz = 0; bz < sz; bz++) {
+        const tx = offsetX + bx;
+        const tz = offsetZ + bz;
+        if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE) {
+          for (let y = baseY - 1; y >= baseY - 12; y--) {
+            if (y < 1) break;
+            const cur = chunk.getBlock(tx, y, tz);
+            if (cur === 0 || cur === Registries.getBlock('water')?.numId || cur === Registries.getBlock('short_grass')?.numId) {
+              chunk.setBlock(tx, y, tz, foundationId);
             } else {
-              setSafe(x, y, z, wallId);
+              break;
             }
           }
         }
-        setSafe(x, baseY + 4, z, logId);
       }
     }
-    setSafe(2, baseY + 1, 4, bedId);
-    setSafe(4, baseY + 1, 4, craftingId);
-    setSafe(4, baseY + 1, 2, chestId);
-    setSafe(3, baseY + 3, 2, torchId);
 
-    // 3. Second Cottage / Library (lx: 10..15, lz: 1..6)
-    for (let x = 10; x <= 14; x++) {
-      for (let z = 1; z <= 5; z++) {
-        setSafe(x, baseY, z, cobbleId);
-        for (let y = baseY + 1; y <= baseY + 4; y++) setSafe(x, y, z, 0);
-        const isWall = x === 10 || x === 14 || z === 1 || z === 5;
-        const isCorner = (x === 10 || x === 14) && (z === 1 || z === 5);
-        if (isWall) {
-          for (let y = baseY + 1; y <= baseY + 3; y++) {
-            if (isCorner) setSafe(x, y, z, cobbleId);
-            else if (x === 10 && z === 3 && (y === baseY + 1 || y === baseY + 2)) setSafe(x, y, z, 0);
-            else setSafe(x, y, z, wallId);
-          }
+    // 2. Place template blocks
+    for (const blk of nbtObj.blocks) {
+      const [bx, by, bz] = blk.pos;
+      const stateEntry = palette[blk.state];
+      if (!stateEntry) continue;
+
+      let blockId: string = stateEntry.id;
+      const props = stateEntry.properties || {};
+
+      // Structure connectors
+      if (blockId === 'minecraft:jigsaw' || blockId === 'minecraft:structure_void') {
+        continue;
+      }
+
+      const tx = offsetX + bx;
+      const ty = baseY + by;
+      const tz = offsetZ + bz;
+
+      if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && ty >= 1 && ty < CHUNK_HEIGHT) {
+        if (blockId === 'minecraft:air' || blockId === 'minecraft:cave_air') {
+          chunk.setBlock(tx, ty, tz, 0);
+          continue;
         }
-        setSafe(x, baseY + 4, z, cobbleId);
-      }
-    }
-    setSafe(13, baseY + 1, 4, chestId);
-    setSafe(11, baseY + 1, 2, craftingId);
 
-    // 4. Village Crop Farm (lx: 2..6, lz: 10..15)
-    const farmlandId = Registries.getBlock('dirt')?.numId || cobbleId;
-    const cropId = Registries.getBlock('wheat')?.numId || Registries.getBlock('dandelion')?.numId || 0;
-    for (let x = 2; x <= 6; x++) {
-      for (let z = 10; z <= 15; z++) {
-        setSafe(x, baseY, z, farmlandId);
-        for (let y = baseY + 1; y <= baseY + 3; y++) setSafe(x, y, z, 0);
-        if (x === 4) {
-          setSafe(x, baseY, z, waterId);
-        } else if (cropId) {
-          setSafe(x, baseY + 1, z, cropId);
+        // Normalize beds
+        if (blockId.endsWith('_bed') && props.part === 'head') {
+          blockId = 'minecraft:straw_bed_head';
         }
+
+        const def = Registries.getBlock(blockId);
+        if (!def) continue;
+
+        let meta = 0;
+        if (props.facing === 'east') meta = 1;
+        else if (props.facing === 'south') meta = 2;
+        else if (props.facing === 'west') meta = 3;
+        if (props.half === 'top') meta |= 4;
+        chunk.setBlock(tx, ty, tz, def.numId, meta);
       }
     }
 
-    // 5. Connecting Paths
-    for (let pz = 1; pz < 15; pz++) {
-      setSafe(7, baseY, pz, pathId);
-      setSafe(8, baseY, pz, pathId);
+    return { size, placed: true };
+  }
+
+  static placeVillagePiece(
+    chunk: Chunk,
+    cx: number,
+    cz: number,
+    centerCx: number,
+    centerCz: number,
+    baseY: number,
+    villageBiome: string
+  ): { villagers: Array<{ type: string; x: number; y: number; z: number }> } {
+    const villagers: Array<{ type: string; x: number; y: number; z: number }> = [];
+    const dx = cx - centerCx;
+    const dz = cz - centerCz;
+
+    let biomeKey = 'plains';
+    let pathBlock = 'dirt_path';
+    let foundationBlock = 'cobblestone';
+
+    if (villageBiome.includes('desert') || villageBiome.includes('badlands')) {
+      biomeKey = 'desert';
+      pathBlock = 'sandstone';
+      foundationBlock = 'sandstone';
+    } else if (villageBiome.includes('taiga')) {
+      biomeKey = 'taiga';
+      pathBlock = 'dirt_path';
+      foundationBlock = 'cobblestone';
+    } else if (villageBiome.includes('savanna')) {
+      biomeKey = 'savanna';
+      pathBlock = 'dirt_path';
+      foundationBlock = 'acacia_planks';
+    } else if (villageBiome.includes('snowy') || villageBiome.includes('ice')) {
+      biomeKey = 'snowy';
+      pathBlock = 'dirt_path';
+      foundationBlock = 'diorite';
     }
-    for (let px = 1; px < 15; px++) {
-      setSafe(px, baseY, 7, pathId);
-      setSafe(px, baseY, 8, pathId);
+
+    const pathId = Registries.getBlock(pathBlock)?.numId || Registries.getBlock('dirt_path')?.numId || 2;
+    const fenceId = Registries.getBlock(biomeKey === 'taiga' ? 'spruce_fence' : biomeKey === 'savanna' ? 'acacia_fence' : 'oak_fence')?.numId || 10;
+    const torchId = Registries.getBlock('torch')?.numId || 50;
+
+    let templateKey = '';
+    let spawnCount = 0;
+    let spawnGolem = false;
+
+    if (dx === 0 && dz === 0) {
+      templateKey = `village/${biomeKey}/town_centers/${biomeKey}_meeting_point_1`;
+      spawnCount = 2;
+      spawnGolem = true;
+    } else if (dx === 0 && dz === 1) {
+      templateKey =
+        biomeKey === 'snowy'
+          ? 'village/snowy/houses/snowy_farm_1'
+          : biomeKey === 'desert'
+          ? 'village/desert/houses/desert_farm_1'
+          : `village/${biomeKey}/houses/${biomeKey}_large_farm_1`;
+      spawnCount = 1;
+    } else if (dx === 1 && dz === 0) {
+      templateKey =
+        biomeKey === 'savanna' || biomeKey === 'snowy'
+          ? `village/${biomeKey}/houses/${biomeKey}_butchers_shop_1`
+          : `village/${biomeKey}/houses/${biomeKey}_butcher_shop_1`;
+      spawnCount = 1;
+    } else if (dx === -1 && dz === 0) {
+      templateKey = `village/${biomeKey}/houses/${biomeKey}_small_house_1`;
+      spawnCount = 1;
+    } else if (dx === 0 && dz === -1) {
+      templateKey = `village/${biomeKey}/houses/${biomeKey}_medium_house_1`;
+      spawnCount = 1;
+    } else if (Math.abs(dx) === 1 && Math.abs(dz) === 1) {
+      const houseNum = ((Math.abs(dx * 3 + dz * 7)) % 3) + 2;
+      templateKey = `village/${biomeKey}/houses/${biomeKey}_small_house_${houseNum}`;
+      spawnCount = 1;
     }
 
-    // 6. Lamp posts
-    setSafe(5, baseY + 1, 6, fenceId);
-    setSafe(5, baseY + 2, 6, fenceId);
-    setSafe(5, baseY + 3, 6, torchId);
+    if (templateKey) {
+      const nbt = this.structuresMap[templateKey];
+      const sx = nbt?.size?.[0] || 8;
+      const sz = nbt?.size?.[2] || 8;
+      const offX = Math.max(0, Math.floor((16 - sx) / 2));
+      const offZ = Math.max(0, Math.floor((16 - sz) / 2));
+      this.applyStructureTemplate(chunk, templateKey, offX, baseY, offZ, foundationBlock);
+    }
 
-    setSafe(10, baseY + 1, 9, fenceId);
-    setSafe(10, baseY + 2, 9, fenceId);
-    setSafe(10, baseY + 3, 9, torchId);
+    // Street Pathways
+    for (let i = 0; i < CHUNK_SIZE; i++) {
+      if (dx === 0) {
+        chunk.setBlock(7, baseY, i, pathId);
+        chunk.setBlock(8, baseY, i, pathId);
+      }
+      if (dz === 0) {
+        chunk.setBlock(i, baseY, 7, pathId);
+        chunk.setBlock(i, baseY, 8, pathId);
+      }
+    }
 
-    // Record Villagers & Golem positions to spawn
+    // Lamp Posts
+    const lampX = dx <= 0 ? 5 : 10;
+    const lampZ = dz <= 0 ? 5 : 10;
+    chunk.setBlock(lampX, baseY + 1, lampZ, fenceId);
+    chunk.setBlock(lampX, baseY + 2, lampZ, fenceId);
+    chunk.setBlock(lampX, baseY + 3, lampZ, torchId);
+
+    // Spawn authentic Villagers & Iron Golem
     const wx = cx * CHUNK_SIZE;
     const wz = cz * CHUNK_SIZE;
-    villagers.push({ type: 'villager', x: wx + 7.5, y: baseY + 1, z: wz + 5.5 });
-    villagers.push({ type: 'villager', x: wx + 11.5, y: baseY + 1, z: wz + 3.5 });
-    villagers.push({ type: 'iron_golem', x: wx + 8.5, y: baseY + 1, z: wz + 11.5 });
+    for (let i = 0; i < spawnCount; i++) {
+      villagers.push({
+        type: 'villager',
+        x: wx + 7.5 + i * 1.5,
+        y: baseY + 1,
+        z: wz + 7.5 + i * 1.0,
+      });
+    }
+    if (spawnGolem) {
+      villagers.push({
+        type: 'iron_golem',
+        x: wx + 8.5,
+        y: baseY + 1,
+        z: wz + 11.5,
+      });
+    }
 
     return { villagers };
+  }
+
+  static placeDesertPyramid(
+    chunk: Chunk,
+    cx: number,
+    cz: number,
+    baseY: number
+  ): void {
+    const sandstoneId = Registries.getBlock('sandstone').numId;
+    const cutSandstoneId = Registries.getBlock('cut_sandstone')?.numId || sandstoneId;
+    const chiseledSandstoneId = Registries.getBlock('chiseled_sandstone')?.numId || sandstoneId;
+    const orangeTerracottaId = Registries.getBlock('orange_terracotta')?.numId || sandstoneId;
+    const blueTerracottaId = Registries.getBlock('blue_terracotta')?.numId || sandstoneId;
+    const stonePlateId = Registries.getBlock('stone_pressure_plate')?.numId || sandstoneId;
+    const tntId = Registries.getBlock('tnt')?.numId || sandstoneId;
+    const chestId = Registries.getBlock('chest').numId;
+
+    const setBlock = (x: number, y: number, z: number, id: number, meta = 0) => {
+      if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE && y >= 1 && y < CHUNK_HEIGHT) {
+        chunk.setBlock(x, y, z, id, meta);
+      }
+    };
+
+    // Foundation
+    for (let x = 0; x < 16; x++) {
+      for (let z = 0; z < 16; z++) {
+        for (let y = baseY - 1; y >= baseY - 15; y--) {
+          if (y < 1) break;
+          const c = chunk.getBlock(x, y, z);
+          if (c === 0 || c === Registries.getBlock('water')?.numId) {
+            setBlock(x, y, z, sandstoneId);
+          }
+        }
+      }
+    }
+
+    // Pyramid tiers (height 9)
+    for (let layer = 0; layer < 9; layer++) {
+      const minC = layer;
+      const maxC = 15 - layer;
+      for (let x = minC; x <= maxC; x++) {
+        for (let z = minC; z <= maxC; z++) {
+          const isOuter = x === minC || x === maxC || z === minC || z === maxC;
+          if (isOuter) {
+            setBlock(x, baseY + layer, z, sandstoneId);
+          } else if (layer === 0) {
+            const isBlue = (x === 7 || x === 8) && (z === 7 || z === 8);
+            const isOrange = (x === 6 || x === 9) || (z === 6 || z === 9);
+            setBlock(x, baseY, z, isBlue ? blueTerracottaId : isOrange ? orangeTerracottaId : sandstoneId);
+          } else {
+            setBlock(x, baseY + layer, z, 0);
+          }
+        }
+      }
+    }
+
+    // Entrance
+    setBlock(7, baseY + 1, 0, 0);
+    setBlock(8, baseY + 1, 0, 0);
+    setBlock(7, baseY + 2, 0, 0);
+    setBlock(8, baseY + 2, 0, 0);
+
+    // Front Decorative Towers
+    const towerCoords = [[1, 1], [11, 1]];
+    for (const [tx, tz] of towerCoords) {
+      for (let x = tx; x < tx + 4; x++) {
+        for (let z = tz; z < tz + 4; z++) {
+          for (let y = baseY; y <= baseY + 13; y++) {
+            const isCorner = (x === tx || x === tx + 3) && (z === tz || z === tz + 3);
+            if (y === baseY + 13) {
+              setBlock(x, y, z, cutSandstoneId);
+            } else if (y === baseY + 7 || y === baseY + 8) {
+              setBlock(x, y, z, orangeTerracottaId);
+            } else if (isCorner) {
+              setBlock(x, y, z, chiseledSandstoneId);
+            } else {
+              setBlock(x, y, z, sandstoneId);
+            }
+          }
+        }
+      }
+    }
+
+    // 15-Block Drop Shaft
+    const chamberY = baseY - 14;
+    for (let y = baseY - 1; y >= chamberY; y--) {
+      setBlock(7, y, 7, 0);
+      setBlock(8, y, 7, 0);
+      setBlock(7, y, 8, 0);
+      setBlock(8, y, 8, 0);
+    }
+
+    // Secret Underground Chamber (6x6 at chamberY)
+    for (let x = 5; x <= 10; x++) {
+      for (let z = 5; z <= 10; z++) {
+        for (let y = chamberY - 2; y <= chamberY + 4; y++) {
+          const isWall = x === 5 || x === 10 || z === 5 || z === 10;
+          const isFloor = y === chamberY;
+          const isUnderFloor = y === chamberY - 1;
+          const isBed = y === chamberY - 2;
+          const isCeil = y === chamberY + 4;
+
+          if (isBed || isWall || isCeil) {
+            setBlock(x, y, z, cutSandstoneId);
+          } else if (isUnderFloor) {
+            const isTntArea = x >= 7 && x <= 8 && z >= 7 && z <= 8;
+            setBlock(x, y, z, isTntArea ? tntId : sandstoneId);
+          } else if (isFloor) {
+            setBlock(x, y, z, sandstoneId);
+          } else {
+            setBlock(x, y, z, 0);
+          }
+        }
+      }
+    }
+
+    setBlock(7, chamberY + 1, 7, stonePlateId);
+    setBlock(5, chamberY + 1, 7, chestId, 1);
+    setBlock(10, chamberY + 1, 8, chestId, 3);
+    setBlock(7, chamberY + 1, 5, chestId, 2);
+    setBlock(8, chamberY + 1, 10, chestId, 0);
+  }
+
+  static placeJunglePyramid(
+    chunk: Chunk,
+    cx: number,
+    cz: number,
+    baseY: number
+  ): void {
+    const cobbleId = Registries.getBlock('cobblestone').numId;
+    const mossyId = Registries.getBlock('mossy_cobblestone')?.numId || cobbleId;
+    const chiseledId = Registries.getBlock('chiseled_stone_bricks')?.numId || cobbleId;
+    const chestId = Registries.getBlock('chest').numId;
+    const leverId = Registries.getBlock('lever')?.numId || cobbleId;
+    const dispenserId = Registries.getBlock('dispenser')?.numId || cobbleId;
+
+    const setBlock = (x: number, y: number, z: number, id: number, meta = 0) => {
+      if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE && y >= 1 && y < CHUNK_HEIGHT) {
+        chunk.setBlock(x, y, z, id, meta);
+      }
+    };
+
+    for (let x = 2; x <= 13; x++) {
+      for (let z = 1; z <= 15; z++) {
+        for (let y = baseY; y <= baseY + 9; y++) {
+          const isOuter = x === 2 || x === 13 || z === 1 || z === 15;
+          const isFloor = y === baseY;
+          const isMidFloor = y === baseY + 4;
+          const isCeil = y === baseY + 9;
+          const blk = (x * 13 + y * 7 + z * 3) % 2 === 0 ? mossyId : cobbleId;
+
+          if (isOuter || isFloor || isMidFloor || isCeil) {
+            setBlock(x, y, z, blk);
+          } else {
+            setBlock(x, y, z, 0);
+          }
+        }
+      }
+    }
+
+    setBlock(7, baseY + 1, 1, 0);
+    setBlock(8, baseY + 1, 1, 0);
+    setBlock(7, baseY + 2, 1, 0);
+    setBlock(8, baseY + 2, 1, 0);
+
+    setBlock(7, baseY + 5, 4, dispenserId, 2);
+    setBlock(10, baseY + 5, 8, chestId, 3);
+
+    for (let z = 5; z <= 7; z++) {
+      setBlock(4, baseY + 2, z, chiseledId);
+      setBlock(5, baseY + 2, z, leverId, 1);
+    }
+    setBlock(3, baseY + 1, 6, chestId, 1);
+  }
+
+  static placeSwampHut(
+    chunk: Chunk,
+    cx: number,
+    cz: number,
+    baseY: number
+  ): { mobs: Array<{ type: string; x: number; y: number; z: number }> } {
+    const sprucePlanksId = Registries.getBlock('spruce_planks')?.numId || Registries.getBlock('oak_planks').numId;
+    const oakLogId = Registries.getBlock('oak_log').numId;
+    const fenceId = Registries.getBlock('spruce_fence')?.numId || Registries.getBlock('oak_fence').numId;
+    const craftingId = Registries.getBlock('crafting_table').numId;
+    const cauldronId = Registries.getBlock('cauldron')?.numId || craftingId;
+    const flowerPotId = Registries.getBlock('flower_pot')?.numId || craftingId;
+
+    const setBlock = (x: number, y: number, z: number, id: number, meta = 0) => {
+      if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE && y >= 1 && y < CHUNK_HEIGHT) {
+        chunk.setBlock(x, y, z, id, meta);
+      }
+    };
+
+    const stiltCoords = [[4, 4], [4, 11], [11, 4], [11, 11]];
+    for (const [sx, sz] of stiltCoords) {
+      for (let y = baseY - 5; y <= baseY; y++) {
+        setBlock(sx, y, sz, oakLogId);
+      }
+    }
+
+    for (let x = 4; x <= 11; x++) {
+      for (let z = 4; z <= 11; z++) {
+        for (let y = baseY; y <= baseY + 4; y++) {
+          const isWall = x === 4 || x === 11 || z === 4 || z === 11;
+          const isFloor = y === baseY;
+          const isCeil = y === baseY + 4;
+
+          if (isFloor || isCeil) {
+            setBlock(x, y, z, sprucePlanksId);
+          } else if (isWall) {
+            if (y === baseY + 2 && (x === 4 && z === 7)) {
+              setBlock(x, y, z, fenceId);
+            } else if (x === 7 && z === 4 && (y === baseY + 1 || y === baseY + 2)) {
+              setBlock(x, y, z, 0);
+            } else {
+              setBlock(x, y, z, sprucePlanksId);
+            }
+          } else {
+            setBlock(x, y, z, 0);
+          }
+        }
+      }
+    }
+
+    setBlock(10, baseY + 1, 10, craftingId);
+    setBlock(10, baseY + 1, 9, cauldronId);
+    setBlock(10, baseY + 1, 8, flowerPotId);
+
+    const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
+    mobs.push({
+      type: 'witch',
+      x: cx * CHUNK_SIZE + 7.5,
+      y: baseY + 1,
+      z: cz * CHUNK_SIZE + 7.5,
+    });
+    return { mobs };
+  }
+
+  static placeRuinedPortal(
+    chunk: Chunk,
+    cx: number,
+    cz: number,
+    baseY: number
+  ): void {
+    const templateKey = (cx + cz) % 2 === 0 ? 'ruined_portal/portal_1' : 'ruined_portal/giant_portal_1';
+    if (this.structuresMap[templateKey]) {
+      this.applyStructureTemplate(chunk, templateKey, 3, baseY, 3, 'netherrack');
+      return;
+    }
+
+    const obsidianId = Registries.getBlock('obsidian').numId;
+    const cryingId = Registries.getBlock('crying_obsidian')?.numId || obsidianId;
+    const netherrackId = Registries.getBlock('netherrack')?.numId || obsidianId;
+    const magmaId = Registries.getBlock('magma_block')?.numId || netherrackId;
+    const goldId = Registries.getBlock('gold_block')?.numId || obsidianId;
+    const chestId = Registries.getBlock('chest').numId;
+
+    for (let x = 4; x <= 11; x++) {
+      for (let z = 4; z <= 11; z++) {
+        chunk.setBlock(x, baseY, z, (x + z) % 3 === 0 ? magmaId : netherrackId);
+      }
+    }
+
+    for (let x = 6; x <= 10; x++) {
+      for (let y = baseY + 1; y <= baseY + 6; y++) {
+        const isFrame = x === 6 || x === 10 || y === baseY + 1 || y === baseY + 6;
+        if (isFrame) {
+          if (x === 10 && y === baseY + 6) continue;
+          const isCrying = (x * 3 + y * 5) % 4 === 0;
+          chunk.setBlock(x, y, 7, isCrying ? cryingId : obsidianId);
+        }
+      }
+    }
+    chunk.setBlock(6, baseY + 1, 5, goldId);
+    chunk.setBlock(9, baseY + 1, 6, chestId);
+  }
+
+  static placeIgloo(
+    chunk: Chunk,
+    cx: number,
+    cz: number,
+    baseY: number
+  ): { villagers: Array<{ type: string; x: number; y: number; z: number }> } {
+    const villagers: Array<{ type: string; x: number; y: number; z: number }> = [];
+
+    if (this.structuresMap['igloo/top']) {
+      this.applyStructureTemplate(chunk, 'igloo/top', 4, baseY, 4, 'snow_block');
+      if (this.structuresMap['igloo/bottom']) {
+        const basementY = baseY - 12;
+        this.applyStructureTemplate(chunk, 'igloo/bottom', 4, basementY, 4, 'stone_bricks');
+        const ladderId = Registries.getBlock('ladder')?.numId || 0;
+        for (let y = basementY + 5; y < baseY; y++) {
+          chunk.setBlock(7, y, 7, ladderId, 2);
+        }
+        villagers.push({ type: 'villager', x: cx * CHUNK_SIZE + 6.5, y: basementY + 1, z: cz * CHUNK_SIZE + 6.5 });
+        villagers.push({ type: 'zombie', x: cx * CHUNK_SIZE + 8.5, y: basementY + 1, z: cz * CHUNK_SIZE + 6.5 });
+      }
+      return { villagers };
+    }
+
+    const snowId = Registries.getBlock('snow_block').numId;
+    const packedIceId = Registries.getBlock('packed_ice')?.numId || snowId;
+    const bedId = Registries.getBlock('straw_bed').numId;
+    const furnaceId = Registries.getBlock('furnace')?.numId || snowId;
+    const craftingId = Registries.getBlock('crafting_table').numId;
+    const torchId = Registries.getBlock('torch').numId;
+
+    for (let x = 4; x <= 11; x++) {
+      for (let z = 4; z <= 11; z++) {
+        for (let y = baseY; y <= baseY + 4; y++) {
+          const d = Math.hypot(x - 7.5, z - 7.5);
+          if (y === baseY) {
+            chunk.setBlock(x, y, z, snowId);
+          } else if (d >= 2.5 && d <= 3.8 && y <= baseY + 3) {
+            chunk.setBlock(x, y, z, (x === 7 && z === 4) ? 0 : (x === 4 && z === 7) ? packedIceId : snowId);
+          } else if (y === baseY + 4 && d < 2.5) {
+            chunk.setBlock(x, y, z, snowId);
+          } else if (d < 2.5) {
+            chunk.setBlock(x, y, z, 0);
+          }
+        }
+      }
+    }
+    chunk.setBlock(9, baseY + 1, 9, bedId);
+    chunk.setBlock(6, baseY + 1, 9, furnaceId);
+    chunk.setBlock(5, baseY + 1, 9, craftingId);
+    chunk.setBlock(5, baseY + 1, 6, torchId);
+
+    return { villagers };
+  }
+
+  static placePillagerOutpost(
+    chunk: Chunk,
+    cx: number,
+    cz: number,
+    baseY: number
+  ): { mobs: Array<{ type: string; x: number; y: number; z: number }> } {
+    const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
+
+    if (this.structuresMap['pillager_outpost/watchtower']) {
+      this.applyStructureTemplate(chunk, 'pillager_outpost/watchtower', 0, baseY, 0, 'cobblestone');
+      const wx = cx * CHUNK_SIZE;
+      const wz = cz * CHUNK_SIZE;
+      mobs.push({ type: 'skeleton', x: wx + 7.5, y: baseY + 15, z: wz + 7.5 });
+      mobs.push({ type: 'skeleton', x: wx + 4.5, y: baseY + 1, z: wz + 4.5 });
+      mobs.push({ type: 'skeleton', x: wx + 11.5, y: baseY + 1, z: wz + 11.5 });
+      return { mobs };
+    }
+
+    const cobbleId = Registries.getBlock('cobblestone').numId;
+    const darkLogId = Registries.getBlock('dark_oak_log')?.numId || Registries.getBlock('oak_log').numId;
+    const birchPlanksId = Registries.getBlock('birch_planks')?.numId || Registries.getBlock('oak_planks').numId;
+    const chestId = Registries.getBlock('chest').numId;
+
+    for (let x = 3; x <= 12; x++) {
+      for (let z = 3; z <= 12; z++) {
+        for (let y = baseY; y <= baseY + 14; y++) {
+          const isCorner = (x === 3 || x === 12) && (z === 3 || z === 12);
+          const isOuter = x === 3 || x === 12 || z === 3 || z === 12;
+          const isFloor = y === baseY || y === baseY + 4 || y === baseY + 8 || y === baseY + 12;
+
+          if (isCorner) {
+            chunk.setBlock(x, y, z, darkLogId);
+          } else if (isFloor) {
+            chunk.setBlock(x, y, z, birchPlanksId);
+          } else if (isOuter && y < baseY + 12) {
+            chunk.setBlock(x, y, z, cobbleId);
+          } else if (y === baseY + 13 && isOuter) {
+            chunk.setBlock(x, y, z, cobbleId);
+          } else {
+            chunk.setBlock(x, y, z, 0);
+          }
+        }
+      }
+    }
+    chunk.setBlock(7, baseY + 13, 7, chestId);
+
+    const wx = cx * CHUNK_SIZE;
+    const wz = cz * CHUNK_SIZE;
+    mobs.push({ type: 'skeleton', x: wx + 7.5, y: baseY + 13, z: wz + 7.5 });
+    return { mobs };
   }
 
   static generateChunk(cx: number, cz: number): {
@@ -854,13 +1334,27 @@ export class WorldGen26_3 {
     const REGION_SIZE = 32;
     const rx = Math.floor(cx / REGION_SIZE);
     const rz = Math.floor(cz / REGION_SIZE);
-    const campChunkOffsetX = Math.floor(this.hash2D(rx, rz, 911) * 24) + 4;
-    const campChunkOffsetZ = Math.floor(this.hash2D(rx, rz, 912) * 24) + 4;
-    const targetCx = rx * REGION_SIZE + campChunkOffsetX;
-    const targetCz = rz * REGION_SIZE + campChunkOffsetZ;
+    const centerBiome = this.getBiomeAt(cx * CHUNK_SIZE + 8, cz * CHUNK_SIZE + 8);
+
+    // 1. Village Structure (authentic 3x3 multi-chunk layout with town center, houses, farms, butcher, and paths)
+    const villageTarget = this.getStructureChunk(rx, rz, 'village');
+    const vDx = cx - villageTarget.cx;
+    const vDz = cz - villageTarget.cz;
+    const isVillagePart = Math.abs(vDx) <= 1 && Math.abs(vDz) <= 1 && heightMap[7 * CHUNK_SIZE + 7] > SEA_LEVEL + 2;
+
+    if (isVillagePart) {
+      const centerH = Math.max(SEA_LEVEL + 2, this.getTerrainHeight(villageTarget.cx * CHUNK_SIZE + 8, villageTarget.cz * CHUNK_SIZE + 8));
+      const villageBiome = this.getBiomeAt(villageTarget.cx * CHUNK_SIZE + 8, villageTarget.cz * CHUNK_SIZE + 8);
+      const res = WorldGen26_3.placeVillagePiece(chunk, cx, cz, villageTarget.cx, villageTarget.cz, centerH, villageBiome);
+      mobs.push(...res.villagers);
+    }
+
+    // 2. Abandoned Camp Structure
+    const campTarget = this.getStructureChunk(rx, rz, 'abandoned_camp');
     const isWildernessCampChunk =
-      cx === targetCx &&
-      cz === targetCz &&
+      cx === campTarget.cx &&
+      cz === campTarget.cz &&
+      !isVillagePart &&
       (Math.abs(cx) > 1 || Math.abs(cz) > 1) &&
       heightMap[7 * CHUNK_SIZE + 7] > SEA_LEVEL + 2;
 
@@ -872,26 +1366,114 @@ export class WorldGen26_3 {
       camp = res.campPos;
     }
 
-    // Check if this chunk hosts a Village structure matching /locate structure village
-    const villageTarget = this.getStructureChunk(rx, rz, 'village');
-    const isVillageChunk =
-      cx === villageTarget.cx &&
-      cz === villageTarget.cz &&
+    // 3. Desert Pyramid Structure
+    const desertPyramidTarget = this.getStructureChunk(rx, rz, 'desert_pyramid');
+    const isDesertPyramidChunk =
+      cx === desertPyramidTarget.cx &&
+      cz === desertPyramidTarget.cz &&
+      !isVillagePart &&
       !isWildernessCampChunk &&
+      (centerBiome.includes('desert') || centerBiome.includes('badlands')) &&
       heightMap[7 * CHUNK_SIZE + 7] > SEA_LEVEL + 2;
 
-    if (isVillageChunk) {
+    if (isDesertPyramidChunk) {
       const centerH = Math.max(SEA_LEVEL + 2, heightMap[7 * CHUNK_SIZE + 7]);
-      const biomeId = chunk.biomes[7 * CHUNK_SIZE + 7] || 'minecraft:plains';
-      const res = WorldGen26_3.placeVillage(chunk, cx, cz, centerH, biomeId);
+      WorldGen26_3.placeDesertPyramid(chunk, cx, cz, centerH);
+    }
+
+    // 4. Jungle Pyramid Structure
+    const junglePyramidTarget = this.getStructureChunk(rx, rz, 'jungle_pyramid');
+    const isJunglePyramidChunk =
+      cx === junglePyramidTarget.cx &&
+      cz === junglePyramidTarget.cz &&
+      !isVillagePart &&
+      !isWildernessCampChunk &&
+      centerBiome.includes('jungle') &&
+      heightMap[7 * CHUNK_SIZE + 7] > SEA_LEVEL + 2;
+
+    if (isJunglePyramidChunk) {
+      const centerH = Math.max(SEA_LEVEL + 2, heightMap[7 * CHUNK_SIZE + 7]);
+      WorldGen26_3.placeJunglePyramid(chunk, cx, cz, centerH);
+    }
+
+    // 5. Swamp Hut (Witch Hut) Structure
+    const swampHutTarget = this.getStructureChunk(rx, rz, 'swamp_hut');
+    const isSwampHutChunk =
+      cx === swampHutTarget.cx &&
+      cz === swampHutTarget.cz &&
+      !isVillagePart &&
+      !isWildernessCampChunk &&
+      centerBiome.includes('swamp');
+
+    if (isSwampHutChunk) {
+      const centerH = Math.max(SEA_LEVEL + 1, heightMap[7 * CHUNK_SIZE + 7]);
+      const res = WorldGen26_3.placeSwampHut(chunk, cx, cz, centerH);
+      mobs.push(...res.mobs);
+    }
+
+    // 6. Igloo Structure
+    const iglooTarget = this.getStructureChunk(rx, rz, 'igloo');
+    const isIglooChunk =
+      cx === iglooTarget.cx &&
+      cz === iglooTarget.cz &&
+      !isVillagePart &&
+      !isWildernessCampChunk &&
+      (centerBiome.includes('snowy') || centerBiome.includes('ice'));
+
+    if (isIglooChunk) {
+      const centerH = Math.max(SEA_LEVEL + 2, heightMap[7 * CHUNK_SIZE + 7]);
+      const res = WorldGen26_3.placeIgloo(chunk, cx, cz, centerH);
       mobs.push(...res.villagers);
     }
+
+    // 7. Ruined Portal Structure
+    const portalTarget = this.getStructureChunk(rx, rz, 'ruined_portal');
+    const isPortalChunk =
+      cx === portalTarget.cx &&
+      cz === portalTarget.cz &&
+      !isVillagePart &&
+      !isWildernessCampChunk &&
+      !isDesertPyramidChunk &&
+      !isJunglePyramidChunk &&
+      heightMap[7 * CHUNK_SIZE + 7] > SEA_LEVEL + 2;
+
+    if (isPortalChunk) {
+      const centerH = Math.max(SEA_LEVEL + 2, heightMap[7 * CHUNK_SIZE + 7]);
+      WorldGen26_3.placeRuinedPortal(chunk, cx, cz, centerH);
+    }
+
+    // 8. Pillager Outpost Structure
+    const outpostTarget = this.getStructureChunk(rx, rz, 'pillager_outpost');
+    const isOutpostChunk =
+      cx === outpostTarget.cx &&
+      cz === outpostTarget.cz &&
+      !isVillagePart &&
+      !isWildernessCampChunk &&
+      !isDesertPyramidChunk &&
+      !isJunglePyramidChunk &&
+      heightMap[7 * CHUNK_SIZE + 7] > SEA_LEVEL + 2;
+
+    if (isOutpostChunk) {
+      const centerH = Math.max(SEA_LEVEL + 2, heightMap[7 * CHUNK_SIZE + 7]);
+      const res = WorldGen26_3.placePillagerOutpost(chunk, cx, cz, centerH);
+      mobs.push(...res.mobs);
+    }
+
+    const hasStructure =
+      isVillagePart ||
+      isWildernessCampChunk ||
+      isDesertPyramidChunk ||
+      isJunglePyramidChunk ||
+      isSwampHutChunk ||
+      isIglooChunk ||
+      isPortalChunk ||
+      isOutpostChunk;
 
     // Place Trees & Flora based on Biome
     for (let lz = 3; lz < CHUNK_SIZE - 3; lz += 4) {
       for (let lx = 3; lx < CHUNK_SIZE - 3; lx += 4) {
-        if ((isWildernessCampChunk || isVillageChunk) && lx >= 1 && lx <= 15 && lz >= 1 && lz <= 15) {
-          continue; // Clear campsite or village clearing while preserving forest surrounding the area
+        if (hasStructure && lx >= 1 && lx <= 15 && lz >= 1 && lz <= 15) {
+          continue; // Clear trees and flora inside structure footprints
         }
         const wx = cx * CHUNK_SIZE + lx;
         const wz = cz * CHUNK_SIZE + lz;

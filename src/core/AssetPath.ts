@@ -21,6 +21,8 @@ const ASSET_PREFIXES = [
   '/registries.json',
   '/packets.json',
   '/abandoned_camp_structures.json',
+  '/structures_bundle.json',
+  '/reports/',
   '/resolved_block_models.json',
   '/resolved_item_models.json',
   '/servers.dat',
