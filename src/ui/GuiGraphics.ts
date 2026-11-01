@@ -842,22 +842,55 @@ export class GuiGraphics {
     this.fill(x, y, x + 16, y + 16, 'rgba(255, 255, 255, 0.5)');
   }
 
-  /** Render authentic Minecraft tooltip box at cursor */
-  public renderTooltip(lines: string[], mouseX: number, mouseY: number): void {
+  /** Render authentic Minecraft tooltip box (at cursor or anchored to widget) */
+  public renderTooltip(
+    lines: string[],
+    mouseX: number,
+    mouseY: number,
+    widgetAnchor?: { x: number; y: number; w: number; h: number }
+  ): void {
     if (lines.length === 0) return;
+
+    let processedLines = lines;
+    if (widgetAnchor) {
+      // In Minecraft Tooltip.splitTooltip(font, 170): max width is 170px for button tooltips!
+      const split: string[] = [];
+      for (const line of lines) {
+        split.push(...this.font.split(line, 170));
+      }
+      processedLines = split;
+    }
+
     let maxW = 0;
-    for (const line of lines) {
+    for (const line of processedLines) {
       const w = this.font.width(line);
       if (w > maxW) maxW = w;
     }
 
     const boxW = maxW + 8;
-    const boxH = lines.length * 10 + (lines.length > 1 ? 2 : 0) + 6;
-    let tx = Math.floor(mouseX + 12);
-    let ty = Math.floor(mouseY - 12);
-    if (tx + boxW > this.scaledWidth - 4) tx = Math.max(4, Math.floor(mouseX - boxW - 12));
-    if (ty + boxH > this.scaledHeight - 4) ty = this.scaledHeight - boxH - 4;
-    if (ty < 4) ty = 4;
+    const boxH = processedLines.length * 10 + (processedLines.length > 1 ? 2 : 0) + 6;
+    let tx: number;
+    let ty: number;
+
+    if (widgetAnchor) {
+      // BelowOrAboveWidgetTooltipPositioner.java:
+      // x = screenRectangle.left() + 3
+      // y = screenRectangle.bottom() + 4
+      tx = widgetAnchor.x + 3;
+      ty = widgetAnchor.y + widgetAnchor.h + 4;
+      if (ty + boxH + 3 > this.scaledHeight) {
+        ty = widgetAnchor.y - boxH - 4;
+      }
+      if (tx + boxW > this.scaledWidth) {
+        tx = Math.max(4, widgetAnchor.x + widgetAnchor.w - boxW - 3);
+      }
+    } else {
+      tx = Math.floor(mouseX + 12);
+      ty = Math.floor(mouseY - 12);
+      if (tx + boxW > this.scaledWidth - 4) tx = Math.max(4, Math.floor(mouseX - boxW - 12));
+      if (ty + boxH > this.scaledHeight - 4) ty = this.scaledHeight - boxH - 4;
+      if (ty < 4) ty = 4;
+    }
 
     // Classic Minecraft purple/dark tooltip border & fill
     this.fill(tx + 1, ty, tx + boxW - 1, ty + boxH, 'rgba(16, 0, 16, 0.94)');
@@ -885,9 +918,10 @@ export class GuiGraphics {
     );
 
     let curY = ty + 4;
-    for (let i = 0; i < lines.length; i++) {
-      this.font.draw(this.ctx, lines[i], tx + 4, curY, i === 0 ? '#FFFFFF' : '#AAAAAA', true);
-      curY += i === 0 && lines.length > 1 ? 12 : 10;
+    for (let i = 0; i < processedLines.length; i++) {
+      const color = widgetAnchor ? '#FFFFFF' : (i === 0 ? '#FFFFFF' : '#AAAAAA');
+      this.font.draw(this.ctx, processedLines[i], tx + 4, curY, color, true);
+      curY += widgetAnchor ? 10 : (i === 0 && processedLines.length > 1 ? 12 : 10);
     }
   }
 }

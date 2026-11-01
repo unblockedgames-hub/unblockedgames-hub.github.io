@@ -50,10 +50,12 @@ export class Game {
       canvas,
       antialias: false,
       powerPreference: 'high-performance',
+      preserveDrawingBuffer: true,
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    (window as any).game = this;
 
     this.scene = new THREE.Scene();
     this.scene.background = this.skyColor;
@@ -85,6 +87,25 @@ export class Game {
         this.ui.saveActiveWorldState();
       }
     });
+  }
+
+  public takeWorldScreenshot(): string | null {
+    try {
+      const glCanvas = this.canvas;
+      if (!glCanvas || glCanvas.width === 0 || glCanvas.height === 0) return null;
+      const snap = document.createElement('canvas');
+      snap.width = 64;
+      snap.height = 64;
+      const sctx = snap.getContext('2d');
+      if (!sctx) return null;
+      const size = Math.min(glCanvas.width, glCanvas.height);
+      const sx = Math.floor((glCanvas.width - size) / 2);
+      const sy = Math.floor((glCanvas.height - size) / 2);
+      sctx.drawImage(glCanvas, sx, sy, size, size, 0, 0, 64, 64);
+      return snap.toDataURL('image/png');
+    } catch (e) {
+      return null;
+    }
   }
 
   async init(uiRoot: HTMLElement) {

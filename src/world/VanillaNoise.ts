@@ -26,97 +26,161 @@ export function upgradeSeedTo128bit(seed: bigint): [bigint, bigint] {
   return [mixStafford13(seedLo), mixStafford13(seedHi)];
 }
 
-// Simple fast pure-JS MD5 implementation for standard strings
-function md5(input: string): Uint8Array {
-  // Convert string to UTF-8
-  const utf8: number[] = [];
-  for (let i = 0; i < input.length; i++) {
-    let c = input.charCodeAt(i);
-    if (c < 128) utf8.push(c);
-    else if (c < 2048) utf8.push((c >> 6) | 192, (c & 63) | 128);
-    else utf8.push((c >> 12) | 224, ((c >> 6) & 63) | 128, (c & 63) | 128);
+// Standard RFC 1321 MD5
+function md5(string: string): Uint8Array {
+  function md5_RotateLeft(lValue: number, iShiftBits: number): number {
+    return (lValue << iShiftBits) | (lValue >>> (32 - iShiftBits));
   }
-
-  const origLen = utf8.length;
-  utf8.push(0x80);
-  while ((utf8.length % 64) !== 56) utf8.push(0);
-  const bitLen = origLen * 8;
-  for (let i = 0; i < 8; i++) {
-    utf8.push((bitLen >>> (i * 8)) & 0xff);
-  }
-
-  let a = 0x67452301;
-  let b = 0xefcdab89;
-  let c = 0x98badcfe;
-  let d = 0x10325476;
-
-  const K = [
-    0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
-    0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
-    0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
-    0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed, 0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
-    0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
-    0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
-    0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
-    0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391
-  ];
-
-  const S = [
-    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
-    5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
-    4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
-    6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21
-  ];
-
-  for (let block = 0; block < utf8.length; block += 64) {
-    const w: number[] = new Array(16);
-    for (let i = 0; i < 16; i++) {
-      const idx = block + i * 4;
-      w[i] = utf8[idx] | (utf8[idx + 1] << 8) | (utf8[idx + 2] << 16) | (utf8[idx + 3] << 24);
+  function md5_AddUnsigned(lX: number, lY: number): number {
+    const lX4 = lX & 0x40000000;
+    const lY4 = lY & 0x40000000;
+    const lX8 = lX & 0x80000000;
+    const lY8 = lY & 0x80000000;
+    const lResult = (lX & 0x3fffffff) + (lY & 0x3fffffff);
+    if (lX4 & lY4) return lResult ^ 0x80000000 ^ lX8 ^ lY8;
+    if (lX4 | lY4) {
+      if (lResult & 0x40000000) return lResult ^ 0xc0000000 ^ lX8 ^ lY8;
+      else return lResult ^ 0x40000000 ^ lX8 ^ lY8;
+    } else {
+      return lResult ^ lX8 ^ lY8;
     }
+  }
+  function md5_F(x: number, y: number, z: number): number { return (x & y) | ((~x) & z); }
+  function md5_G(x: number, y: number, z: number): number { return (x & z) | (y & (~z)); }
+  function md5_H(x: number, y: number, z: number): number { return x ^ y ^ z; }
+  function md5_I(x: number, y: number, z: number): number { return y ^ (x | (~z)); }
 
-    let A = a, B = b, C = c, D = d;
-
-    for (let i = 0; i < 64; i++) {
-      let f: number, g: number;
-      if (i < 16) {
-        f = (B & C) | ((~B) & D);
-        g = i;
-      } else if (i < 32) {
-        f = (D & B) | ((~D) & C);
-        g = (5 * i + 1) % 16;
-      } else if (i < 48) {
-        f = B ^ C ^ D;
-        g = (3 * i + 5) % 16;
-      } else {
-        f = C ^ (B | (~D));
-        g = (7 * i) % 16;
-      }
-
-      const temp = D;
-      D = C;
-      C = B;
-      const sum = (A + f + K[i] + w[g]) | 0;
-      const rotated = (sum << S[i]) | (sum >>> (32 - S[i]));
-      B = (B + rotated) | 0;
-      A = temp;
-    }
-
-    a = (a + A) | 0;
-    b = (b + B) | 0;
-    c = (c + C) | 0;
-    d = (d + D) | 0;
+  function md5_FF(a: number, b: number, c: number, d: number, x: number, s: number, ac: number): number {
+    a = md5_AddUnsigned(a, md5_AddUnsigned(md5_AddUnsigned(md5_F(b, c, d), x), ac));
+    return md5_AddUnsigned(md5_RotateLeft(a, s), b);
+  }
+  function md5_GG(a: number, b: number, c: number, d: number, x: number, s: number, ac: number): number {
+    a = md5_AddUnsigned(a, md5_AddUnsigned(md5_AddUnsigned(md5_G(b, c, d), x), ac));
+    return md5_AddUnsigned(md5_RotateLeft(a, s), b);
+  }
+  function md5_HH(a: number, b: number, c: number, d: number, x: number, s: number, ac: number): number {
+    a = md5_AddUnsigned(a, md5_AddUnsigned(md5_AddUnsigned(md5_H(b, c, d), x), ac));
+    return md5_AddUnsigned(md5_RotateLeft(a, s), b);
+  }
+  function md5_II(a: number, b: number, c: number, d: number, x: number, s: number, ac: number): number {
+    a = md5_AddUnsigned(a, md5_AddUnsigned(md5_AddUnsigned(md5_I(b, c, d), x), ac));
+    return md5_AddUnsigned(md5_RotateLeft(a, s), b);
   }
 
-  const out = new Uint8Array(16);
+  function convertToWordArray(str: string): number[] {
+    const lMessageLength = str.length;
+    const lNumberOfWords_temp1 = lMessageLength + 8;
+    const lNumberOfWords_temp2 = (lNumberOfWords_temp1 - (lNumberOfWords_temp1 % 64)) / 64;
+    const lNumberOfWords = (lNumberOfWords_temp2 + 1) * 16;
+    const lWordArray = new Array(lNumberOfWords).fill(0);
+    let lBytePosition = 0;
+    let lByteCount = 0;
+    while (lByteCount < lMessageLength) {
+      const lWordCount = (lByteCount - (lByteCount % 4)) / 4;
+      lBytePosition = (lByteCount % 4) * 8;
+      lWordArray[lWordCount] = (lWordArray[lWordCount] | (str.charCodeAt(lByteCount) << lBytePosition));
+      lByteCount++;
+    }
+    const lWordCount = (lByteCount - (lByteCount % 4)) / 4;
+    lBytePosition = (lByteCount % 4) * 8;
+    lWordArray[lWordCount] = lWordArray[lWordCount] | (0x80 << lBytePosition);
+    lWordArray[lNumberOfWords - 2] = lMessageLength << 3;
+    lWordArray[lNumberOfWords - 1] = lMessageLength >>> 29;
+    return lWordArray;
+  }
+
+  const x = convertToWordArray(string);
+  let a = 0x67452301, b = 0xefcdab89, c = 0x98badcfe, d = 0x10325476;
+  const S11 = 7, S12 = 12, S13 = 17, S14 = 22;
+  const S21 = 5, S22 = 9, S23 = 14, S24 = 20;
+  const S31 = 4, S32 = 11, S33 = 16, S34 = 23;
+  const S41 = 6, S42 = 10, S43 = 15, S44 = 21;
+
+  for (let k = 0; k < x.length; k += 16) {
+    const AA = a, BB = b, CC = c, DD = d;
+    a = md5_FF(a, b, c, d, x[k + 0], S11, 0xd76aa478);
+    d = md5_FF(d, a, b, c, x[k + 1], S12, 0xe8c7b756);
+    c = md5_FF(c, d, a, b, x[k + 2], S13, 0x242070db);
+    b = md5_FF(b, c, d, a, x[k + 3], S14, 0xc1bdceee);
+    a = md5_FF(a, b, c, d, x[k + 4], S11, 0xf57c0faf);
+    d = md5_FF(d, a, b, c, x[k + 5], S12, 0x4787c62a);
+    c = md5_FF(c, d, a, b, x[k + 6], S13, 0xa8304613);
+    b = md5_FF(b, c, d, a, x[k + 7], S14, 0xfd469501);
+    a = md5_FF(a, b, c, d, x[k + 8], S11, 0x698098d8);
+    d = md5_FF(d, a, b, c, x[k + 9], S12, 0x8b44f7af);
+    c = md5_FF(c, d, a, b, x[k + 10], S13, 0xffff5bb1);
+    b = md5_FF(b, c, d, a, x[k + 11], S14, 0x895cd7be);
+    a = md5_FF(a, b, c, d, x[k + 12], S11, 0x6b901122);
+    d = md5_FF(d, a, b, c, x[k + 13], S12, 0xfd987193);
+    c = md5_FF(c, d, a, b, x[k + 14], S13, 0xa679438e);
+    b = md5_FF(b, c, d, a, x[k + 15], S14, 0x49b40821);
+
+    a = md5_GG(a, b, c, d, x[k + 1], S21, 0xf61e2562);
+    d = md5_GG(d, a, b, c, x[k + 6], S22, 0xc040b340);
+    c = md5_GG(c, d, a, b, x[k + 11], S23, 0x265e5a51);
+    b = md5_GG(b, c, d, a, x[k + 0], S24, 0xe9b6c7aa);
+    a = md5_GG(a, b, c, d, x[k + 5], S21, 0xd62f105d);
+    d = md5_GG(d, a, b, c, x[k + 10], S22, 0x02441453);
+    c = md5_GG(c, d, a, b, x[k + 15], S23, 0xd8a1e681);
+    b = md5_GG(b, c, d, a, x[k + 4], S24, 0xe7d3fbc8);
+    a = md5_GG(a, b, c, d, x[k + 9], S21, 0x21e1cde6);
+    d = md5_GG(d, a, b, c, x[k + 14], S22, 0xc33707d6);
+    c = md5_GG(c, d, a, b, x[k + 3], S23, 0xf4d50d87);
+    b = md5_GG(b, c, d, a, x[k + 8], S24, 0x455a14ed);
+    a = md5_GG(a, b, c, d, x[k + 13], S21, 0xa9e3e905);
+    d = md5_GG(d, a, b, c, x[k + 2], S22, 0xfcefa3f8);
+    c = md5_GG(c, d, a, b, x[k + 7], S23, 0x676f02d9);
+    b = md5_GG(b, c, d, a, x[k + 12], S24, 0x8d2a4c8a);
+
+    a = md5_HH(a, b, c, d, x[k + 5], S31, 0xfffa3942);
+    d = md5_HH(d, a, b, c, x[k + 8], S32, 0x8771f681);
+    c = md5_HH(c, d, a, b, x[k + 11], S33, 0x6d9d6122);
+    b = md5_HH(b, c, d, a, x[k + 14], S34, 0xfde5380c);
+    a = md5_HH(a, b, c, d, x[k + 1], S31, 0xa4beea44);
+    d = md5_HH(d, a, b, c, x[k + 4], S32, 0x4bdecfa9);
+    c = md5_HH(c, d, a, b, x[k + 7], S33, 0xf6bb4b60);
+    b = md5_HH(b, c, d, a, x[k + 10], S34, 0xbebfbc70);
+    a = md5_HH(a, b, c, d, x[k + 13], S31, 0x289b7ec6);
+    d = md5_HH(d, a, b, c, x[k + 0], S32, 0xeaa127fa);
+    c = md5_HH(c, d, a, b, x[k + 3], S33, 0xd4ef3085);
+    b = md5_HH(b, c, d, a, x[k + 6], S34, 0x04881d05);
+    a = md5_HH(a, b, c, d, x[k + 9], S31, 0xd9d4d039);
+    d = md5_HH(d, a, b, c, x[k + 12], S32, 0xe6db99e5);
+    c = md5_HH(c, d, a, b, x[k + 15], S33, 0x1fa27cf8);
+    b = md5_HH(b, c, d, a, x[k + 2], S34, 0xc4ac5665);
+
+    a = md5_II(a, b, c, d, x[k + 0], S41, 0xf4292244);
+    d = md5_II(d, a, b, c, x[k + 7], S42, 0x432aff97);
+    c = md5_II(c, d, a, b, x[k + 14], S43, 0xab9423a7);
+    b = md5_II(b, c, d, a, x[k + 5], S44, 0xfc93a039);
+    a = md5_II(a, b, c, d, x[k + 12], S41, 0x655b59c3);
+    d = md5_II(d, a, b, c, x[k + 3], S42, 0x8f0ccc92);
+    c = md5_II(c, d, a, b, x[k + 10], S43, 0xffeff47d);
+    b = md5_II(b, c, d, a, x[k + 1], S44, 0x85845dd1);
+    a = md5_II(a, b, c, d, x[k + 8], S41, 0x6fa87e4f);
+    d = md5_II(d, a, b, c, x[k + 15], S42, 0xfe2ce6e0);
+    c = md5_II(c, d, a, b, x[k + 6], S43, 0xa3014314);
+    b = md5_II(b, c, d, a, x[k + 13], S44, 0x4e0811a1);
+    a = md5_II(a, b, c, d, x[k + 4], S41, 0xf7537e82);
+    d = md5_II(d, a, b, c, x[k + 11], S42, 0xbd3af235);
+    c = md5_II(c, d, a, b, x[k + 2], S43, 0x2ad7d2bb);
+    b = md5_II(b, c, d, a, x[k + 9], S44, 0xeb86d391);
+
+    a = md5_AddUnsigned(a, AA);
+    b = md5_AddUnsigned(b, BB);
+    c = md5_AddUnsigned(c, CC);
+    d = md5_AddUnsigned(d, DD);
+  }
+
   const words = [a, b, c, d];
+  const bytes = new Uint8Array(16);
   for (let i = 0; i < 4; i++) {
-    out[i * 4] = words[i] & 0xff;
-    out[i * 4 + 1] = (words[i] >>> 8) & 0xff;
-    out[i * 4 + 2] = (words[i] >>> 16) & 0xff;
-    out[i * 4 + 3] = (words[i] >>> 24) & 0xff;
+    bytes[i * 4] = words[i] & 0xff;
+    bytes[i * 4 + 1] = (words[i] >>> 8) & 0xff;
+    bytes[i * 4 + 2] = (words[i] >>> 16) & 0xff;
+    bytes[i * 4 + 3] = (words[i] >>> 24) & 0xff;
   }
-  return out;
+  return bytes;
 }
 
 export function seedFromHashOf(str: string): [bigint, bigint] {
@@ -155,25 +219,32 @@ export class Xoroshiro128PlusPlus {
     return toSigned64(result);
   }
 
-  nextBits(bits: number): number {
-    const l = this.nextLong() & MASK64;
-    return Number(l >> BigInt(64 - bits));
+  nextInt(): number {
+    return Number(BigInt.asIntN(32, this.nextLong()));
   }
 
-  nextInt(bound: number): number {
-    let r = this.nextBits(31);
-    let m = bound - 1;
-    if ((bound & m) === 0) {
-      r = Number((BigInt(bound) * BigInt(r)) >> 31n);
-    } else {
-      for (let u = r; u - (r = u % bound) + m < 0; u = this.nextBits(31));
+  nextIntBound(bound: number): number {
+    let l = BigInt(this.nextInt()) & 0xFFFFFFFFn;
+    let l1 = l * BigInt(bound);
+    let l2 = l1 & 0xFFFFFFFFn;
+    if (l2 < BigInt(bound)) {
+      const i = BigInt(Math.floor(0x100000000 % bound));
+      while (l2 < i) {
+        l = BigInt(this.nextInt()) & 0xFFFFFFFFn;
+        l1 = l * BigInt(bound);
+        l2 = l1 & 0xFFFFFFFFn;
+      }
     }
-    return r;
+    return Number(l1 >> 32n);
   }
 
   nextDouble(): number {
-    const l = this.nextBits(53);
-    return l * 1.1102230246251565e-16;
+    const l = (this.nextLong() & MASK64) >> 11n;
+    return Number(l) * 1.1102230246251565e-16;
+  }
+
+  forkPositional(): PositionalRandomFactory {
+    return new PositionalRandomFactory(this.nextLong(), this.nextLong());
   }
 }
 
@@ -239,7 +310,7 @@ export class PerlinNoise {
       this.perms[i] = i;
     }
     for (let i = 0; i < 256; i++) {
-      const j = rand.nextInt(256 - i);
+      const j = rand.nextIntBound(256 - i);
       const temp = this.perms[i];
       this.perms[i] = this.perms[i + j];
       this.perms[i + j] = temp;
@@ -259,9 +330,9 @@ export class PerlinNoise {
     const iy = Math.floor(ry);
     const iz = Math.floor(rz);
 
-    const fx = rx - ix;
-    const fy = ry - iy;
-    const fz = rz - iz;
+    const fx = Math.fround(rx - ix);
+    const fy = Math.fround(ry - iy);
+    const fz = Math.fround(rz - iz);
 
     const pX0 = this.permute(ix);
     const pX1 = this.permute(ix + 1);
@@ -289,16 +360,30 @@ export class PerlinNoise {
   }
 }
 
+function parityExpectedDeviation(span: number): number {
+  return 0.1 * (1.0 + 1.0 / (span + 1));
+}
+
+function computeParityNormalizationFactor(baseAmp: number, octaveCount: number, amplitudes: number[]): number {
+  let minIdx = 2147483647;
+  let maxIdx = -2147483648;
+  for (let k = 0; k < amplitudes.length; k++) {
+    if (amplitudes[k] !== 0) {
+      minIdx = Math.min(minIdx, k);
+      maxIdx = Math.max(maxIdx, k);
+    }
+  }
+  return baseAmp * 0.5 * (1.0 / 3.0) / parityExpectedDeviation(maxIdx - minIdx);
+}
+
 interface OctaveLayer {
   frequency: number;
   amplitude: number;
-  first: PerlinNoise;
-  second: PerlinNoise;
+  noise: PerlinNoise;
 }
 
 export class VanillaNormalNoise {
   layers: OctaveLayer[] = [];
-  normalizationFactor: number;
 
   constructor(
     factory: PositionalRandomFactory,
@@ -307,46 +392,48 @@ export class VanillaNormalNoise {
     amplitudes: number[]
   ) {
     const rand = factory.fromHashOf(noiseName);
-    const f1 = new PositionalRandomFactory(rand.nextLong(), rand.nextLong());
-    const f2 = new PositionalRandomFactory(rand.nextLong(), rand.nextLong());
+    const f1 = rand.forkPositional();
+    const f2 = rand.forkPositional();
 
     let freq = Math.pow(2.0, baseOctave);
     let amp = 1.0;
-    let sumAmps = 0;
+    const octaveCount = amplitudes.length;
+    amp = amp * (Math.pow(0.5, -(octaveCount - 1)) / (Math.pow(0.5, -octaveCount) - 1.0));
 
+    const octaves: Array<{ octaveIndex: number; freq: number; amplitude: number }> = [];
     for (let i = 0; i < amplitudes.length; i++) {
       const mod = amplitudes[i];
       if (mod !== 0) {
-        const octaveSeed = String(baseOctave + i);
-        const p1 = new PerlinNoise(f1.fromHashOf(octaveSeed));
-        const p2 = new PerlinNoise(f2.fromHashOf(octaveSeed));
         const effAmp = amp * mod;
-        this.layers.push({
-          frequency: freq,
-          amplitude: effAmp,
-          first: p1,
-          second: p2
+        octaves.push({
+          octaveIndex: baseOctave + i,
+          freq: freq,
+          amplitude: effAmp
         });
-        sumAmps += Math.abs(effAmp);
       }
       freq *= 2.0;
       amp *= 0.5;
     }
 
-    // NormalNoise deviation normalization:
-    this.normalizationFactor = (1.0 / 6.0) / Math.sqrt(sumAmps > 0 ? sumAmps : 1.0);
+    const parityFactor = computeParityNormalizationFactor(1.0, amplitudes.length, amplitudes);
+    const factor = 1.0181268882175227;
+    for (const oct of octaves) {
+      const seedStr = 'octave_' + oct.octaveIndex;
+      const p1 = new PerlinNoise(f1.fromHashOf(seedStr));
+      const p2 = new PerlinNoise(f2.fromHashOf(seedStr));
+      const layerAmp = oct.amplitude * parityFactor;
+      this.layers.push({ noise: p1, frequency: oct.freq, amplitude: layerAmp });
+      this.layers.push({ noise: p2, frequency: oct.freq * factor, amplitude: layerAmp });
+    }
   }
 
   get(x: number, y: number, z: number): number {
     let sum = 0;
-    const factor = 337.0 / 331.0;
     for (let i = 0; i < this.layers.length; i++) {
       const l = this.layers[i];
-      const v1 = l.first.get(x * l.frequency, y * l.frequency, z * l.frequency);
-      const v2 = l.second.get(x * l.frequency * factor, y * l.frequency * factor, z * l.frequency * factor);
-      sum += (v1 + v2) * l.amplitude;
+      sum += l.noise.get(x * l.frequency, y * l.frequency, z * l.frequency) * l.amplitude;
     }
-    return sum * this.normalizationFactor;
+    return sum;
   }
 }
 
@@ -425,14 +512,14 @@ export class VanillaClimate {
     erosion: number;
     ridge: number;
   } {
-    const qx = (blockX >> 2) << 2;
-    const qz = (blockZ >> 2) << 2;
+    const qx = blockX >> 2;
+    const qz = blockZ >> 2;
 
-    const shiftX = this.offsetNoise.get(qx * 0.25, 0.0, qz * 0.25) * 4.0;
-    const shiftZ = this.offsetNoise.get(qz * 0.25, 0.0, qx * 0.25) * 4.0;
+    const shiftX = this.offsetNoise.get(qx, 0.0, qz) * 4.0;
+    const shiftZ = this.offsetNoise.get(qz, 0.0, qx) * 4.0;
 
-    const sx = (qx + shiftX) * 0.25;
-    const sz = (qz + shiftZ) * 0.25;
+    const sx = qx + shiftX;
+    const sz = qz + shiftZ;
 
     const temp = this.tempNoise.get(sx, 0.0, sz);
     const humid = this.vegNoise.get(sx, 0.0, sz);
@@ -466,7 +553,7 @@ export class VanillaClimate {
       const dd = qd > p.d[1] ? qd - p.d[1] : (qd < p.d[0] ? p.d[0] - qd : 0);
       const dw = qw > p.w[1] ? qw - p.w[1] : (qw < p.w[0] ? p.w[0] - qw : 0);
 
-      const fit = dt * dt + dh * dh + dc * dc + de * de + dd * dd + dw * dw + p.offset * p.offset;
+      const fit = dt * dt + dh * dh + dc * dc + de * de + dd * dd + dw * dw + p.offset;
       if (fit < bestFit) {
         bestFit = fit;
         bestBiome = p.biome;

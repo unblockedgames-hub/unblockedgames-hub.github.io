@@ -63,6 +63,7 @@ interface InteractiveRect {
   slotKey?: string;
   tooltip?: string[];
   isSlot?: boolean;
+  widgetAnchor?: { x: number; y: number; w: number; h: number };
 }
 
 const SPLASH_TEXTS = [
@@ -1189,9 +1190,25 @@ export class UIManager {
       this.mouseY < y + h;
     this.gui.drawButton(x, y, w, h, text, hovered, active);
     if (active) {
-      this.interactiveRects.push({ x, y, w, h, onClick: () => onClick(), tooltip });
+      this.interactiveRects.push({
+        x,
+        y,
+        w,
+        h,
+        onClick: () => onClick(),
+        tooltip,
+        widgetAnchor: tooltip ? { x, y, w, h } : undefined
+      });
     } else if (tooltip && this.mouseX >= x && this.mouseX < x + w && this.mouseY >= y && this.mouseY < y + h) {
-      this.interactiveRects.push({ x, y, w, h, onClick: () => {}, tooltip });
+      this.interactiveRects.push({
+        x,
+        y,
+        w,
+        h,
+        onClick: () => {},
+        tooltip,
+        widgetAnchor: { x, y, w, h }
+      });
     }
   }
 
@@ -1212,7 +1229,15 @@ export class UIManager {
       this.mouseY >= y &&
       this.mouseY < y + h;
     this.gui.drawIconButton(x, y, w, h, iconUrl, iconW, iconH, hovered, true);
-    this.interactiveRects.push({ x, y, w, h, onClick: () => onClick(), tooltip });
+    this.interactiveRects.push({
+      x,
+      y,
+      w,
+      h,
+      onClick: () => onClick(),
+      tooltip,
+      widgetAnchor: tooltip ? { x, y, w, h } : undefined
+    });
   }
 
   private addSlider(
@@ -1255,6 +1280,7 @@ export class UIManager {
         this.focusedEditBox = id;
       },
       tooltip,
+      widgetAnchor: tooltip ? { x, y, w, h } : undefined
     });
   }
 
@@ -1406,7 +1432,7 @@ export class UIManager {
         this.mouseY >= r.y &&
         this.mouseY < r.y + r.h
       ) {
-        this.gui.renderTooltip(r.tooltip, this.mouseX, this.mouseY);
+        this.gui.renderTooltip(r.tooltip, this.mouseX, this.mouseY, r.widgetAnchor);
         break;
       }
     }
@@ -1759,15 +1785,24 @@ export class UIManager {
 
         // Snapshot world view for authentic world icon
         try {
-          const glCanvas = this.gui.ctx.canvas.parentElement?.querySelector('canvas:not(#uiCanvas)') as HTMLCanvasElement;
-          if (glCanvas && glCanvas.width > 0 && glCanvas.height > 0) {
-            const snap = document.createElement('canvas');
-            snap.width = 32;
-            snap.height = 32;
-            const sctx = snap.getContext('2d');
-            if (sctx) {
-              sctx.drawImage(glCanvas, 0, 0, 32, 32);
-              w.icon = snap.toDataURL('image/png');
+          const snapData = (window as any).game?.takeWorldScreenshot?.();
+          if (snapData) {
+            w.icon = snapData;
+          } else {
+            const glCanvas = (document.getElementById('game-canvas') ||
+              document.querySelector('canvas:not(#uiCanvas)')) as HTMLCanvasElement;
+            if (glCanvas && glCanvas.width > 0 && glCanvas.height > 0) {
+              const snap = document.createElement('canvas');
+              snap.width = 64;
+              snap.height = 64;
+              const sctx = snap.getContext('2d');
+              if (sctx) {
+                const size = Math.min(glCanvas.width, glCanvas.height);
+                const sx = Math.floor((glCanvas.width - size) / 2);
+                const sy = Math.floor((glCanvas.height - size) / 2);
+                sctx.drawImage(glCanvas, sx, sy, size, size, 0, 0, 64, 64);
+                w.icon = snap.toDataURL('image/png');
+              }
             }
           }
         } catch {}
@@ -1936,6 +1971,17 @@ export class UIManager {
 
     this.world.resetWorld(w.seed, w.worldType || 'default', w.name);
     this.onStartGame?.(false);
+
+    // Snapshot world thumbnail after initial terrain render
+    setTimeout(() => {
+      try {
+        const snapData = (window as any).game?.takeWorldScreenshot?.();
+        if (snapData && w) {
+          w.icon = snapData;
+          this.saveWorldsList();
+        }
+      } catch {}
+    }, 450);
   }
 
   private launchSelectedWorld(): void {
@@ -2006,19 +2052,10 @@ export class UIManager {
           : 'Game Mode: Survival';
       const modeTooltip =
         this.newWorldMode === 'hardcore'
-          ? [
-              "Survival Mode locked to 'Hard' difficulty.",
-              "You can't respawn if you die."
-            ]
+          ? ["Survival Mode locked to 'Hard' difficulty. You can't respawn if you die."]
           : this.newWorldMode === 'creative'
-          ? [
-              'Create, build, and explore without limits.',
-              "You can fly, have endless materials, and can't be hurt by monsters."
-            ]
-          : [
-              'Explore a mysterious world where you build,',
-              'collect, craft, and fight monsters.'
-            ];
+          ? ["Create, build, and explore without limits. You can fly, have endless materials, and can't be hurt by monsters."]
+          : ['Explore a mysterious world where you build, collect, craft, and fight monsters.'];
 
       this.addButton(
         centerX - 104,
@@ -2051,24 +2088,12 @@ export class UIManager {
       const diffTooltip = isHardcore
         ? ['Cannot change the difficulty in a hardcore world.']
         : this.newWorldDifficulty === 'Peaceful'
-        ? [
-            'No hostile mobs and only some neutral mobs spawn.',
-            "Hunger bar doesn't deplete and health replenishes over time."
-          ]
+        ? ['No hostile mobs and only some neutral mobs spawn. Hunger bar doesn\'t deplete and health replenishes over time.']
         : this.newWorldDifficulty === 'Easy'
-        ? [
-            'Hostile mobs spawn but deal less damage.',
-            'Hunger bar depletes and drains health down to 5 hearts.'
-          ]
+        ? ['Hostile mobs spawn but deal less damage. Hunger bar depletes and drains health down to 5 hearts.']
         : this.newWorldDifficulty === 'Normal'
-        ? [
-            'Hostile mobs spawn and deal standard damage.',
-            'Hunger bar depletes and drains health down to half a heart.'
-          ]
-        : [
-            'Hostile mobs spawn and deal more damage.',
-            'Hunger bar depletes and drains all health.'
-          ];
+        ? ['Hostile mobs spawn and deal standard damage. Hunger bar depletes and drains health down to half a heart.']
+        : ['Hostile mobs spawn and deal more damage. Hunger bar depletes and drains all health.'];
 
       this.addButton(
         centerX - 104,
@@ -2094,7 +2119,7 @@ export class UIManager {
       const cmdLabel = `Allow Commands: ${this.newWorldAllowCommands ? 'ON' : 'OFF'}`;
       const cmdTooltip = isHardcore
         ? ['Cannot allow commands in a hardcore world.']
-        : ['Allows the use of commands in this world.'];
+        : ['Commands like /gamemode, /experience'];
 
       this.addButton(
         centerX - 104,
