@@ -1651,14 +1651,15 @@ export class UIManager {
       }
 
       // Exact vanilla formatting matching Screenshot 1
+      const cleanName = w.name.replace(/\s*\([^)]*\)\s*$/, '').replace(/_/g, ' ').trim();
       const rawDate = w.lastPlayedDate || (w.lastPlayed ? w.lastPlayed.split(' - ')[0] : '11/1/26, 8:46 AM');
       const cleanDate = rawDate.replace(/[()]/g, '').trim();
       const modeName = w.isHardcore ? 'Hardcore' : w.gameMode === 'creative' ? 'Creative' : 'Survival';
       const hasCommands = w.allowCommands !== false && (w.allowCommands === true || w.gameMode === 'creative');
       const modeText = `${modeName} Mode${hasCommands ? ', Commands' : ''}, Version: 26.3`;
 
-      this.font.draw(this.gui.ctx, w.name, listX + 37, curY + 3, '#FFFFFF', true);
-      this.font.draw(this.gui.ctx, `${w.name} (${cleanDate})`, listX + 37, curY + 14, '#808080', true);
+      this.font.draw(this.gui.ctx, cleanName, listX + 37, curY + 3, '#FFFFFF', true);
+      this.font.draw(this.gui.ctx, `${cleanName} (${cleanDate})`, listX + 37, curY + 14, '#808080', true);
       this.font.draw(this.gui.ctx, modeText, listX + 37, curY + 25, '#808080', true);
 
       const idx = i;

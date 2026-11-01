@@ -244,6 +244,18 @@ export class Registries {
       category: 'natural',
     });
     this.registerBlock({
+      shortId: 'grass_block_snow',
+      displayName: 'Grass Block',
+      shape: 'cube',
+      transparent: false,
+      solid: true,
+      lightEmission: 0,
+      hardness: 0.6,
+      soundGroup: 'grass',
+      textures: this.topBottomSide('grass_block_top', 'dirt', 'grass_block_snow'),
+      category: 'natural',
+    });
+    this.registerBlock({
       shortId: 'dirt',
       shape: 'cube',
       transparent: false,
@@ -908,6 +920,18 @@ export class Registries {
       textures: this.allFaces(blockTexSet.has('leaf_litter') ? 'leaf_litter' : 'orange_poplar_leaves'),
       category: 'natural',
       is26_3: true,
+    });
+    this.registerBlock({
+      shortId: 'snow',
+      displayName: 'Snow',
+      shape: 'carpet',
+      transparent: true,
+      solid: false,
+      lightEmission: 0,
+      hardness: 0.1,
+      soundGroup: 'wool',
+      textures: this.allFaces(blockTexSet.has('snow') ? 'snow' : 'snow_block'),
+      category: 'natural',
     });
     const plants = [
       'short_grass',

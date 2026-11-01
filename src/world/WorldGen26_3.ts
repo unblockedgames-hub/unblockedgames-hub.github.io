@@ -1654,8 +1654,10 @@ export class WorldGen26_3 {
           this.placeClassicTree(chunk, lx, h + 1, lz, 'birch_log', 'birch_leaves', 6);
         } else if (biomeId === 'minecraft:cherry_grove' && treeRoll < 0.22) {
           this.placeClassicTree(chunk, lx, h + 1, lz, 'cherry_log', 'cherry_leaves', 6);
-        } else if (biomeId === 'minecraft:snowy_plains' && treeRoll < 0.18) {
-          this.placeClassicTree(chunk, lx, h + 1, lz, 'spruce_log', 'spruce_leaves', 7);
+        } else if ((biomeId === 'minecraft:snowy_plains' || biomeId === 'minecraft:grove') && treeRoll < 0.14) {
+          this.placeSpruceTree(chunk, lx, h + 1, lz, 6 + Math.floor(treeRoll * 20), true);
+        } else if ((biomeId.includes('taiga') || biomeId.includes('spruce')) && treeRoll < 0.28) {
+          this.placeSpruceTree(chunk, lx, h + 1, lz, 7 + Math.floor(treeRoll * 20), biomeId.includes('snowy'));
         } else if (biomeId === 'minecraft:savanna' && treeRoll < 0.12) {
           this.placeClassicTree(chunk, lx, h + 1, lz, 'acacia_log', 'acacia_leaves', 5);
         }
@@ -1694,7 +1696,113 @@ export class WorldGen26_3 {
       }
     }
 
+    // Authentic Minecraft FreezeTopLayerFeature:
+    // In cold biomes, freeze top water exposed to sky into ice, and cover solid blocks with snow
+    const iceId = Registries.getBlock('ice')?.numId;
+    const snowBlockId = Registries.getBlock('snow')?.numId;
+    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const biomeId = chunk.biomes[lz * CHUNK_SIZE + lx];
+        const isCold =
+          biomeId.includes('snowy') ||
+          biomeId.includes('frozen') ||
+          biomeId.includes('ice') ||
+          biomeId.includes('grove') ||
+          biomeId.includes('slopes') ||
+          biomeId.includes('peaks');
+        if (!isCold) continue;
+
+        // Freeze surface water at sea level
+        if (iceId) {
+          const topWater = chunk.getBlock(lx, SEA_LEVEL, lz);
+          if (topWater === waterId) {
+            chunk.setBlock(lx, SEA_LEVEL, lz, iceId);
+          }
+        }
+
+        if (snowBlockId) {
+          // Find highest non-air block
+          let topY = CHUNK_HEIGHT - 1;
+          while (topY > 0 && chunk.getBlock(lx, topY, lz) === 0) {
+            topY--;
+          }
+          if (topY <= 0) continue;
+
+          const topB = chunk.getBlock(lx, topY, lz);
+          if (topB === waterId && iceId) {
+            chunk.setBlock(lx, topY, lz, iceId);
+          } else if (topY + 1 < CHUNK_HEIGHT) {
+            const topDef = Registries.getBlock(topB);
+            if (topDef && topDef.solid && topDef.shape === 'cube') {
+              if (chunk.getBlock(lx, topY + 1, lz) === 0) {
+                chunk.setBlock(lx, topY + 1, lz, snowBlockId);
+              }
+            }
+          }
+        }
+      }
+    }
+
     return { chunk, cushions, camp, mobs };
+  }
+
+  static placeSpruceTree(
+    chunk: Chunk,
+    lx: number,
+    baseY: number,
+    lz: number,
+    height: number,
+    withSnow = true
+  ) {
+    const logId = Registries.getBlock('spruce_log')?.numId || Registries.getBlock('oak_log').numId;
+    const leafId = Registries.getBlock('spruce_leaves')?.numId || Registries.getBlock('oak_leaves').numId;
+    const snowId = Registries.getBlock('snow')?.numId || 0;
+
+    for (let y = baseY; y < baseY + height; y++) {
+      if (y < CHUNK_HEIGHT) chunk.setBlock(lx, y, lz, logId);
+    }
+
+    const topY = baseY + height;
+    if (topY < CHUNK_HEIGHT) {
+      chunk.setBlock(lx, topY, lz, leafId);
+      if (withSnow && snowId && topY + 1 < CHUNK_HEIGHT) {
+        chunk.setBlock(lx, topY + 1, lz, snowId);
+      }
+    }
+
+    const maxRadius = height > 7 ? 2 : 1;
+    for (let y = topY - 1; y >= baseY + 2; y--) {
+      const distFromTop = topY - y;
+      let r = 1;
+      if (distFromTop === 1) {
+        r = 1;
+      } else if (distFromTop % 2 === 0) {
+        r = maxRadius;
+      } else {
+        r = 1;
+      }
+
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+          if (dx === 0 && dz === 0) continue;
+          if (Math.abs(dx) === r && Math.abs(dz) === r && (r > 1 || distFromTop <= 2)) {
+            continue;
+          }
+          const tx = lx + dx;
+          const tz = lz + dz;
+          if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && y < CHUNK_HEIGHT) {
+            if (chunk.getBlock(tx, y, tz) === 0) {
+              chunk.setBlock(tx, y, tz, leafId);
+              if (withSnow && snowId && y + 1 < CHUNK_HEIGHT && chunk.getBlock(tx, y + 1, tz) === 0) {
+                if (((tx * 13 + y * 7 + tz * 17) & 1) === 0) {
+                  chunk.setBlock(tx, y + 1, tz, snowId);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   static placeClassicTree(

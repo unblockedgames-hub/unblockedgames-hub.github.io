@@ -276,6 +276,9 @@ export class Chunk {
         ? Math.abs((wx * 189721) ^ (wz * 872191) ^ (Math.floor(y0) * 31)) & 3
         : 0;
       const getTint = (face: 'top' | 'bottom' | 'side', shade: number): [number, number, number] => {
+        if (face === 'side' && isSnowyGrass) {
+          return [shade, shade, shade];
+        }
         if (def.tint === 'grass' && face === 'top') {
           return [biome.grassColor[0] * shade, biome.grassColor[1] * shade, biome.grassColor[2] * shade];
         }
@@ -342,6 +345,22 @@ export class Chunk {
       let texSouth = def.textures.south;
       let texEast = def.textures.east;
       let texWest = def.textures.west;
+
+      const isSnowyGrass =
+        (def.shortId === 'grass_block' || def.shortId === 'grass_block_snow') &&
+        (def.shortId === 'grass_block_snow' ||
+          (() => {
+            const aboveId = getWorldBlock(wx, Math.floor(y0) + 1, wz);
+            const aboveDef = Registries.getBlock(aboveId);
+            return !!(aboveDef && (aboveDef.shortId === 'snow' || aboveDef.shortId === 'snow_block'));
+          })());
+
+      if (isSnowyGrass) {
+        texNorth = 'grass_block_snow';
+        texSouth = 'grass_block_snow';
+        texEast = 'grass_block_snow';
+        texWest = 'grass_block_snow';
+      }
 
       if (def.shortId === 'furnace' || def.shortId === 'barrel' || def.shortId === 'chest') {
         const facing = meta & 3;
@@ -645,8 +664,11 @@ export class Chunk {
                 0.46,
                 0.26
               );
+            } else if (def.shortId === 'snow') {
+              // Official Minecraft snow layer: 2/16 (0.125) height box
+              pushBox(lx, y, lz, lx + 1, y + 0.125, lz + 1, def, biome, 0x3f, 0, wx, wz);
             } else {
-              pushBox(lx, y, lz, lx + 1, y + 0.0625, lz + 1, def, biome, 0x3f);
+              pushBox(lx, y, lz, lx + 1, y + 0.0625, lz + 1, def, biome, 0x3f, 0, wx, wz);
             }
           } else if (def.shape === 'fence') {
             // Center post + dynamic rails to adjacent solid/fence blocks
