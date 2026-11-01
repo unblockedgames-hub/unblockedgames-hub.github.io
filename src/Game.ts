@@ -1796,15 +1796,35 @@ export class Game {
       this.ui.state === 'TITLE' ||
       this.ui.state === 'SINGLEPLAYER_SELECT' ||
       this.ui.state === 'CREATE_WORLD' ||
+      this.ui.state === 'GAME_RULES' ||
+      this.ui.state === 'EXPERIMENTS' ||
+      this.ui.state === 'DATA_PACKS' ||
+      this.ui.state === 'LOADING_TERRAIN' ||
       this.ui.state === 'MULTIPLAYER_SELECT' ||
       this.ui.state === 'WISPCRAFT_CONFIG' ||
       this.ui.state === 'CONNECTING' ||
       (this.ui.state === 'OPTIONS' && !this.inWorld);
 
     if (onMenuWithPanorama) {
+      const isBlurred =
+        this.ui.state === 'SINGLEPLAYER_SELECT' ||
+        this.ui.state === 'CREATE_WORLD' ||
+        this.ui.state === 'GAME_RULES' ||
+        this.ui.state === 'EXPERIMENTS' ||
+        this.ui.state === 'DATA_PACKS' ||
+        this.ui.state === 'OPTIONS' ||
+        this.ui.state === 'MULTIPLAYER_SELECT' ||
+        this.ui.state === 'WISPCRAFT_CONFIG';
+
+      this.renderer.domElement.style.filter = isBlurred ? 'blur(10px)' : 'none';
+      this.renderer.domElement.style.transform = isBlurred ? 'scale(1.05)' : 'none';
+
       this.panorama.render(this.renderer, dt);
       this.ui.render(dt);
       return;
+    } else {
+      this.renderer.domElement.style.filter = 'none';
+      this.renderer.domElement.style.transform = 'none';
     }
 
     const isSingleplayerPaused =

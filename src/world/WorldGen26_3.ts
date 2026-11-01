@@ -1,6 +1,7 @@
 import { Chunk, CHUNK_SIZE, CHUNK_HEIGHT } from './Chunk';
 import { Registries } from '../core/Registries';
 import structuresBundle from './structures_bundle.json';
+import { VanillaClimate } from './VanillaNoise';
 
 export interface CushionEntityData {
   id: string;
@@ -33,29 +34,38 @@ export interface AbandonedCampLocation {
 export class WorldGen26_3 {
   static structuresMap: Record<string, any> = { ...(structuresBundle as any) };
   static seed = Math.floor(Math.random() * 0x7fffffff);
-  static worldType: 'wilderness_26_3' | 'dappled_showcase' | 'superflat' = 'wilderness_26_3';
+  static worldType: 'default' | 'superflat' | 'large_biomes' | 'amplified' | 'single_biome' | 'wilderness_26_3' = 'default';
+  static singleBiomeChoice = 'minecraft:plains';
+  static generateStructures = true;
+  static bonusChest = false;
+  static vanillaClimate = new VanillaClimate(WorldGen26_3.seed);
 
   static setSeed(seedInput: string | number) {
     if (typeof seedInput === 'number' && !isNaN(seedInput)) {
       this.seed = seedInput | 0;
-      return;
+    } else {
+      const str = String(seedInput).trim();
+      if (!str) {
+        this.seed = Math.floor(Math.random() * 0x7fffffff);
+      } else {
+        const asNum = Number(str);
+        if (!isNaN(asNum) && Number.isInteger(asNum)) {
+          this.seed = asNum | 0;
+        } else {
+          // Java String.hashCode()
+          let h = 0;
+          for (let i = 0; i < str.length; i++) {
+            h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+          }
+          this.seed = h;
+        }
+      }
     }
-    const str = String(seedInput).trim();
-    if (!str) {
-      this.seed = Math.floor(Math.random() * 0x7fffffff);
-      return;
-    }
-    const asNum = Number(str);
-    if (!isNaN(asNum) && Number.isInteger(asNum)) {
-      this.seed = asNum | 0;
-      return;
-    }
-    // Java String.hashCode()
-    let h = 0;
-    for (let i = 0; i < str.length; i++) {
-      h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
-    }
-    this.seed = h;
+    this.vanillaClimate.setSeed(this.seed);
+  }
+
+  static getSpawnCoords(): { x: number; z: number } {
+    return this.vanillaClimate.getSpawnCoords();
   }
 
   static async init() {
@@ -144,44 +154,54 @@ export class WorldGen26_3 {
     return (n00 * (1 - u) + n10 * u) * (1 - v) + (n01 * (1 - u) + n11 * u) * v;
   }
 
-  static getBiomeAt(wx: number, wz: number): string {
-    if (this.worldType === 'dappled_showcase') return 'minecraft:dappled_forest';
-    const temp = this.smoothNoise(wx, wz, 180, 777);
-    const humid = this.smoothNoise(wx, wz, 180, 1337);
+  static octaveNoise(x: number, z: number, baseScale: number, octaves: number, offset = 0): number {
+    let sum = 0;
+    let max = 0;
+    let amp = 1.0;
+    let scale = baseScale;
+    for (let i = 0; i < octaves; i++) {
+      sum += (this.smoothNoise(x, z, scale, offset + i * 37) * 2 - 1) * amp;
+      max += amp;
+      amp *= 0.5;
+      scale *= 0.5;
+    }
+    return sum / max;
+  }
 
-    if (temp < 0.18) {
-      if (humid < 0.35) return 'minecraft:snowy_plains';
-      if (humid < 0.7) return 'minecraft:snowy_taiga';
-      return 'minecraft:ice_spikes';
+  static sampleClimate(wx: number, wz: number): {
+    temp: number;
+    humid: number;
+    cont: number;
+    erosion: number;
+    weird: number;
+  } {
+    let x = wx;
+    let z = wz;
+    if (this.worldType === 'large_biomes') {
+      x *= 0.25;
+      z *= 0.25;
     }
-    if (temp < 0.35) {
-      if (humid < 0.35) return 'minecraft:windswept_hills';
-      if (humid < 0.65) return 'minecraft:taiga';
-      return 'minecraft:old_growth_pine_taiga';
+    const c = this.vanillaClimate.sampleClimate(x, z);
+    return {
+      temp: c.temp,
+      humid: c.humid,
+      cont: c.cont,
+      erosion: c.erosion,
+      weird: c.ridge
+    };
+  }
+
+  static getBiomeAt(wx: number, wz: number, wy = 64): string {
+    if (this.worldType === 'superflat') return 'minecraft:plains';
+    if (this.worldType === 'single_biome') return this.singleBiomeChoice;
+
+    let x = wx;
+    let z = wz;
+    if (this.worldType === 'large_biomes') {
+      x *= 0.25;
+      z *= 0.25;
     }
-    if (temp < 0.60) {
-      if (humid < 0.28) return 'minecraft:plains';
-      if (humid < 0.45) return 'minecraft:birch_forest';
-      if (humid < 0.62) return 'minecraft:dappled_forest';
-      if (humid < 0.78) return 'minecraft:poplar_grove';
-      if (humid < 0.90) return 'minecraft:dark_forest';
-      return 'minecraft:pale_garden';
-    }
-    if (temp < 0.80) {
-      if (humid < 0.25) return 'minecraft:sunflower_plains';
-      if (humid < 0.45) return 'minecraft:forest';
-      if (humid < 0.65) return 'minecraft:flower_forest';
-      if (humid < 0.82) return 'minecraft:swamp';
-      return 'minecraft:cherry_grove';
-    }
-    if (temp < 0.90) {
-      if (humid < 0.35) return 'minecraft:savanna';
-      if (humid < 0.65) return 'minecraft:jungle';
-      return 'minecraft:bamboo_jungle';
-    }
-    if (humid < 0.35) return 'minecraft:desert';
-    if (humid < 0.65) return 'minecraft:badlands';
-    return 'minecraft:wooded_badlands';
+    return this.vanillaClimate.getBiomeAt(x, z, wy);
   }
 
   static findNearestBiome(
@@ -302,24 +322,33 @@ export class WorldGen26_3 {
   }
 
   static getTerrainHeight(wx: number, wz: number): number {
-    if (this.worldType === 'superflat') return 64;
-    const continental = this.smoothNoise(wx, wz, 180, 10);
-    const hills = this.smoothNoise(wx, wz, 64, 20);
-    const detail = this.smoothNoise(wx, wz, 22, 30);
-    const ridge = 1.0 - Math.abs(this.smoothNoise(wx, wz, 96, 40) * 2.0 - 1.0);
+    if (this.worldType === 'superflat') return 3;
+    let x = wx;
+    let z = wz;
+    if (this.worldType === 'large_biomes') {
+      x *= 0.25;
+      z *= 0.25;
+    }
+    const continental = this.smoothNoise(x, z, 180, 10);
+    const hills = this.smoothNoise(x, z, 64, 20);
+    const detail = this.smoothNoise(x, z, 22, 30);
+    const ridge = 1.0 - Math.abs(this.smoothNoise(x, z, 96, 40) * 2.0 - 1.0);
 
-    // River / lake noise creates winding river valleys and water bodies below sea level (62)
-    const river = Math.abs(this.smoothNoise(wx, wz, 190, 88) * 2.0 - 1.0);
+    const river = Math.abs(this.smoothNoise(x, z, 190, 88) * 2.0 - 1.0);
 
-    let height = 54 + continental * 18 + hills * 10 + detail * 3;
+    const ampMult = this.worldType === 'amplified' ? 2.0 : 1.0;
+    let height = 54 + (continental * 18 + hills * 10 + detail * 3) * ampMult;
     if (continental > 0.62) {
-      height += (continental - 0.62) * ridge * 34;
+      height += (continental - 0.62) * ridge * 34 * ampMult;
+    }
+    if (this.worldType === 'amplified' && continental > 0.45) {
+      height += (continental - 0.45) * ridge * 60;
     }
     if (river < 0.11) {
       const riverDepth = (1.0 - river / 0.11) * 12.0;
       height -= riverDepth;
     }
-    return Math.floor(height);
+    return Math.max(1, Math.min(250, Math.floor(height)));
   }
 
   static getBlockAt(wx: number, wy: number, wz: number): number {
@@ -399,6 +428,87 @@ export class WorldGen26_3 {
           }
         }
       }
+    }
+  }
+
+  static placeJungleTree(
+    chunk: Chunk,
+    lx: number,
+    baseY: number,
+    lz: number,
+    roll: number
+  ) {
+    const logId = Registries.getBlock('jungle_log').numId;
+    const leafId = Registries.getBlock('jungle_leaves').numId;
+    const vineId = Registries.getBlock('vine')?.numId || 0;
+    const cocoaId = Registries.getBlock('cocoa')?.numId || 0;
+
+    const isMega = roll < 0.22 && lx < CHUNK_SIZE - 2 && lz < CHUNK_SIZE - 2;
+    if (isMega) {
+      // 2x2 Mega Jungle Tree (16-24 blocks tall)
+      const height = 16 + Math.floor(roll * 28);
+      for (let y = baseY; y < baseY + height; y++) {
+        chunk.setBlock(lx, y, lz, logId);
+        chunk.setBlock(lx + 1, y, lz, logId);
+        chunk.setBlock(lx, y, lz + 1, logId);
+        chunk.setBlock(lx + 1, y, lz + 1, logId);
+        if (vineId && y > baseY + 2 && y % 3 === 0) {
+          if (lx > 0) chunk.setBlock(lx - 1, y, lz, vineId);
+          if (lz > 0) chunk.setBlock(lx, y, lz - 1, vineId);
+        }
+      }
+      // Mega canopy
+      for (let dy = height - 4; dy <= height + 1; dy++) {
+        const rad = dy === height + 1 ? 2 : dy >= height - 1 ? 3 : 2;
+        for (let dx = -rad; dx <= rad + 1; dx++) {
+          for (let dz = -rad; dz <= rad + 1; dz++) {
+            const bx = lx + dx;
+            const bz = lz + dz;
+            if (bx >= 0 && bx < CHUNK_SIZE && bz >= 0 && bz < CHUNK_SIZE) {
+              if (chunk.getBlock(bx, baseY + dy, bz) === 0) {
+                chunk.setBlock(bx, baseY + dy, bz, leafId);
+              }
+            }
+          }
+        }
+      }
+    } else {
+      // Standard Jungle Tree (7-11 blocks tall)
+      const height = 7 + Math.floor(roll * 5);
+      for (let y = baseY; y < baseY + height; y++) {
+        chunk.setBlock(lx, y, lz, logId);
+        if (cocoaId && y === baseY + 3 && lx > 0 && roll < 0.3) {
+          chunk.setBlock(lx - 1, y, lz, cocoaId);
+        }
+      }
+      for (let dy = height - 3; dy <= height + 1; dy++) {
+        const rad = dy > height - 1 ? 1 : 2;
+        for (let dx = -rad; dx <= rad; dx++) {
+          for (let dz = -rad; dz <= rad; dz++) {
+            const bx = lx + dx;
+            const bz = lz + dz;
+            if (bx >= 0 && bx < CHUNK_SIZE && bz >= 0 && bz < CHUNK_SIZE) {
+              if (chunk.getBlock(bx, baseY + dy, bz) === 0) {
+                chunk.setBlock(bx, baseY + dy, bz, leafId);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  static placeBambooStalk(
+    chunk: Chunk,
+    lx: number,
+    baseY: number,
+    lz: number,
+    height: number
+  ) {
+    const bambooId = Registries.getBlock('bamboo')?.numId || Registries.getBlock('sugar_cane')?.numId || 0;
+    if (!bambooId) return;
+    for (let y = baseY; y < baseY + height; y++) {
+      chunk.setBlock(lx, y, lz, bambooId);
     }
   }
 
@@ -1187,6 +1297,20 @@ export class WorldGen26_3 {
     const SEA_LEVEL = 62;
     const heightMap = new Int32Array(CHUNK_SIZE * CHUNK_SIZE);
 
+    if (this.worldType === 'superflat') {
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+          chunk.setBiome(lx, lz, 'minecraft:plains');
+          heightMap[lz * CHUNK_SIZE + lx] = 3;
+          chunk.setBlock(lx, 0, lz, bedrockId);
+          chunk.setBlock(lx, 1, lz, dirtId);
+          chunk.setBlock(lx, 2, lz, dirtId);
+          chunk.setBlock(lx, 3, lz, grassId);
+        }
+      }
+      return { chunk, cushions, camp, mobs };
+    }
+
     for (let lz = 0; lz < CHUNK_SIZE; lz++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         const wx = cx * CHUNK_SIZE + lx;
@@ -1326,10 +1450,6 @@ export class WorldGen26_3 {
       }
     }
 
-    if (this.worldType === 'superflat') {
-      return { chunk, cushions };
-    }
-
     // Check if this chunk naturally hosts an Abandoned Camp structure using authentic 32x32 regional spacing
     const REGION_SIZE = 32;
     const rx = Math.floor(cx / REGION_SIZE);
@@ -1340,7 +1460,7 @@ export class WorldGen26_3 {
     const villageTarget = this.getStructureChunk(rx, rz, 'village');
     const vDx = cx - villageTarget.cx;
     const vDz = cz - villageTarget.cz;
-    const isVillagePart = Math.abs(vDx) <= 1 && Math.abs(vDz) <= 1 && heightMap[7 * CHUNK_SIZE + 7] > SEA_LEVEL + 2;
+    const isVillagePart = this.generateStructures && Math.abs(vDx) <= 1 && Math.abs(vDz) <= 1 && heightMap[7 * CHUNK_SIZE + 7] > SEA_LEVEL + 2;
 
     if (isVillagePart) {
       const centerH = Math.max(SEA_LEVEL + 2, this.getTerrainHeight(villageTarget.cx * CHUNK_SIZE + 8, villageTarget.cz * CHUNK_SIZE + 8));
@@ -1352,6 +1472,7 @@ export class WorldGen26_3 {
     // 2. Abandoned Camp Structure
     const campTarget = this.getStructureChunk(rx, rz, 'abandoned_camp');
     const isWildernessCampChunk =
+      this.generateStructures &&
       cx === campTarget.cx &&
       cz === campTarget.cz &&
       !isVillagePart &&
@@ -1369,6 +1490,7 @@ export class WorldGen26_3 {
     // 3. Desert Pyramid Structure
     const desertPyramidTarget = this.getStructureChunk(rx, rz, 'desert_pyramid');
     const isDesertPyramidChunk =
+      this.generateStructures &&
       cx === desertPyramidTarget.cx &&
       cz === desertPyramidTarget.cz &&
       !isVillagePart &&
@@ -1384,6 +1506,7 @@ export class WorldGen26_3 {
     // 4. Jungle Pyramid Structure
     const junglePyramidTarget = this.getStructureChunk(rx, rz, 'jungle_pyramid');
     const isJunglePyramidChunk =
+      this.generateStructures &&
       cx === junglePyramidTarget.cx &&
       cz === junglePyramidTarget.cz &&
       !isVillagePart &&
@@ -1399,6 +1522,7 @@ export class WorldGen26_3 {
     // 5. Swamp Hut (Witch Hut) Structure
     const swampHutTarget = this.getStructureChunk(rx, rz, 'swamp_hut');
     const isSwampHutChunk =
+      this.generateStructures &&
       cx === swampHutTarget.cx &&
       cz === swampHutTarget.cz &&
       !isVillagePart &&
@@ -1414,6 +1538,7 @@ export class WorldGen26_3 {
     // 6. Igloo Structure
     const iglooTarget = this.getStructureChunk(rx, rz, 'igloo');
     const isIglooChunk =
+      this.generateStructures &&
       cx === iglooTarget.cx &&
       cz === iglooTarget.cz &&
       !isVillagePart &&
@@ -1429,6 +1554,7 @@ export class WorldGen26_3 {
     // 7. Ruined Portal Structure
     const portalTarget = this.getStructureChunk(rx, rz, 'ruined_portal');
     const isPortalChunk =
+      this.generateStructures &&
       cx === portalTarget.cx &&
       cz === portalTarget.cz &&
       !isVillagePart &&
@@ -1445,6 +1571,7 @@ export class WorldGen26_3 {
     // 8. Pillager Outpost Structure
     const outpostTarget = this.getStructureChunk(rx, rz, 'pillager_outpost');
     const isOutpostChunk =
+      this.generateStructures &&
       cx === outpostTarget.cx &&
       cz === outpostTarget.cz &&
       !isVillagePart &&
@@ -1468,6 +1595,22 @@ export class WorldGen26_3 {
       isIglooChunk ||
       isPortalChunk ||
       isOutpostChunk;
+
+    // Bonus Chest near spawn if enabled
+    if (this.bonusChest && cx === 0 && cz === 0) {
+      const topH = heightMap[2 * CHUNK_SIZE + 2];
+      if (topH > 0 && topH < CHUNK_HEIGHT - 2) {
+        const chestId = Registries.getBlock('chest')?.numId || Registries.getBlock('oak_planks').numId;
+        const torchId = Registries.getBlock('torch')?.numId || 0;
+        chunk.setBlock(2, topH + 1, 2, chestId);
+        if (torchId) {
+          chunk.setBlock(1, topH + 1, 2, torchId);
+          chunk.setBlock(3, topH + 1, 2, torchId);
+          chunk.setBlock(2, topH + 1, 1, torchId);
+          chunk.setBlock(2, topH + 1, 3, torchId);
+        }
+      }
+    }
 
     // Place Trees & Flora based on Biome
     for (let lz = 3; lz < CHUNK_SIZE - 3; lz += 4) {
@@ -1495,6 +1638,14 @@ export class WorldGen26_3 {
               ? 'yellow_poplar_leaves'
               : 'red_poplar_leaves';
           this.placePoplarTree(chunk, lx, h + 1, lz, leafVariant, leafRoll);
+        } else if ((biomeId === 'minecraft:jungle' || biomeId === 'minecraft:sparse_jungle') && treeRoll < 0.45) {
+          this.placeJungleTree(chunk, lx, h + 1, lz, treeRoll);
+        } else if (biomeId === 'minecraft:bamboo_jungle') {
+          if (treeRoll < 0.15) {
+            this.placeJungleTree(chunk, lx, h + 1, lz, treeRoll);
+          } else if (treeRoll < 0.8) {
+            this.placeBambooStalk(chunk, lx, h + 1, lz, 6 + Math.floor(treeRoll * 8));
+          }
         } else if (biomeId === 'minecraft:forest' && treeRoll < 0.28) {
           this.placeClassicTree(chunk, lx, h + 1, lz, 'oak_log', 'oak_leaves', 5 + Math.floor(treeRoll * 7));
         } else if (biomeId === 'minecraft:plains' && treeRoll < 0.03) {

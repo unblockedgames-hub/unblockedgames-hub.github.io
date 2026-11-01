@@ -22,6 +22,10 @@ export type UIState =
   | 'SINGLEPLAYER_SELECT'
   | 'CONFIRM_DELETE_WORLD'
   | 'CREATE_WORLD'
+  | 'GAME_RULES'
+  | 'EXPERIMENTS'
+  | 'DATA_PACKS'
+  | 'LOADING_TERRAIN'
   | 'MULTIPLAYER_SELECT'
   | 'WISPCRAFT_CONFIG'
   | 'CONNECTING'
@@ -78,10 +82,15 @@ interface SavedWorldEntry {
   name: string;
   folder: string;
   lastPlayed: string;
+  lastPlayedDate?: string;
   gameMode: 'creative' | 'survival' | 'spectator';
   isHardcore?: boolean;
   allowCommands?: boolean;
   seed: string;
+  worldType?: 'default' | 'superflat' | 'large_biomes' | 'amplified' | 'single_biome';
+  generateStructures?: boolean;
+  bonusChest?: boolean;
+  singleBiomeChoice?: string;
 }
 
 export class UIManager {
@@ -147,8 +156,62 @@ export class UIManager {
   private newWorldSeed = '';
   private newWorldMode: 'survival' | 'hardcore' | 'creative' = 'survival';
   private newWorldDifficulty: 'Peaceful' | 'Easy' | 'Normal' | 'Hard' = 'Normal';
-  private newWorldAllowCommands = true;
+  private newWorldAllowCommands = false;
   private createWorldTab: 0 | 1 | 2 = 0;
+
+  // World Tab options (Vanila 26.3 parity)
+  private worldTypes: Array<{ id: 'default' | 'superflat' | 'large_biomes' | 'amplified' | 'single_biome'; label: string }> = [
+    { id: 'default', label: 'World Type: Default' },
+    { id: 'superflat', label: 'World Type: Superflat' },
+    { id: 'large_biomes', label: 'World Type: Large Biomes' },
+    { id: 'amplified', label: 'World Type: Amplified' },
+    { id: 'single_biome', label: 'World Type: Single Biome' },
+  ];
+  private selectedWorldTypeIdx = 0;
+  private newWorldStructures = true;
+  private newWorldBonusChest = false;
+  private singleBiomeChoices = [
+    'minecraft:plains',
+    'minecraft:jungle',
+    'minecraft:dappled_forest',
+    'minecraft:desert',
+    'minecraft:snowy_plains',
+    'minecraft:cherry_grove',
+    'minecraft:badlands',
+    'minecraft:dark_forest',
+  ];
+  private singleBiomeChoiceIdx = 0;
+
+  // Game Rules state
+  public gameRules: Record<string, boolean | number> = {
+    doDaylightCycle: true,
+    keepInventory: false,
+    mobGriefing: true,
+    doMobSpawning: true,
+    doWeatherCycle: true,
+    doFireTick: true,
+    naturalRegeneration: true,
+    fallDamage: true,
+    fireDamage: true,
+    drowningDamage: true,
+    showDeathMessages: true,
+    randomTickSpeed: 3,
+    spawnRadius: 10,
+  };
+
+  // Experiments state
+  public experiments: Record<string, boolean> = {
+    wilderness_bound: true,
+    trade_rebalance: false,
+    minecart_improvements: false,
+    redstone_experiments: false,
+  };
+
+  // Loading terrain state
+  public loadingTerrainProgress = 0;
+  public loadingTerrainTimer = 0;
+  public loadingChunkMatrix: boolean[][] = Array.from({ length: 9 }, () => Array(9).fill(false));
+  private pendingLaunchWorld: SavedWorldEntry | null = null;
 
   private savedWorlds: SavedWorldEntry[] = [];
   private selectedWorldIdx = 0;
@@ -1053,7 +1116,8 @@ export class UIManager {
     h: number,
     text: string,
     onClick: () => void,
-    active = true
+    active = true,
+    tooltip?: string[]
   ): void {
     const hovered =
       active &&
@@ -1063,7 +1127,9 @@ export class UIManager {
       this.mouseY < y + h;
     this.gui.drawButton(x, y, w, h, text, hovered, active);
     if (active) {
-      this.interactiveRects.push({ x, y, w, h, onClick: () => onClick() });
+      this.interactiveRects.push({ x, y, w, h, onClick: () => onClick(), tooltip });
+    } else if (tooltip && this.mouseX >= x && this.mouseX < x + w && this.mouseY >= y && this.mouseY < y + h) {
+      this.interactiveRects.push({ x, y, w, h, onClick: () => {}, tooltip });
     }
   }
 
@@ -1182,6 +1248,18 @@ export class UIManager {
         break;
       case 'CREATE_WORLD':
         this.renderCreateWorldScreen();
+        break;
+      case 'GAME_RULES':
+        this.renderGameRulesScreen();
+        break;
+      case 'EXPERIMENTS':
+        this.renderExperimentsScreen();
+        break;
+      case 'DATA_PACKS':
+        this.renderDataPacksScreen();
+        break;
+      case 'LOADING_TERRAIN':
+        this.renderLoadingTerrainScreen(dt);
         break;
       case 'MULTIPLAYER_SELECT':
         this.renderJoinMultiplayerScreen();
@@ -1431,7 +1509,7 @@ export class UIManager {
       20,
       'world_search',
       this.worldSearchText,
-      'Search worlds...'
+      'Search...'
     );
 
     const filtered = this.savedWorlds.filter((w) =>
@@ -1472,9 +1550,11 @@ export class UIManager {
         this.gui.blitSprite(iconHover, listX + 2, curY + 2, 32, 32);
       }
 
+      const dateText = w.lastPlayedDate || '11/1/26, 8:38 AM';
+      const modeText = `${w.isHardcore ? 'Hardcore' : w.gameMode === 'creative' ? 'Creative' : 'Survival'} Mode, Version: 26.3`;
       this.font.draw(this.gui.ctx, w.name, listX + 37, curY + 3, '#FFFFFF', true);
-      this.font.draw(this.gui.ctx, w.folder, listX + 37, curY + 14, '#808080', true);
-      this.font.draw(this.gui.ctx, w.lastPlayed, listX + 37, curY + 25, '#808080', true);
+      this.font.draw(this.gui.ctx, `${w.folder} (${dateText})`, listX + 37, curY + 14, '#808080', true);
+      this.font.draw(this.gui.ctx, modeText, listX + 37, curY + 25, '#808080', true);
 
       const idx = i;
       this.interactiveRects.push({
@@ -1528,7 +1608,7 @@ export class UIManager {
       this.world.blockDiffs.clear();
       this.launchSelectedWorld();
     });
-    this.addButton(centerX + 82, sh - 28, 72, 20, 'Cancel', () => {
+    this.addButton(centerX + 82, sh - 28, 72, 20, 'Back', () => {
       this.setState('TITLE');
     });
   }
@@ -1729,8 +1809,16 @@ export class UIManager {
     }
   }
 
-  private launchSelectedWorld(): void {
-    const w = this.savedWorlds[this.selectedWorldIdx] || this.savedWorlds[0];
+  public startTerrainLoading(w: SavedWorldEntry): void {
+    this.pendingLaunchWorld = w;
+    this.loadingTerrainProgress = 0;
+    this.loadingTerrainTimer = 0;
+    this.loadingChunkMatrix = Array.from({ length: 9 }, () => Array(9).fill(false));
+    this.setState('LOADING_TERRAIN');
+  }
+
+  private finalizeLaunchWorld(): void {
+    const w = this.pendingLaunchWorld;
     if (!w) return;
     this.activeWorldId = w.id;
     this.activeWorldIsHardcore = !!w.isHardcore;
@@ -1741,8 +1829,23 @@ export class UIManager {
     this.player.flying = false;
     this.world.allowCommands = w.allowCommands !== undefined ? w.allowCommands : true;
     this.inventory.clearAll();
-    this.world.resetWorld(w.seed, 'wilderness_26_3', w.name);
+
+    WorldGen26_3.setSeed(w.seed);
+    WorldGen26_3.worldType = w.worldType || 'default';
+    WorldGen26_3.generateStructures = w.generateStructures !== false;
+    WorldGen26_3.bonusChest = !!w.bonusChest;
+    if (w.singleBiomeChoice) {
+      WorldGen26_3.singleBiomeChoice = w.singleBiomeChoice;
+    }
+
+    this.world.resetWorld(w.seed, w.worldType || 'default', w.name);
     this.onStartGame?.(false);
+  }
+
+  private launchSelectedWorld(): void {
+    const w = this.savedWorlds[this.selectedWorldIdx] || this.savedWorlds[0];
+    if (!w) return;
+    this.startTerrainLoading(w);
   }
 
   // ============================================================================
@@ -1803,38 +1906,59 @@ export class UIManager {
           : this.newWorldMode === 'hardcore'
           ? 'Game Mode: Hardcore'
           : 'Game Mode: Survival';
-      this.addButton(centerX - 104, 82, 208, 20, modeLabel, () => {
-        this.newWorldMode =
-          this.newWorldMode === 'survival'
-            ? 'hardcore'
-            : this.newWorldMode === 'hardcore'
-            ? 'creative'
-            : 'survival';
-        if (this.newWorldMode === 'hardcore') {
-          this.newWorldDifficulty = 'Hard';
-        }
-      });
-
-      const modeDesc =
+      const modeTooltip =
         this.newWorldMode === 'hardcore'
-          ? '§7Same as survival mode, locked at hardest difficulty, and one life only'
+          ? ['Same as survival mode, locked at hardest difficulty, and one life only']
           : this.newWorldMode === 'creative'
-          ? '§7Unlimited resources, free flying and destroy blocks instantly'
-          : '§7Search for resources, crafting, gain levels, health and hunger';
-      this.font.drawCentered(this.gui.ctx, modeDesc, centerX, 106, '#808080', true);
+          ? ['Unlimited resources, free flying and destroy blocks instantly']
+          : ['Search for resources, crafting, gain levels, health and hunger'];
 
-      const diffLabel =
-        this.newWorldMode === 'hardcore'
-          ? 'Difficulty: Hard'
-          : `Difficulty: ${this.newWorldDifficulty}`;
       this.addButton(
         centerX - 104,
-        118,
+        82,
+        208,
+        20,
+        modeLabel,
+        () => {
+          this.newWorldMode =
+            this.newWorldMode === 'survival'
+              ? 'hardcore'
+              : this.newWorldMode === 'hardcore'
+              ? 'creative'
+              : 'survival';
+          if (this.newWorldMode === 'hardcore') {
+            this.newWorldDifficulty = 'Hard';
+            this.newWorldAllowCommands = false;
+          } else if (this.newWorldMode === 'creative') {
+            this.newWorldAllowCommands = true;
+          } else {
+            this.newWorldAllowCommands = false;
+          }
+        },
+        true,
+        modeTooltip
+      );
+
+      const isHardcore = this.newWorldMode === 'hardcore';
+      const diffLabel = isHardcore ? 'Difficulty: Hard' : `Difficulty: ${this.newWorldDifficulty}`;
+      const diffTooltip = isHardcore
+        ? ['Difficulty is locked to Hard in Hardcore mode']
+        : this.newWorldDifficulty === 'Peaceful'
+        ? ['No hostile mobs, health regenerates automatically']
+        : this.newWorldDifficulty === 'Easy'
+        ? ['Hostile mobs deal less damage, starvation stops at 10 health']
+        : this.newWorldDifficulty === 'Normal'
+        ? ['Standard survival challenge, starvation stops at 1 health']
+        : ['Hostile mobs deal more damage, starvation can be fatal'];
+
+      this.addButton(
+        centerX - 104,
+        106,
         208,
         20,
         diffLabel,
         () => {
-          if (this.newWorldMode === 'hardcore') return;
+          if (isHardcore) return;
           const order: Array<UIManager['newWorldDifficulty']> = [
             'Peaceful',
             'Easy',
@@ -1843,37 +1967,66 @@ export class UIManager {
           ];
           this.newWorldDifficulty =
             order[(order.indexOf(this.newWorldDifficulty) + 1) % order.length];
-        }
+        },
+        !isHardcore,
+        diffTooltip
       );
+
+      const cmdLabel = `Allow Commands: ${this.newWorldAllowCommands ? 'ON' : 'OFF'}`;
+      const cmdTooltip = this.newWorldAllowCommands
+        ? ['Commands like /gamemode, /tp, /give, /locate can be used']
+        : ['Commands are disabled'];
 
       this.addButton(
         centerX - 104,
-        144,
+        130,
         208,
         20,
-        `Allow Commands: ${this.newWorldAllowCommands ? 'ON' : 'OFF'}`,
+        cmdLabel,
         () => {
           this.newWorldAllowCommands = !this.newWorldAllowCommands;
-        }
+        },
+        true,
+        cmdTooltip
       );
     } else if (this.createWorldTab === 1) {
-      // World Tab
+      // World Tab (Vanilla 26.3 parity matching Screenshot 6)
+      const curType = this.worldTypes[this.selectedWorldTypeIdx];
       this.addButton(
         centerX - 154,
         48,
         150,
         20,
-        'World Type: Default',
-        () => {}
+        curType.label,
+        () => {
+          this.selectedWorldTypeIdx = (this.selectedWorldTypeIdx + 1) % this.worldTypes.length;
+        }
       );
+
+      const canCustomize = curType.id === 'superflat' || curType.id === 'single_biome';
+      const customizeTooltip =
+        curType.id === 'superflat'
+          ? ['Customize Superflat layers']
+          : curType.id === 'single_biome'
+          ? [`Current Biome: ${this.singleBiomeChoices[this.singleBiomeChoiceIdx]}`]
+          : ['World type cannot be customized'];
+
       this.addButton(
         centerX + 4,
         48,
         150,
         20,
-        'Generate Structures: ON',
-        () => {}
+        'Customize',
+        () => {
+          if (curType.id === 'single_biome') {
+            this.singleBiomeChoiceIdx = (this.singleBiomeChoiceIdx + 1) % this.singleBiomeChoices.length;
+          }
+        },
+        canCustomize,
+        customizeTooltip
       );
+
+      this.font.draw(this.gui.ctx, 'Seed for the world generator', centerX - 154, 76, '#A0A0A0', true);
       this.addEditBox(
         centerX - 154,
         88,
@@ -1881,39 +2034,225 @@ export class UIManager {
         20,
         'world_seed',
         this.newWorldSeed,
-        'Leave blank for a random seed',
-        'Seed for the World Generator'
+        'Leave blank for a random seed'
+      );
+
+      this.font.draw(this.gui.ctx, 'Generate Structures', centerX - 154, 126, '#FFFFFF', true);
+      this.addButton(
+        centerX + 110,
+        120,
+        44,
+        20,
+        this.newWorldStructures ? 'ON' : 'OFF',
+        () => {
+          this.newWorldStructures = !this.newWorldStructures;
+        },
+        true,
+        ['Villages, temples, outposts, and abandoned camps']
+      );
+
+      this.font.draw(this.gui.ctx, 'Bonus Chest', centerX - 154, 152, '#FFFFFF', true);
+      this.addButton(
+        centerX + 110,
+        146,
+        44,
+        20,
+        this.newWorldBonusChest ? 'ON' : 'OFF',
+        () => {
+          this.newWorldBonusChest = !this.newWorldBonusChest;
+        },
+        true,
+        ['Contains a starter kit of basic tools and food near spawn']
       );
     } else {
       // More Tab
-      this.addButton(centerX - 104, 54, 208, 20, 'Game Rules...', () => {});
-      this.addButton(centerX - 104, 82, 208, 20, 'Experiments...', () => {});
-      this.addButton(centerX - 104, 110, 208, 20, 'Data Packs...', () => {});
+      this.addButton(centerX - 104, 54, 208, 20, 'Game Rules', () => {
+        this.setState('GAME_RULES');
+      });
+      this.addButton(centerX - 104, 82, 208, 20, 'Experiments', () => {
+        this.setState('EXPERIMENTS');
+      });
+      this.addButton(centerX - 104, 110, 208, 20, 'Data Packs', () => {
+        this.setState('DATA_PACKS');
+      });
     }
 
     this.addButton(centerX - 154, sh - 28, 150, 20, 'Create New World', () => {
       const randomSeed = String(Math.floor(Math.random() * 0x7fffffff));
       const finalSeed = this.newWorldSeed.trim() || randomSeed;
       const isHardcore = this.newWorldMode === 'hardcore';
+      const now = new Date();
+      const dateStr = `${now.getMonth() + 1}/${now.getDate()}/${String(now.getFullYear()).slice(-2)}, ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+      const curType = this.worldTypes[this.selectedWorldTypeIdx].id;
+
       const created: SavedWorldEntry = {
         id: `world_${Date.now()}`,
         name: this.newWorldName.trim() || 'New World',
         folder: `${(this.newWorldName.trim() || 'New_World').replace(/[^a-zA-Z0-9_-]/g, '_')}`,
         lastPlayed: `${isHardcore ? 'Hardcore' : this.newWorldMode === 'creative' ? 'Creative' : 'Survival'} Mode`,
+        lastPlayedDate: dateStr,
         gameMode: this.newWorldMode === 'creative' ? 'creative' : 'survival',
         isHardcore,
         allowCommands: this.newWorldAllowCommands,
         seed: finalSeed,
+        worldType: curType,
+        generateStructures: this.newWorldStructures,
+        bonusChest: this.newWorldBonusChest,
+        singleBiomeChoice: this.singleBiomeChoices[this.singleBiomeChoiceIdx],
       };
       this.savedWorlds.unshift(created);
       this.selectedWorldIdx = 0;
       this.saveWorldsList();
-      this.launchSelectedWorld();
+      this.startTerrainLoading(created);
     });
 
     this.addButton(centerX + 4, sh - 28, 150, 20, 'Cancel', () => {
       this.setState('SINGLEPLAYER_SELECT');
     });
+  }
+
+  private renderGameRulesScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+
+    this.gui.renderMenuBackground(false, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Game Rules', centerX, 12, '#FFFFFF', true);
+
+    const rules = Object.keys(this.gameRules);
+    let curY = 42;
+    for (const rule of rules) {
+      if (curY > sh - 60) break;
+      const val = this.gameRules[rule];
+      this.font.draw(this.gui.ctx, rule, centerX - 150, curY + 6, '#FFFFFF', true);
+
+      if (typeof val === 'boolean') {
+        const label = val ? 'true' : 'false';
+        this.addButton(centerX + 60, curY, 90, 20, label, () => {
+          this.gameRules[rule] = !val;
+        });
+      } else {
+        this.addButton(centerX + 60, curY, 90, 20, String(val), () => {
+          this.gameRules[rule] = ((val as number) + 1) % 10;
+        });
+      }
+      curY += 24;
+    }
+
+    this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
+      this.setState('CREATE_WORLD');
+    });
+  }
+
+  private renderExperimentsScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+
+    this.gui.renderMenuBackground(false, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Experiments', centerX, 12, '#FFFFFF', true);
+    this.font.drawCentered(
+      this.gui.ctx,
+      '§cExperiments are features that are currently in testing.',
+      centerX,
+      38,
+      '#FF5555',
+      true
+    );
+
+    const exps = [
+      { key: 'wilderness_bound', label: 'Wilderness Bound 26.3 Features' },
+      { key: 'trade_rebalance', label: 'Villager Trade Rebalance' },
+      { key: 'minecart_improvements', label: 'Minecart Improvements' },
+      { key: 'redstone_experiments', label: 'Redstone Experiments' },
+    ];
+
+    let curY = 64;
+    for (const exp of exps) {
+      const active = this.experiments[exp.key];
+      this.font.draw(this.gui.ctx, exp.label, centerX - 150, curY + 6, '#FFFFFF', true);
+      this.addButton(centerX + 70, curY, 80, 20, active ? 'ON' : 'OFF', () => {
+        this.experiments[exp.key] = !active;
+      });
+      curY += 28;
+    }
+
+    this.addButton(centerX - 100, sh - 28, 200, 20, 'Done', () => {
+      this.setState('CREATE_WORLD');
+    });
+  }
+
+  private renderDataPacksScreen(): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+
+    this.gui.renderMenuBackground(false, 32, sh - 36);
+    this.font.drawCentered(this.gui.ctx, 'Select Data Packs', centerX, 12, '#FFFFFF', true);
+
+    this.font.drawCentered(this.gui.ctx, 'Available', centerX - 90, 40, '#808080', true);
+    this.gui.fill(centerX - 170, 56, centerX - 10, sh - 46, 'rgba(0,0,0,0.4)');
+    this.font.drawCentered(this.gui.ctx, '(No extra data packs in folder)', centerX - 90, 80, '#606060', true);
+
+    this.font.drawCentered(this.gui.ctx, 'Selected', centerX + 90, 40, '#808080', true);
+    this.gui.fill(centerX + 10, 56, centerX + 170, sh - 46, 'rgba(0,0,0,0.4)');
+    this.font.draw(this.gui.ctx, 'vanilla (built-in)', centerX + 20, 70, '#FFFFFF', true);
+    this.font.draw(this.gui.ctx, 'The default data pack for Minecraft', centerX + 20, 82, '#808080', true);
+
+    this.addButton(centerX - 154, sh - 28, 150, 20, 'Open Pack Folder', () => {});
+    this.addButton(centerX + 4, sh - 28, 150, 20, 'Done', () => {
+      this.setState('CREATE_WORLD');
+    });
+  }
+
+  private renderLoadingTerrainScreen(dt: number): void {
+    const sw = this.gui.scaledWidth;
+    const sh = this.gui.scaledHeight;
+    const centerX = Math.floor(sw / 2);
+    const centerY = Math.floor(sh / 2);
+
+    this.gui.renderMenuBackground(false);
+
+    this.font.drawCentered(this.gui.ctx, 'Loading terrain', centerX, centerY - 65, '#FFFFFF', true);
+    this.font.drawCentered(
+      this.gui.ctx,
+      `Preparing spawn area: ${Math.floor(this.loadingTerrainProgress)}%`,
+      centerX,
+      centerY - 45,
+      '#A0A0A0',
+      true
+    );
+
+    // Authentic 9x9 square chunk loading progress matrix
+    const gridX = centerX - 40;
+    const gridY = centerY - 25;
+    const radiusThreshold = (this.loadingTerrainProgress / 100) * 6.0;
+
+    for (let cy = 0; cy < 9; cy++) {
+      for (let cx = 0; cx < 9; cx++) {
+        const dist = Math.hypot(cx - 4, cy - 4);
+        const tileX = gridX + cx * 9;
+        const tileY = gridY + cy * 9;
+
+        if (dist <= radiusThreshold) {
+          this.loadingChunkMatrix[cy][cx] = true;
+          this.gui.fill(tileX, tileY, tileX + 8, tileY + 8, '#55FF55');
+          this.gui.fill(tileX, tileY, tileX + 8, tileY + 1, '#80FF80');
+          this.gui.fill(tileX, tileY, tileX + 1, tileY + 8, '#80FF80');
+        } else if (dist <= radiusThreshold + 0.8) {
+          this.gui.fill(tileX, tileY, tileX + 8, tileY + 8, '#FFFF55');
+        } else {
+          this.gui.fill(tileX, tileY, tileX + 8, tileY + 8, '#202020');
+          this.gui.fill(tileX + 1, tileY + 1, tileX + 7, tileY + 7, '#141414');
+        }
+      }
+    }
+
+    this.loadingTerrainProgress = Math.min(100, this.loadingTerrainProgress + dt * 55);
+
+    if (this.loadingTerrainProgress >= 100) {
+      this.finalizeLaunchWorld();
+    }
   }
 
   // ============================================================================

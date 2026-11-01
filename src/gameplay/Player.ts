@@ -135,15 +135,17 @@ export class Player {
     this.world.scene.add(this.crackMesh);
   }
 
-  /** Find a dry land spawn point near (0, 0) in the newly generated random world */
+  /** Find the authentic vanilla spawn point determined by NoiseSpawnFinder */
   spawnAtWorldCenter() {
-    let bestX = 0;
-    let bestZ = 0;
+    const spawnPos = WorldGen26_3.getSpawnCoords();
+    let bestX = spawnPos.x;
+    let bestZ = spawnPos.z;
     let bestY = 68;
 
-    for (let r = 0; r <= 48; r += 4) {
+    for (let r = 0; r <= 32; r += 4) {
       let found = false;
       for (const [dx, dz] of [
+        [0, 0],
         [r, 0],
         [-r, 0],
         [0, r],
@@ -151,18 +153,20 @@ export class Player {
         [r, r],
         [-r, -r],
       ]) {
-        const cx = dx >> 4;
-        const cz = dz >> 4;
+        const targetX = spawnPos.x + dx;
+        const targetZ = spawnPos.z + dz;
+        const cx = targetX >> 4;
+        const cz = targetZ >> 4;
         this.world.ensureChunk(cx, cz);
-        const topY = this.world.getTopSolidY(dx, dz);
-        const surfaceBlock = this.world.getBlock(dx, topY - 1, dz);
-        const aboveBlock = this.world.getBlock(dx, topY, dz);
+        const topY = this.world.getTopSolidY(targetX, targetZ);
+        const surfaceBlock = this.world.getBlock(targetX, topY - 1, targetZ);
+        const aboveBlock = this.world.getBlock(targetX, topY, targetZ);
         const surfaceDef = Registries.getBlock(surfaceBlock);
         const aboveDef = Registries.getBlock(aboveBlock);
 
         if (topY >= 63 && !surfaceDef.fluid && !aboveDef.fluid) {
-          bestX = dx;
-          bestZ = dz;
+          bestX = targetX;
+          bestZ = targetZ;
           bestY = topY;
           found = true;
           break;
