@@ -83,6 +83,7 @@ interface SavedWorldEntry {
   folder: string;
   lastPlayed: string;
   lastPlayedDate?: string;
+  icon?: string;
   gameMode: 'creative' | 'survival' | 'spectator';
   isHardcore?: boolean;
   allowCommands?: boolean;
@@ -94,6 +95,67 @@ interface SavedWorldEntry {
 }
 
 export class UIManager {
+  private static defaultWorldIcons: Record<string, HTMLCanvasElement> = {};
+
+  private static getDefaultWorldIcon(seedStr: string): HTMLCanvasElement {
+    if (this.defaultWorldIcons[seedStr]) return this.defaultWorldIcons[seedStr];
+
+    const c = document.createElement('canvas');
+    c.width = 32;
+    c.height = 32;
+    const ctx = c.getContext('2d')!;
+
+    // Sky gradient (classic Minecraft overworld day sky)
+    const sky = ctx.createLinearGradient(0, 0, 0, 18);
+    sky.addColorStop(0, '#5C93ED');
+    sky.addColorStop(0.7, '#8BB7F0');
+    sky.addColorStop(1, '#BFD8F8');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, 32, 18);
+
+    // Sun / Cloud highlight
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.fillRect(20, 2, 7, 4);
+    ctx.fillRect(4, 5, 8, 3);
+
+    // Distant mountain / hills
+    ctx.fillStyle = '#5A7D42';
+    ctx.beginPath();
+    ctx.moveTo(0, 17);
+    ctx.lineTo(8, 13);
+    ctx.lineTo(17, 16);
+    ctx.lineTo(25, 12);
+    ctx.lineTo(32, 15);
+    ctx.lineTo(32, 22);
+    ctx.lineTo(0, 22);
+    ctx.fill();
+
+    // Foreground grass hill
+    const grass = ctx.createLinearGradient(0, 16, 0, 32);
+    grass.addColorStop(0, '#5C9E31');
+    grass.addColorStop(0.35, '#4B8724');
+    grass.addColorStop(0.65, '#866043');
+    grass.addColorStop(1, '#6B4931');
+    ctx.fillStyle = grass;
+    ctx.beginPath();
+    ctx.moveTo(0, 18);
+    ctx.bezierCurveTo(10, 16, 22, 19, 32, 17);
+    ctx.lineTo(32, 32);
+    ctx.lineTo(0, 32);
+    ctx.fill();
+
+    // Small oak tree on left
+    ctx.fillStyle = '#4E371C';
+    ctx.fillRect(7, 14, 2, 7);
+    ctx.fillStyle = '#3E7D23';
+    ctx.fillRect(5, 9, 6, 6);
+    ctx.fillStyle = '#4E962D';
+    ctx.fillRect(6, 10, 4, 4);
+
+    this.defaultWorldIcons[seedStr] = c;
+    return c;
+  }
+
   public root: HTMLElement;
   public player: Player;
   public inventory: Inventory;
@@ -1179,7 +1241,8 @@ export class UIManager {
     id: NonNullable<UIManager['focusedEditBox']>,
     value: string,
     placeholder: string,
-    label?: string
+    label?: string,
+    tooltip?: string[]
   ): void {
     const focused = this.focusedEditBox === id;
     this.gui.drawEditBox(x, y, w, h, value, placeholder, focused, label);
@@ -1191,6 +1254,7 @@ export class UIManager {
       onClick: () => {
         this.focusedEditBox = id;
       },
+      tooltip,
     });
   }
 
@@ -1533,13 +1597,23 @@ export class UIManager {
       }
 
       // World 32x32 icon
-      this.gui.blitSprite(
-        '/assets/minecraft/textures/misc/unknown_pack.png',
-        listX + 2,
-        curY + 2,
-        32,
-        32
-      );
+      if (w.icon) {
+        let img = (w as any)._cachedImg;
+        if (!img) {
+          img = new Image();
+          img.src = w.icon;
+          (w as any)._cachedImg = img;
+        }
+        if (img.complete && img.naturalWidth > 0) {
+          this.gui.ctx.drawImage(img, listX + 2, curY + 2, 32, 32);
+        } else {
+          const iconCanvas = UIManager.getDefaultWorldIcon(w.id || w.name);
+          this.gui.ctx.drawImage(iconCanvas, listX + 2, curY + 2, 32, 32);
+        }
+      } else {
+        const iconCanvas = UIManager.getDefaultWorldIcon(w.id || w.name);
+        this.gui.ctx.drawImage(iconCanvas, listX + 2, curY + 2, 32, 32);
+      }
 
       if (rowHovered) {
         this.gui.fill(listX + 2, curY + 2, listX + 34, curY + 34, 'rgba(0,0,0,0.45)');
@@ -1550,10 +1624,15 @@ export class UIManager {
         this.gui.blitSprite(iconHover, listX + 2, curY + 2, 32, 32);
       }
 
-      const dateText = w.lastPlayedDate || '11/1/26, 8:38 AM';
-      const modeText = `${w.isHardcore ? 'Hardcore' : w.gameMode === 'creative' ? 'Creative' : 'Survival'} Mode, Version: 26.3`;
+      // Exact vanilla formatting matching Screenshot 1
+      const rawDate = w.lastPlayedDate || (w.lastPlayed ? w.lastPlayed.split(' - ')[0] : '11/1/26, 8:46 AM');
+      const cleanDate = rawDate.replace(/[()]/g, '').trim();
+      const modeName = w.isHardcore ? 'Hardcore' : w.gameMode === 'creative' ? 'Creative' : 'Survival';
+      const hasCommands = w.allowCommands !== false && (w.allowCommands === true || w.gameMode === 'creative');
+      const modeText = `${modeName} Mode${hasCommands ? ', Commands' : ''}, Version: 26.3`;
+
       this.font.draw(this.gui.ctx, w.name, listX + 37, curY + 3, '#FFFFFF', true);
-      this.font.draw(this.gui.ctx, `${w.folder} (${dateText})`, listX + 37, curY + 14, '#808080', true);
+      this.font.draw(this.gui.ctx, `${w.name} (${cleanDate})`, listX + 37, curY + 14, '#808080', true);
       this.font.draw(this.gui.ctx, modeText, listX + 37, curY + 25, '#808080', true);
 
       const idx = i;
@@ -1671,11 +1750,28 @@ export class UIManager {
       const w = this.savedWorlds.find((entry) => entry.id === this.activeWorldId);
       if (w) {
         const now = new Date();
-        const dateStr = now.toLocaleDateString([], { month: '2-digit', day: '2-digit', year: '2-digit' });
+        const dateStr = now.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' });
         const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-        w.folder = `${w.name.replace(/\s+/g, '_')} (${dateStr}, ${timeStr})`;
+        w.folder = w.name;
+        w.lastPlayedDate = `${dateStr}, ${timeStr}`;
+        w.lastPlayed = `${dateStr}, ${timeStr}`;
         w.gameMode = this.player.gameMode;
-        w.lastPlayed = `${dateStr}, ${timeStr} - ${w.isHardcore ? 'Hardcore' : w.gameMode === 'creative' ? 'Creative' : w.gameMode === 'spectator' ? 'Spectator' : 'Survival'} Mode`;
+
+        // Snapshot world view for authentic world icon
+        try {
+          const glCanvas = this.gui.ctx.canvas.parentElement?.querySelector('canvas:not(#uiCanvas)') as HTMLCanvasElement;
+          if (glCanvas && glCanvas.width > 0 && glCanvas.height > 0) {
+            const snap = document.createElement('canvas');
+            snap.width = 32;
+            snap.height = 32;
+            const sctx = snap.getContext('2d');
+            if (sctx) {
+              sctx.drawImage(glCanvas, 0, 0, 32, 32);
+              w.icon = snap.toDataURL('image/png');
+            }
+          }
+        } catch {}
+
         this.saveWorldsList();
       }
 
@@ -1889,6 +1985,7 @@ export class UIManager {
 
     if (this.createWorldTab === 0) {
       // Game Tab
+      const targetFolder = (this.newWorldName || 'New World').trim().replace(/[/\\?%*:|"<>]/g, '');
       this.addEditBox(
         centerX - 104,
         52,
@@ -1897,7 +1994,8 @@ export class UIManager {
         'world_name',
         this.newWorldName,
         'World Name',
-        'World Name'
+        'World Name',
+        [`Will be saved in: ${targetFolder}`]
       );
 
       const modeLabel =
@@ -1908,10 +2006,19 @@ export class UIManager {
           : 'Game Mode: Survival';
       const modeTooltip =
         this.newWorldMode === 'hardcore'
-          ? ['Same as survival mode, locked at hardest difficulty, and one life only']
+          ? [
+              "Survival Mode locked to 'Hard' difficulty.",
+              "You can't respawn if you die."
+            ]
           : this.newWorldMode === 'creative'
-          ? ['Unlimited resources, free flying and destroy blocks instantly']
-          : ['Search for resources, crafting, gain levels, health and hunger'];
+          ? [
+              'Create, build, and explore without limits.',
+              "You can fly, have endless materials, and can't be hurt by monsters."
+            ]
+          : [
+              'Explore a mysterious world where you build,',
+              'collect, craft, and fight monsters.'
+            ];
 
       this.addButton(
         centerX - 104,
@@ -1942,14 +2049,26 @@ export class UIManager {
       const isHardcore = this.newWorldMode === 'hardcore';
       const diffLabel = isHardcore ? 'Difficulty: Hard' : `Difficulty: ${this.newWorldDifficulty}`;
       const diffTooltip = isHardcore
-        ? ['Difficulty is locked to Hard in Hardcore mode']
+        ? ['Cannot change the difficulty in a hardcore world.']
         : this.newWorldDifficulty === 'Peaceful'
-        ? ['No hostile mobs, health regenerates automatically']
+        ? [
+            'No hostile mobs and only some neutral mobs spawn.',
+            "Hunger bar doesn't deplete and health replenishes over time."
+          ]
         : this.newWorldDifficulty === 'Easy'
-        ? ['Hostile mobs deal less damage, starvation stops at 10 health']
+        ? [
+            'Hostile mobs spawn but deal less damage.',
+            'Hunger bar depletes and drains health down to 5 hearts.'
+          ]
         : this.newWorldDifficulty === 'Normal'
-        ? ['Standard survival challenge, starvation stops at 1 health']
-        : ['Hostile mobs deal more damage, starvation can be fatal'];
+        ? [
+            'Hostile mobs spawn and deal standard damage.',
+            'Hunger bar depletes and drains health down to half a heart.'
+          ]
+        : [
+            'Hostile mobs spawn and deal more damage.',
+            'Hunger bar depletes and drains all health.'
+          ];
 
       this.addButton(
         centerX - 104,
@@ -1973,9 +2092,9 @@ export class UIManager {
       );
 
       const cmdLabel = `Allow Commands: ${this.newWorldAllowCommands ? 'ON' : 'OFF'}`;
-      const cmdTooltip = this.newWorldAllowCommands
-        ? ['Commands like /gamemode, /tp, /give, /locate can be used']
-        : ['Commands are disabled'];
+      const cmdTooltip = isHardcore
+        ? ['Cannot allow commands in a hardcore world.']
+        : ['Allows the use of commands in this world.'];
 
       this.addButton(
         centerX - 104,
@@ -1984,9 +2103,10 @@ export class UIManager {
         20,
         cmdLabel,
         () => {
+          if (isHardcore) return;
           this.newWorldAllowCommands = !this.newWorldAllowCommands;
         },
-        true,
+        !isHardcore,
         cmdTooltip
       );
     } else if (this.createWorldTab === 1) {
@@ -2211,44 +2331,27 @@ export class UIManager {
     const centerX = Math.floor(sw / 2);
     const centerY = Math.floor(sh / 2);
 
+    // Vanilla LevelLoadingScreen: menu background (dirt)
     this.gui.renderMenuBackground(false);
 
-    this.font.drawCentered(this.gui.ctx, 'Loading terrain', centerX, centerY - 65, '#FFFFFF', true);
-    this.font.drawCentered(
-      this.gui.ctx,
-      `Preparing spawn area: ${Math.floor(this.loadingTerrainProgress)}%`,
-      centerX,
-      centerY - 45,
-      '#A0A0A0',
-      true
-    );
+    // Centered title: "Loading terrain" at (centerX, centerY - 50)
+    const textY = centerY - 50;
+    this.font.drawCentered(this.gui.ctx, 'Loading terrain', centerX, textY, '#FFFFFF', true);
 
-    // Authentic 9x9 square chunk loading progress matrix
-    const gridX = centerX - 40;
-    const gridY = centerY - 25;
-    const radiusThreshold = (this.loadingTerrainProgress / 100) * 6.0;
+    // Official vanilla LevelLoadingScreen progress bar (width: 200, height: 2)
+    // Black background (0xFF000000) with lime green fill (0xFF00FF00)
+    const barW = 200;
+    const barH = 2;
+    const barX = centerX - 100;
+    const barY = textY + 12;
 
-    for (let cy = 0; cy < 9; cy++) {
-      for (let cx = 0; cx < 9; cx++) {
-        const dist = Math.hypot(cx - 4, cy - 4);
-        const tileX = gridX + cx * 9;
-        const tileY = gridY + cy * 9;
-
-        if (dist <= radiusThreshold) {
-          this.loadingChunkMatrix[cy][cx] = true;
-          this.gui.fill(tileX, tileY, tileX + 8, tileY + 8, '#55FF55');
-          this.gui.fill(tileX, tileY, tileX + 8, tileY + 1, '#80FF80');
-          this.gui.fill(tileX, tileY, tileX + 1, tileY + 8, '#80FF80');
-        } else if (dist <= radiusThreshold + 0.8) {
-          this.gui.fill(tileX, tileY, tileX + 8, tileY + 8, '#FFFF55');
-        } else {
-          this.gui.fill(tileX, tileY, tileX + 8, tileY + 8, '#202020');
-          this.gui.fill(tileX + 1, tileY + 1, tileX + 7, tileY + 7, '#141414');
-        }
-      }
+    this.gui.fill(barX, barY, barX + barW, barY + barH, '#000000');
+    const fillW = Math.round((this.loadingTerrainProgress / 100) * barW);
+    if (fillW > 0) {
+      this.gui.fill(barX, barY, barX + fillW, barY + barH, '#00FF00');
     }
 
-    this.loadingTerrainProgress = Math.min(100, this.loadingTerrainProgress + dt * 55);
+    this.loadingTerrainProgress = Math.min(100, this.loadingTerrainProgress + dt * 65);
 
     if (this.loadingTerrainProgress >= 100) {
       this.finalizeLaunchWorld();

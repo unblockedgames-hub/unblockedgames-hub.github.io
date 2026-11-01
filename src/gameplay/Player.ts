@@ -5,7 +5,7 @@ import { Inventory } from './Inventory';
 import { AudioEngine } from '../core/AudioEngine';
 import { OptionsManager } from '../core/Options';
 import { TextureAtlas } from '../render/TextureAtlas';
-import { CushionEntityData } from '../world/WorldGen26_3';
+import { CushionEntityData, WorldGen26_3 } from '../world/WorldGen26_3';
 
 export interface RaycastHit {
   bx: number;
