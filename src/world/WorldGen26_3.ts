@@ -329,26 +329,11 @@ export class WorldGen26_3 {
       x *= 0.25;
       z *= 0.25;
     }
-    const continental = this.smoothNoise(x, z, 180, 10);
-    const hills = this.smoothNoise(x, z, 64, 20);
-    const detail = this.smoothNoise(x, z, 22, 30);
-    const ridge = 1.0 - Math.abs(this.smoothNoise(x, z, 96, 40) * 2.0 - 1.0);
-
-    const river = Math.abs(this.smoothNoise(x, z, 190, 88) * 2.0 - 1.0);
-
-    const ampMult = this.worldType === 'amplified' ? 2.0 : 1.0;
-    let height = 54 + (continental * 18 + hills * 10 + detail * 3) * ampMult;
-    if (continental > 0.62) {
-      height += (continental - 0.62) * ridge * 34 * ampMult;
+    const h = this.vanillaClimate.getTerrainHeight(x, z);
+    if (this.worldType === 'amplified' && h > 62) {
+      return Math.min(256, Math.round(62 + (h - 62) * 2.0));
     }
-    if (this.worldType === 'amplified' && continental > 0.45) {
-      height += (continental - 0.45) * ridge * 60;
-    }
-    if (river < 0.11) {
-      const riverDepth = (1.0 - river / 0.11) * 12.0;
-      height -= riverDepth;
-    }
-    return Math.max(1, Math.min(250, Math.floor(height)));
+    return h;
   }
 
   static getBlockAt(wx: number, wy: number, wz: number): number {
@@ -1654,8 +1639,8 @@ export class WorldGen26_3 {
           this.placeClassicTree(chunk, lx, h + 1, lz, 'birch_log', 'birch_leaves', 6);
         } else if (biomeId === 'minecraft:cherry_grove' && treeRoll < 0.22) {
           this.placeClassicTree(chunk, lx, h + 1, lz, 'cherry_log', 'cherry_leaves', 6);
-        } else if ((biomeId === 'minecraft:snowy_plains' || biomeId === 'minecraft:grove') && treeRoll < 0.14) {
-          this.placeSpruceTree(chunk, lx, h + 1, lz, 6 + Math.floor(treeRoll * 20), true);
+        } else if ((biomeId === 'minecraft:snowy_plains' || biomeId === 'minecraft:grove') && treeRoll < 0.045) {
+          this.placeSpruceTree(chunk, lx, h + 1, lz, 6 + Math.floor(treeRoll * 30), true);
         } else if ((biomeId.includes('taiga') || biomeId.includes('spruce')) && treeRoll < 0.28) {
           this.placeSpruceTree(chunk, lx, h + 1, lz, 7 + Math.floor(treeRoll * 20), biomeId.includes('snowy'));
         } else if (biomeId === 'minecraft:savanna' && treeRoll < 0.12) {
@@ -1688,6 +1673,17 @@ export class WorldGen26_3 {
           else if (fRoll < 0.14) chunk.setBlock(lx, h + 1, lz, shortGrassId);
           else if (fRoll < 0.155) chunk.setBlock(lx, h + 1, lz, mushroomId);
           else if (fRoll < 0.165) chunk.setBlock(lx, h + 1, lz, dandelionId);
+        } else if (
+          biomeId.includes('snowy') ||
+          biomeId.includes('frozen') ||
+          biomeId.includes('ice') ||
+          biomeId.includes('grove')
+        ) {
+          // Cold snowy biomes in vanilla: only sparse short grass (no dandelions or poppies)
+          if (fRoll < 0.04) {
+            chunk.setBlock(lx, h + 1, lz, shortGrassId);
+            chunk.setBlock(lx, h, lz, Registries.getBlock('grass_block_snow').numId);
+          }
         } else {
           if (fRoll < 0.12) chunk.setBlock(lx, h + 1, lz, shortGrassId);
           else if (fRoll < 0.135) chunk.setBlock(lx, h + 1, lz, poppyId);

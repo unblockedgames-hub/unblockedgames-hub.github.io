@@ -301,9 +301,26 @@ export class Chunk {
       const uvSubSide: [number, number, number, number] | undefined =
         dy < 1.0 ? [0, 0, 1, dy] : undefined;
 
+      const isSnowyGrass =
+        (def.shortId === 'grass_block' || def.shortId === 'grass_block_snow') &&
+        (def.shortId === 'grass_block_snow' ||
+          (() => {
+            const aboveId = getWorldBlock(wx, Math.floor(y0) + 1, wz);
+            const aboveDef = Registries.getBlock(aboveId);
+            if (aboveDef && (aboveDef.shortId === 'snow' || aboveDef.shortId === 'snow_block')) return true;
+            if (
+              (biome.id.includes('snowy') || biome.id.includes('frozen') || biome.id.includes('ice') || biome.id.includes('grove')) &&
+              (!aboveDef || aboveDef.shape === 'air' || aboveDef.shape === 'cross' || aboveDef.shortId === 'short_grass')
+            ) {
+              return true;
+            }
+            return false;
+          })());
+
       // Top (+Y)
       if (cullMask & 1) {
-        const [r, g, b] = getTint('top', 1.0);
+        const topTex = isSnowyGrass ? 'snow' : def.textures.top;
+        const [r, g, b] = isSnowyGrass ? [1.0, 1.0, 1.0] : getTint('top', 1.0);
         pushQuad(
           isWater,
           [x0, y1, z1],
@@ -313,7 +330,7 @@ export class Chunk {
           0,
           1,
           0,
-          def.textures.top,
+          topTex,
           r,
           g,
           b,
@@ -345,15 +362,6 @@ export class Chunk {
       let texSouth = def.textures.south;
       let texEast = def.textures.east;
       let texWest = def.textures.west;
-
-      const isSnowyGrass =
-        (def.shortId === 'grass_block' || def.shortId === 'grass_block_snow') &&
-        (def.shortId === 'grass_block_snow' ||
-          (() => {
-            const aboveId = getWorldBlock(wx, Math.floor(y0) + 1, wz);
-            const aboveDef = Registries.getBlock(aboveId);
-            return !!(aboveDef && (aboveDef.shortId === 'snow' || aboveDef.shortId === 'snow_block'));
-          })());
 
       if (isSnowyGrass) {
         texNorth = 'grass_block_snow';

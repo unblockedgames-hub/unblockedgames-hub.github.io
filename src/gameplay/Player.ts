@@ -179,7 +179,7 @@ export class Player {
     this.velocity.set(0, 0, 0);
     this.onGround = true;
     this.seatedCushion = null;
-    this.yaw = 0;
+    this.yaw = Math.PI;
     this.pitch = 0;
     this.resetMining();
   }

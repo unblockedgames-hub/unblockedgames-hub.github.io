@@ -1,4 +1,61 @@
 import biomePointsRaw from './overworld_biome_points.json';
+import offsetData from './offset.json';
+
+const offsetSplineRoot = (offsetData as any).input?.second?.right;
+
+function evalCubicSpline(splineObj: any, ctx: { cont: number; erosion: number; ridge: number }): number {
+  if (typeof splineObj === 'number') return splineObj;
+  if (!splineObj) return 0;
+  const s = splineObj.spline || splineObj;
+  const coordName = s.coordinate || '';
+  let coordVal = 0;
+  if (coordName.includes('continents')) coordVal = ctx.cont;
+  else if (coordName.includes('erosion')) coordVal = ctx.erosion;
+  else if (coordName.includes('ridges')) coordVal = ctx.ridge;
+
+  const pts = s.points;
+  if (!pts || pts.length === 0) return 0;
+  if (pts.length === 1) return evalCubicSpline(pts[0].value, ctx);
+
+  if (coordVal <= pts[0].location) {
+    const val0 = evalCubicSpline(pts[0].value, ctx);
+    const d0 = pts[0].derivative || 0;
+    return val0 + d0 * (coordVal - pts[0].location);
+  }
+  const last = pts[pts.length - 1];
+  if (coordVal >= last.location) {
+    const valLast = evalCubicSpline(last.value, ctx);
+    const dLast = last.derivative || 0;
+    return valLast + dLast * (coordVal - last.location);
+  }
+
+  let idx = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    if (coordVal >= pts[i].location && coordVal <= pts[i + 1].location) {
+      idx = i;
+      break;
+    }
+  }
+
+  const p0 = pts[idx];
+  const p1 = pts[idx + 1];
+  const deltaX = p1.location - p0.location;
+  const t = deltaX === 0 ? 0 : (coordVal - p0.location) / deltaX;
+
+  const v0 = evalCubicSpline(p0.value, ctx);
+  const v1 = evalCubicSpline(p1.value, ctx);
+  const d0 = (p0.derivative || 0) * deltaX;
+  const d1 = (p1.derivative || 0) * deltaX;
+
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const h00 = 2 * t3 - 3 * t2 + 1;
+  const h10 = t3 - 2 * t2 + t;
+  const h01 = -2 * t3 + 3 * t2;
+  const h11 = t3 - t2;
+
+  return h00 * v0 + h10 * d0 + h01 * v1 + h11 * d1;
+}
 
 const MASK64 = 0xFFFFFFFFFFFFFFFFn;
 const SIGN64 = 0x8000000000000000n;
@@ -562,6 +619,14 @@ export class VanillaClimate {
     }
 
     return bestBiome;
+  }
+
+  getTerrainHeight(blockX: number, blockZ: number): number {
+    const c = this.sampleClimate(blockX, blockZ);
+    const splineVal = evalCubicSpline(offsetSplineRoot, c);
+    const totalOffset = -0.50375 + splineVal;
+    const baseHeight = 128 + 128 * totalOffset;
+    return Math.max(1, Math.min(256, Math.round(baseHeight)));
   }
 
   // Official Minecraft NoiseSpawnFinder algorithm
