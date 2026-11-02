@@ -156,28 +156,10 @@ export class SurfaceSystem {
           for (let y = Math.max(1, h - depthCount); y < h; y++) {
             chunk.setBlock(lx, y, lz, dirtId);
           }
-          if (isCold) {
-            // Snowy biome surface: grass block turns into snowy grass under snow layer
-            chunk.setBlock(lx, h, lz, grassSnowId);
-          } else if (biomeId === 'minecraft:dappled_forest' && this.hash2D(wx, wz, 77) < 0.12) {
+          if (biomeId === 'minecraft:dappled_forest' && this.hash2D(wx, wz, 77) < 0.12) {
             chunk.setBlock(lx, h, lz, podzolId);
           } else {
             chunk.setBlock(lx, h, lz, grassId);
-          }
-        }
-
-        // 4. Freeze Top Layer (Vanilla FreezeTopLayerFeature)
-        if (isCold) {
-          // Freeze surface water to ice
-          if (chunk.getBlock(lx, this.SEA_LEVEL, lz) === waterId) {
-            chunk.setBlock(lx, this.SEA_LEVEL, lz, iceId);
-          }
-          // Cover exposed solid ground with snow layer
-          if (snowLayerId && h >= this.SEA_LEVEL) {
-            const topBlock = chunk.getBlock(lx, h, lz);
-            if (topBlock !== 0 && topBlock !== waterId && topBlock !== iceId) {
-              chunk.setBlock(lx, h + 1, lz, snowLayerId);
-            }
           }
         }
       }

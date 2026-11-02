@@ -252,7 +252,7 @@ export class Registries {
       lightEmission: 0,
       hardness: 0.6,
       soundGroup: 'grass',
-      textures: this.topBottomSide('grass_block_top', 'dirt', 'grass_block_snow'),
+      textures: this.topBottomSide('snow', 'dirt', 'grass_block_snow'),
       category: 'natural',
     });
     this.registerBlock({
