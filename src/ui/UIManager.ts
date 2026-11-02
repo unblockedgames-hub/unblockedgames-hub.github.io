@@ -2053,9 +2053,9 @@ export class UIManager {
           : 'Game Mode: Survival';
       const modeTooltip =
         this.newWorldMode === 'hardcore'
-          ? ["Survival Mode locked to 'Hard' difficulty. You can't respawn if you die."]
+          ? ['Same as survival mode, locked at hardest difficulty, and one life only']
           : this.newWorldMode === 'creative'
-          ? ["Create, build, and explore without limits. You can fly, have endless materials, and can't be hurt by monsters."]
+          ? ['Infinite resources, free flying and destroy blocks instantly.']
           : ['Explore a mysterious world where you build, collect, craft, and fight monsters.'];
 
       this.addButton(
@@ -2093,7 +2093,7 @@ export class UIManager {
         : this.newWorldDifficulty === 'Easy'
         ? ['Hostile mobs spawn but deal less damage. Hunger bar depletes and drains health down to 5 hearts.']
         : this.newWorldDifficulty === 'Normal'
-        ? ['Hostile mobs spawn and deal standard damage. Hunger bar depletes and drains health down to half a heart.']
+        ? ['Default difficulty. Monsters will spawn and you will need food.']
         : ['Hostile mobs spawn and deal more damage. Hunger bar depletes and drains all health.'];
 
       this.addButton(
@@ -2119,8 +2119,8 @@ export class UIManager {
 
       const cmdLabel = `Allow Commands: ${this.newWorldAllowCommands ? 'ON' : 'OFF'}`;
       const cmdTooltip = isHardcore
-        ? ['Cannot allow commands in a hardcore world.']
-        : ['Commands like /gamemode, /experience'];
+        ? ['Commands cannot be enabled in Hardcore mode.']
+        : ['Commands are codes that help you modify your world.'];
 
       this.addButton(
         centerX - 104,
@@ -2360,24 +2360,57 @@ export class UIManager {
     // Vanilla LevelLoadingScreen: menu background (dirt)
     this.gui.renderMenuBackground(false);
 
-    // Centered title: "Loading terrain" at (centerX, centerY - 50)
-    const textY = centerY - 50;
+    // Centered title: "Loading terrain" and "Preparing spawn area: X%"
+    const textY = centerY - 60;
     this.font.drawCentered(this.gui.ctx, 'Loading terrain', centerX, textY, '#FFFFFF', true);
 
-    // Official vanilla LevelLoadingScreen progress bar (width: 200, height: 2)
-    // Black background (0xFF000000) with lime green fill (0xFF00FF00)
-    const barW = 200;
-    const barH = 2;
-    const barX = centerX - 100;
-    const barY = textY + 12;
+    const progressPct = Math.min(100, Math.floor(this.loadingTerrainProgress));
+    this.font.drawCentered(
+      this.gui.ctx,
+      `Preparing spawn area: ${progressPct}%`,
+      centerX,
+      textY + 16,
+      '#E0E0E0',
+      true
+    );
 
-    this.gui.fill(barX, barY, barX + barW, barY + barH, '#000000');
-    const fillW = Math.round((this.loadingTerrainProgress / 100) * barW);
-    if (fillW > 0) {
-      this.gui.fill(barX, barY, barX + fillW, barY + barH, '#00FF00');
+    // Official 9x9 chunk loading status grid
+    const gridSize = 9;
+    const tileSize = 8;
+    const gap = 1;
+    const totalGridW = gridSize * tileSize + (gridSize - 1) * gap;
+    const gridStartX = centerX - Math.floor(totalGridW / 2);
+    const gridStartY = textY + 32;
+
+    const totalTiles = gridSize * gridSize;
+    const loadedCount = Math.floor((this.loadingTerrainProgress / 100) * totalTiles);
+
+    let tileIdx = 0;
+    for (let gy = 0; gy < gridSize; gy++) {
+      for (let gx = 0; gx < gridSize; gx++) {
+        const tx = gridStartX + gx * (tileSize + gap);
+        const ty = gridStartY + gy * (tileSize + gap);
+
+        if (tileIdx < loadedCount) {
+          // Loaded spawn chunk: Minecraft lime green
+          this.gui.fill(tx, ty, tx + tileSize, ty + tileSize, '#4de64d');
+        } else if (tileIdx === loadedCount) {
+          // Currently loading chunk: amber
+          this.gui.fill(tx, ty, tx + tileSize, ty + tileSize, '#e6b800');
+        } else {
+          // Pending chunk: dark green
+          this.gui.fill(tx, ty, tx + tileSize, ty + tileSize, '#1a331a');
+        }
+        // Dark 1px outline
+        this.gui.ctx.strokeStyle = '#000000';
+        this.gui.ctx.lineWidth = 1;
+        this.gui.ctx.strokeRect(tx, ty, tileSize, tileSize);
+
+        tileIdx++;
+      }
     }
 
-    this.loadingTerrainProgress = Math.min(100, this.loadingTerrainProgress + dt * 65);
+    this.loadingTerrainProgress = Math.min(100, this.loadingTerrainProgress + dt * 55);
 
     if (this.loadingTerrainProgress >= 100) {
       this.finalizeLaunchWorld();

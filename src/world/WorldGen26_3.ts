@@ -2,6 +2,8 @@ import { Chunk, CHUNK_SIZE, CHUNK_HEIGHT } from './Chunk';
 import { Registries } from '../core/Registries';
 import structuresBundle from './structures_bundle.json';
 import { VanillaClimate } from './VanillaNoise';
+import { SurfaceSystem } from './SurfaceSystem';
+import { FeaturePlacer } from './FeaturePlacer';
 
 export interface CushionEntityData {
   id: string;
@@ -1280,7 +1282,7 @@ export class WorldGen26_3 {
     const deepslateRedstoneOreId = Registries.getBlock('deepslate_redstone_ore')?.numId || redstoneOreId;
 
     const SEA_LEVEL = 62;
-    const heightMap = new Int32Array(CHUNK_SIZE * CHUNK_SIZE);
+    let heightMap = new Int32Array(CHUNK_SIZE * CHUNK_SIZE);
 
     if (this.worldType === 'superflat') {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -1296,62 +1298,29 @@ export class WorldGen26_3 {
       return { chunk, cushions, camp, mobs };
     }
 
+    heightMap = this.vanillaClimate.getChunkHeightMap(cx, cz);
     for (let lz = 0; lz < CHUNK_SIZE; lz++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         const wx = cx * CHUNK_SIZE + lx;
         const wz = cz * CHUNK_SIZE + lz;
         const biomeId = this.getBiomeAt(wx, wz);
         chunk.setBiome(lx, lz, biomeId);
+      }
+    }
 
-        const h = this.getTerrainHeight(wx, wz);
-        heightMap[lz * CHUNK_SIZE + lx] = h;
+    // Apply authentic Minecraft 26.3 Surface Rules (Bedrock, Deepslate, Stone, Dirt/Sand/Terracotta, Water/Ice, Snow)
+    SurfaceSystem.applySurface(chunk, cx, cz, heightMap);
 
-        chunk.setBlock(lx, 0, lz, bedrockId);
-
-        // Staggered deepslate transition between Y=6 and Y=14 (blended with 3D noise/dither)
-        const deepslateTransition = 8 + Math.round(this.smoothNoise(wx, wz, 18, 555) * 5);
-
-        for (let y = 1; y <= h; y++) {
-          const dither = (this.hash2D(wx ^ (y * 31), wz ^ (y * 17), 1337) - 0.5) * 2.5;
-          const isDeepslate = y + dither < deepslateTransition;
-
-          if (isDeepslate) {
-            chunk.setBlock(lx, y, lz, deepslateId);
-          } else if (y < h - 3) {
-            chunk.setBlock(lx, y, lz, stoneId);
-          } else if (y < h) {
-            if (biomeId === 'minecraft:desert' || biomeId === 'minecraft:badlands') {
-              chunk.setBlock(lx, y, lz, sandId);
-            } else {
-              chunk.setBlock(lx, y, lz, h <= SEA_LEVEL + 1 ? sandId : dirtId);
-            }
-          } else {
-            if (biomeId === 'minecraft:desert' || biomeId === 'minecraft:badlands' || h <= SEA_LEVEL + 1) {
-              chunk.setBlock(lx, y, lz, sandId);
-            } else if (
-              (biomeId === 'minecraft:dappled_forest' || biomeId === 'minecraft:poplar_grove') &&
-              this.hash2D(wx, wz, 42) < 0.12
-            ) {
-              chunk.setBlock(lx, y, lz, podzolId);
-            } else {
-              chunk.setBlock(lx, y, lz, grassId);
-            }
-          }
-        }
-
-        // Fill water up to SEA_LEVEL
-        if (h < SEA_LEVEL) {
-          for (let y = h + 1; y <= SEA_LEVEL; y++) {
-            chunk.setBlock(lx, y, lz, waterId);
-          }
-        }
-
-        // 3D Cave Carver: authentic winding subterranean tunnels
+    // 3D Subterranean Cave Carvers (authentic winding caves)
+    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const wx = cx * CHUNK_SIZE + lx;
+        const wz = cz * CHUNK_SIZE + lz;
+        const h = heightMap[lz * CHUNK_SIZE + lx];
         for (let y = 4; y < h; y++) {
           const c1 = this.smoothNoise3D(wx, y * 1.1, wz, 22, 333) * 2.0 - 1.0;
           const c2 = this.smoothNoise3D(wx, y * 1.1, wz, 22, 444) * 2.0 - 1.0;
           if (c1 * c1 + c2 * c2 < 0.038) {
-            // Keep ocean floor intact under sea level lakes/rivers
             if (h >= SEA_LEVEL || y > SEA_LEVEL) {
               chunk.setBlock(lx, y, lz, 0);
             }
@@ -1597,147 +1566,8 @@ export class WorldGen26_3 {
       }
     }
 
-    // Place Trees & Flora based on Biome
-    for (let lz = 3; lz < CHUNK_SIZE - 3; lz += 4) {
-      for (let lx = 3; lx < CHUNK_SIZE - 3; lx += 4) {
-        if (hasStructure && lx >= 1 && lx <= 15 && lz >= 1 && lz <= 15) {
-          continue; // Clear trees and flora inside structure footprints
-        }
-        const wx = cx * CHUNK_SIZE + lx;
-        const wz = cz * CHUNK_SIZE + lz;
-        const h = heightMap[lz * CHUNK_SIZE + lx];
-        if (h <= SEA_LEVEL + 2) continue;
-
-        const biomeId = chunk.biomes[lz * CHUNK_SIZE + lx];
-        const treeRoll = this.hash2D(wx, wz, 888);
-
-        if (
-          (biomeId === 'minecraft:dappled_forest' || biomeId === 'minecraft:poplar_grove') &&
-          treeRoll < (biomeId === 'minecraft:poplar_grove' ? 0.42 : 0.32)
-        ) {
-          const leafRoll = this.hash2D(wx, wz, 999);
-          const leafVariant =
-            leafRoll < 0.4
-              ? 'orange_poplar_leaves'
-              : leafRoll < 0.72
-              ? 'yellow_poplar_leaves'
-              : 'red_poplar_leaves';
-          this.placePoplarTree(chunk, lx, h + 1, lz, leafVariant, leafRoll);
-        } else if ((biomeId === 'minecraft:jungle' || biomeId === 'minecraft:sparse_jungle') && treeRoll < 0.45) {
-          this.placeJungleTree(chunk, lx, h + 1, lz, treeRoll);
-        } else if (biomeId === 'minecraft:bamboo_jungle') {
-          if (treeRoll < 0.15) {
-            this.placeJungleTree(chunk, lx, h + 1, lz, treeRoll);
-          } else if (treeRoll < 0.8) {
-            this.placeBambooStalk(chunk, lx, h + 1, lz, 6 + Math.floor(treeRoll * 8));
-          }
-        } else if (biomeId === 'minecraft:forest' && treeRoll < 0.28) {
-          this.placeClassicTree(chunk, lx, h + 1, lz, 'oak_log', 'oak_leaves', 5 + Math.floor(treeRoll * 7));
-        } else if (biomeId === 'minecraft:plains' && treeRoll < 0.03) {
-          this.placeClassicTree(chunk, lx, h + 1, lz, 'oak_log', 'oak_leaves', 5);
-        } else if (biomeId === 'minecraft:birch_forest' && treeRoll < 0.25) {
-          this.placeClassicTree(chunk, lx, h + 1, lz, 'birch_log', 'birch_leaves', 6);
-        } else if (biomeId === 'minecraft:cherry_grove' && treeRoll < 0.22) {
-          this.placeClassicTree(chunk, lx, h + 1, lz, 'cherry_log', 'cherry_leaves', 6);
-        } else if ((biomeId === 'minecraft:snowy_plains' || biomeId === 'minecraft:grove') && treeRoll < 0.045) {
-          this.placeSpruceTree(chunk, lx, h + 1, lz, 6 + Math.floor(treeRoll * 30), true);
-        } else if ((biomeId.includes('taiga') || biomeId.includes('spruce')) && treeRoll < 0.28) {
-          this.placeSpruceTree(chunk, lx, h + 1, lz, 7 + Math.floor(treeRoll * 20), biomeId.includes('snowy'));
-        } else if (biomeId === 'minecraft:savanna' && treeRoll < 0.12) {
-          this.placeClassicTree(chunk, lx, h + 1, lz, 'acacia_log', 'acacia_leaves', 5);
-        }
-      }
-    }
-
-    // Scatter flowers, short_grass, and mushrooms
-    const shortGrassId = Registries.getBlock('short_grass').numId;
-    const dandelionId = Registries.getBlock('dandelion').numId;
-    const poppyId = Registries.getBlock('poppy').numId;
-    const mushroomId = Registries.getBlock('brown_mushroom').numId;
-    const litterId = Registries.getBlock('leaf_litter').numId;
-
-    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        const h = heightMap[lz * CHUNK_SIZE + lx];
-        if (h <= SEA_LEVEL + 1) continue;
-        if (chunk.getBlock(lx, h + 1, lz) !== 0) continue;
-        if (chunk.getBlock(lx, h, lz) !== grassId && chunk.getBlock(lx, h, lz) !== podzolId) continue;
-
-        const wx = cx * CHUNK_SIZE + lx;
-        const wz = cz * CHUNK_SIZE + lz;
-        const fRoll = this.hash2D(wx, wz, 333);
-        const biomeId = chunk.biomes[lz * CHUNK_SIZE + lx];
-
-        if (biomeId === 'minecraft:dappled_forest') {
-          if (fRoll < 0.08) chunk.setBlock(lx, h + 1, lz, litterId);
-          else if (fRoll < 0.14) chunk.setBlock(lx, h + 1, lz, shortGrassId);
-          else if (fRoll < 0.155) chunk.setBlock(lx, h + 1, lz, mushroomId);
-          else if (fRoll < 0.165) chunk.setBlock(lx, h + 1, lz, dandelionId);
-        } else if (
-          biomeId.includes('snowy') ||
-          biomeId.includes('frozen') ||
-          biomeId.includes('ice') ||
-          biomeId.includes('grove')
-        ) {
-          // Cold snowy biomes in vanilla: only sparse short grass (no dandelions or poppies)
-          if (fRoll < 0.04) {
-            chunk.setBlock(lx, h + 1, lz, shortGrassId);
-            chunk.setBlock(lx, h, lz, Registries.getBlock('grass_block_snow').numId);
-          }
-        } else {
-          if (fRoll < 0.12) chunk.setBlock(lx, h + 1, lz, shortGrassId);
-          else if (fRoll < 0.135) chunk.setBlock(lx, h + 1, lz, poppyId);
-          else if (fRoll < 0.15) chunk.setBlock(lx, h + 1, lz, dandelionId);
-        }
-      }
-    }
-
-    // Authentic Minecraft FreezeTopLayerFeature:
-    // In cold biomes, freeze top water exposed to sky into ice, and cover solid blocks with snow
-    const iceId = Registries.getBlock('ice')?.numId;
-    const snowBlockId = Registries.getBlock('snow')?.numId;
-    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        const biomeId = chunk.biomes[lz * CHUNK_SIZE + lx];
-        const isCold =
-          biomeId.includes('snowy') ||
-          biomeId.includes('frozen') ||
-          biomeId.includes('ice') ||
-          biomeId.includes('grove') ||
-          biomeId.includes('slopes') ||
-          biomeId.includes('peaks');
-        if (!isCold) continue;
-
-        // Freeze surface water at sea level
-        if (iceId) {
-          const topWater = chunk.getBlock(lx, SEA_LEVEL, lz);
-          if (topWater === waterId) {
-            chunk.setBlock(lx, SEA_LEVEL, lz, iceId);
-          }
-        }
-
-        if (snowBlockId) {
-          // Find highest non-air block
-          let topY = CHUNK_HEIGHT - 1;
-          while (topY > 0 && chunk.getBlock(lx, topY, lz) === 0) {
-            topY--;
-          }
-          if (topY <= 0) continue;
-
-          const topB = chunk.getBlock(lx, topY, lz);
-          if (topB === waterId && iceId) {
-            chunk.setBlock(lx, topY, lz, iceId);
-          } else if (topY + 1 < CHUNK_HEIGHT) {
-            const topDef = Registries.getBlock(topB);
-            if (topDef && topDef.solid && topDef.shape === 'cube') {
-              if (chunk.getBlock(lx, topY + 1, lz) === 0) {
-                chunk.setBlock(lx, topY + 1, lz, snowBlockId);
-              }
-            }
-          }
-        }
-      }
-    }
+    // Authentic Minecraft 26.3 Features & Vegetation (trees, flora, cover)
+    FeaturePlacer.placeFeatures(chunk, cx, cz, heightMap, this.seed, hasStructure);
 
     return { chunk, cushions, camp, mobs };
   }

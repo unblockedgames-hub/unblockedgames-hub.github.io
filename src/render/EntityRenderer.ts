@@ -248,8 +248,8 @@ export class EntityRenderer {
       const faceTexs = [
         this.cropSubTexture(img, u + dz + dx, v + dz, dz, dy, true), // +X (left flank)
         this.cropSubTexture(img, u, v + dz, dz, dy, true), // -X (right flank)
-        this.cropSubTexture(img, u + dz + dx + dz, v + dz, dx, dy), // +Y (top back - spotted hide)
-        this.cropSubTexture(img, u + dz, v + dz, dx, dy), // -Y (belly - udder underside)
+        this.cropSubTexture(img, u + dz, v + dz, dx, dy), // +Y (top back - spotted hide)
+        this.cropSubTexture(img, u + dz + dx + dz, v + dz, dx, dy), // -Y (belly - udder underside)
         this.cropSubTexture(img, u + dz, v, dx, dz), // +Z (front chest)
         this.cropSubTexture(img, u + dz + dx, v, dx, dz), // -Z (rear)
       ];
