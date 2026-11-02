@@ -97,6 +97,8 @@ export class Player {
   creativeBreakCooldown = 0;
   portalTimer = 0;
   inPortal = false;
+  inEndPortal = false;
+  inEndGateway = false;
 
   // Target block highlight wireframe & 3D Destroy Stage Crack Overlay
   highlightBox: THREE.LineSegments;
@@ -568,6 +570,9 @@ export class Player {
     );
     this.inWater = Registries.getBlock(feetBlock).fluid === 'water';
     const portalNum = Registries.getBlock('nether_portal')?.numId;
+    const endPortalNum = Registries.getBlock('end_portal')?.numId;
+    const endGatewayNum = Registries.getBlock('end_gateway')?.numId;
+
     this.inPortal =
       feetBlock === portalNum ||
       this.world.getBlock(
@@ -575,6 +580,22 @@ export class Player {
         Math.floor(this.position.y + 1.2),
         Math.floor(this.position.z)
       ) === portalNum;
+
+    this.inEndPortal =
+      feetBlock === endPortalNum ||
+      this.world.getBlock(
+        Math.floor(this.position.x),
+        Math.floor(this.position.y + 1.2),
+        Math.floor(this.position.z)
+      ) === endPortalNum;
+
+    this.inEndGateway =
+      feetBlock === endGatewayNum ||
+      this.world.getBlock(
+        Math.floor(this.position.x),
+        Math.floor(this.position.y + 1.2),
+        Math.floor(this.position.z)
+      ) === endGatewayNum;
     if (this.inPortal) {
       this.portalTimer += dt;
     } else {

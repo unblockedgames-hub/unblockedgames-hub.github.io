@@ -262,6 +262,157 @@ export class WorldGen26_3 {
     };
   }
 
+  static getNearestStronghold(px: number, pz: number): { x: number; z: number; dist: number } {
+    const angleOffset = (((this.seed % 628) + 628) % 628) / 100.0;
+    const r = 1200 + (Math.abs(this.seed) % 300);
+    const strongholds = [
+      { x: Math.round(Math.cos(angleOffset) * r), z: Math.round(Math.sin(angleOffset) * r) },
+      {
+        x: Math.round(Math.cos(angleOffset + (Math.PI * 2) / 3) * r),
+        z: Math.round(Math.sin(angleOffset + (Math.PI * 2) / 3) * r),
+      },
+      {
+        x: Math.round(Math.cos(angleOffset + (Math.PI * 4) / 3) * r),
+        z: Math.round(Math.sin(angleOffset + (Math.PI * 4) / 3) * r),
+      },
+    ];
+
+    let nearest = strongholds[0];
+    let minDist = Math.hypot(px - nearest.x, pz - nearest.z);
+    for (let i = 1; i < strongholds.length; i++) {
+      const d = Math.hypot(px - strongholds[i].x, pz - strongholds[i].z);
+      if (d < minDist) {
+        minDist = d;
+        nearest = strongholds[i];
+      }
+    }
+    return { x: nearest.x, z: nearest.z, dist: Math.round(minDist) };
+  }
+
+  static placeStrongholdPiece(chunk: Chunk, cx: number, cz: number, shX: number, shZ: number): { mobs: Array<{ type: string; x: number; y: number; z: number }> } {
+    const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
+    const stoneBrickId = Registries.getBlock('stone_bricks')?.numId || 1;
+    const mossyBrickId = Registries.getBlock('mossy_stone_bricks')?.numId || stoneBrickId;
+    const crackedBrickId = Registries.getBlock('cracked_stone_bricks')?.numId || stoneBrickId;
+    const frameId = Registries.getBlock('end_portal_frame')?.numId || 1;
+    const lavaId = Registries.getBlock('lava')?.numId || 1;
+    const barsId = Registries.getBlock('iron_bars')?.numId || 1;
+    const spawnerId = Registries.getBlock('spawner')?.numId || stoneBrickId;
+    const torchId = Registries.getBlock('torch')?.numId || 0;
+    const chestId = Registries.getBlock('chest')?.numId || 0;
+    const bookshelfId = Registries.getBlock('bookshelf')?.numId || 0;
+    const cobwebId = Registries.getBlock('cobweb')?.numId || 0;
+
+    const shChunkX = Math.floor(shX / CHUNK_SIZE);
+    const shChunkZ = Math.floor(shZ / CHUNK_SIZE);
+
+    // End Portal Room in the center stronghold chunk
+    if (cx === shChunkX && cz === shChunkZ) {
+      const roomY = 30;
+      // Hollow 11x11 room
+      for (let rx = 2; rx <= 14; rx++) {
+        for (let rz = 2; rz <= 14; rz++) {
+          for (let ry = roomY; ry <= roomY + 6; ry++) {
+            const isBorder = rx === 2 || rx === 14 || rz === 2 || rz === 14 || ry === roomY || ry === roomY + 6;
+            if (isBorder) {
+              const rand = (rx * 17 + ry * 31 + rz * 13) % 10;
+              const brick = rand === 0 ? mossyBrickId : rand === 1 ? crackedBrickId : stoneBrickId;
+              chunk.setBlock(rx, ry, rz, brick);
+            } else {
+              chunk.setBlock(rx, ry, rz, 0);
+            }
+          }
+        }
+      }
+
+      // 3x3 Lava pool in center at roomY + 1
+      for (let lx = 7; lx <= 9; lx++) {
+        for (let lz = 7; lz <= 9; lz++) {
+          chunk.setBlock(lx, roomY, lz, stoneBrickId);
+          chunk.setBlock(lx, roomY + 1, lz, lavaId);
+        }
+      }
+
+      // 12 End Portal Frames surrounding the 3x3 lava pool at roomY + 2
+      // North and South edges (z=6 and z=10, x from 7 to 9)
+      for (let x = 7; x <= 9; x++) {
+        const eyeN = ((x * 13 + cx * 7) % 10 === 0) ? 4 : 0;
+        const eyeS = ((x * 19 + cz * 11) % 10 === 0) ? 4 : 0;
+        chunk.setBlock(x, roomY + 2, 6, frameId, eyeN);
+        chunk.setBlock(x, roomY + 2, 10, frameId, eyeS);
+      }
+      // West and East edges (x=6 and x=10, z from 7 to 9)
+      for (let z = 7; z <= 9; z++) {
+        const eyeW = ((z * 23 + cx * 5) % 10 === 0) ? 4 : 0;
+        const eyeE = ((z * 29 + cz * 13) % 10 === 0) ? 4 : 0;
+        chunk.setBlock(6, roomY + 2, z, frameId, eyeW);
+        chunk.setBlock(10, roomY + 2, z, frameId, eyeE);
+      }
+
+      // Silverfish spawner hovering above stairs
+      chunk.setBlock(8, roomY + 3, 4, spawnerId);
+
+      // Torches around room
+      if (torchId) {
+        chunk.setBlock(3, roomY + 3, 3, torchId);
+        chunk.setBlock(13, roomY + 3, 3, torchId);
+        chunk.setBlock(3, roomY + 3, 13, torchId);
+        chunk.setBlock(13, roomY + 3, 13, torchId);
+      }
+    }
+    // Adjacent stronghold chunk: Library Room with bookshelves and chests
+    else if (cx === shChunkX + 1 && cz === shChunkZ) {
+      const roomY = 30;
+      for (let rx = 1; rx <= 14; rx++) {
+        for (let rz = 1; rz <= 14; rz++) {
+          for (let ry = roomY; ry <= roomY + 8; ry++) {
+            const isWall = rx === 1 || rx === 14 || rz === 1 || rz === 14 || ry === roomY || ry === roomY + 8;
+            if (isWall) {
+              chunk.setBlock(rx, ry, rz, stoneBrickId);
+            } else {
+              chunk.setBlock(rx, ry, rz, 0);
+            }
+          }
+        }
+      }
+      // Bookshelves lining walls
+      if (bookshelfId) {
+        for (let x = 2; x <= 13; x++) {
+          chunk.setBlock(x, roomY + 1, 2, bookshelfId);
+          chunk.setBlock(x, roomY + 2, 2, bookshelfId);
+          chunk.setBlock(x, roomY + 1, 13, bookshelfId);
+          chunk.setBlock(x, roomY + 2, 13, bookshelfId);
+        }
+      }
+      if (cobwebId) {
+        chunk.setBlock(3, roomY + 3, 3, cobwebId);
+        chunk.setBlock(12, roomY + 3, 12, cobwebId);
+        chunk.setBlock(3, roomY + 7, 3, cobwebId);
+      }
+      if (chestId) {
+        chunk.setBlock(8, roomY + 1, 8, chestId);
+      }
+    }
+    // Corridors in adjacent chunks
+    else {
+      const corY = 32;
+      for (let x = 0; x < CHUNK_SIZE; x++) {
+        for (let y = corY; y <= corY + 4; y++) {
+          const isBorder = y === corY || y === corY + 4;
+          if (isBorder) {
+            chunk.setBlock(x, y, 7, stoneBrickId);
+            chunk.setBlock(x, y, 8, stoneBrickId);
+          } else {
+            chunk.setBlock(x, y, 7, 0);
+            chunk.setBlock(x, y, 8, 0);
+          }
+        }
+      }
+    }
+
+    return { mobs };
+  }
+
   static findNearestStructure(
     px: number,
     pz: number,
@@ -1444,6 +1595,17 @@ export class WorldGen26_3 {
       mobs.push(...res.mobs);
     }
 
+    // 9. Stronghold Structure (End Portal Room, Silverfish Spawner, Library, Corridors)
+    const nearestSh = WorldGen26_3.getNearestStronghold(cx * CHUNK_SIZE + 8, cz * CHUNK_SIZE + 8);
+    const shChunkX = Math.floor(nearestSh.x / CHUNK_SIZE);
+    const shChunkZ = Math.floor(nearestSh.z / CHUNK_SIZE);
+    const isStrongholdChunk = this.generateStructures && Math.abs(cx - shChunkX) <= 1 && Math.abs(cz - shChunkZ) <= 1;
+
+    if (isStrongholdChunk) {
+      const res = WorldGen26_3.placeStrongholdPiece(chunk, cx, cz, nearestSh.x, nearestSh.z);
+      mobs.push(...res.mobs);
+    }
+
     const hasStructure =
       isVillagePart ||
       isWildernessCampChunk ||
@@ -1452,7 +1614,7 @@ export class WorldGen26_3 {
       isSwampHutChunk ||
       isIglooChunk ||
       isPortalChunk ||
-      isOutpostChunk;
+      isOutpostChunk || isStrongholdChunk;
 
     // Bonus Chest near spawn if enabled
     if (this.bonusChest && cx === 0 && cz === 0) {
@@ -1569,9 +1731,15 @@ export class WorldGen26_3 {
     }
   }
 
-  static generateNetherChunk(cx: number, cz: number): { chunk: Chunk; cushions: CushionEntityData[] } {
+  static generateNetherChunk(cx: number, cz: number): {
+    chunk: Chunk;
+    cushions: CushionEntityData[];
+    mobs: Array<{ type: string; x: number; y: number; z: number }>;
+  } {
     const chunk = new Chunk(cx, cz);
     const cushions: CushionEntityData[] = [];
+    const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
+
     const bedrockId = Registries.getBlock('bedrock').numId;
     const netherrackId = Registries.getBlock('netherrack').numId;
     const lavaId = Registries.getBlock('lava').numId;
@@ -1579,27 +1747,61 @@ export class WorldGen26_3 {
     const goldId = Registries.getBlock('nether_gold_ore')?.numId || netherrackId;
     const glowstoneId = Registries.getBlock('glowstone').numId;
     const soulSandId = Registries.getBlock('soul_sand')?.numId || netherrackId;
+    const soulSoilId = Registries.getBlock('soul_soil')?.numId || soulSandId;
+    const crimsonNyliumId = Registries.getBlock('crimson_nylium')?.numId || netherrackId;
+    const warpedNyliumId = Registries.getBlock('warped_nylium')?.numId || netherrackId;
+    const crimsonStemId = Registries.getBlock('crimson_stem')?.numId || netherrackId;
+    const warpedStemId = Registries.getBlock('warped_stem')?.numId || netherrackId;
+    const netherWartBlockId = Registries.getBlock('nether_wart_block')?.numId || netherrackId;
+    const warpedWartBlockId = Registries.getBlock('warped_wart_block')?.numId || netherrackId;
+    const shroomlightId = Registries.getBlock('shroomlight')?.numId || glowstoneId;
+    const basaltId = Registries.getBlock('basalt')?.numId || netherrackId;
+    const smoothBasaltId = Registries.getBlock('smooth_basalt')?.numId || basaltId;
+    const blackstoneId = Registries.getBlock('blackstone')?.numId || netherrackId;
+    const magmaId = Registries.getBlock('magma_block')?.numId || netherrackId;
+    const boneId = Registries.getBlock('bone_block')?.numId || netherrackId;
+    const ancientDebrisId = Registries.getBlock('ancient_debris')?.numId || netherrackId;
+    const netherBricksId = Registries.getBlock('nether_bricks')?.numId || netherrackId;
+    const goldBlockId = Registries.getBlock('gold_block')?.numId || netherrackId;
+    const spawnerId = Registries.getBlock('spawner')?.numId || netherBricksId;
+    const weepingVinesId = Registries.getBlock('weeping_vines')?.numId || 0;
+    const twistingVinesId = Registries.getBlock('twisting_vines')?.numId || 0;
+
+    // Check for Nether Fortress or Bastion Remnant in this chunk region
+    const isFortress = Math.abs(((cx % 20) + 20) % 20) === 6 && Math.abs(((cz % 20) + 20) % 20) === 6;
+    const isBastion = Math.abs(((cx % 24) + 24) % 24) === 14 && Math.abs(((cz % 24) + 24) % 24) === 14;
 
     for (let lz = 0; lz < CHUNK_SIZE; lz++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         const wx = cx * CHUNK_SIZE + lx;
         const wz = cz * CHUNK_SIZE + lz;
-        chunk.setBiome(lx, lz, 'minecraft:nether_wastes');
 
-        // Bedrock floor and ceiling
+        // Biome climate determination
+        const cTemp = this.smoothNoise(wx, wz, 140, this.seed + 111);
+        const cHumid = this.smoothNoise(wx, wz, 140, this.seed + 222);
+
+        let biomeId = 'minecraft:nether_wastes';
+        if (cTemp > 0.6 && cHumid > 0.52) biomeId = 'minecraft:crimson_forest';
+        else if (cTemp < 0.42 && cHumid > 0.52) biomeId = 'minecraft:warped_forest';
+        else if (cTemp > 0.6 && cHumid < 0.38) biomeId = 'minecraft:soul_sand_valley';
+        else if (cTemp < 0.42 && cHumid < 0.38) biomeId = 'minecraft:basalt_deltas';
+
+        chunk.setBiome(lx, lz, biomeId);
+
+        // Solid bedrock ceiling (Y=127) and floor (Y=0)
         chunk.setBlock(lx, 0, lz, bedrockId);
         chunk.setBlock(lx, CHUNK_HEIGHT - 1, lz, bedrockId);
 
-        // Solid netherrack baseline
+        // Fill solid nether baseline
         for (let y = 1; y < CHUNK_HEIGHT - 1; y++) {
           chunk.setBlock(lx, y, lz, netherrackId);
         }
 
-        // 3D Nether Cavern Carver
-        for (let y = 14; y < 118; y++) {
-          const n1 = this.smoothNoise3D(wx, y * 0.9, wz, 20, 888) * 2.0 - 1.0;
-          const n2 = this.smoothNoise3D(wx, y * 0.9, wz, 20, 999) * 2.0 - 1.0;
-          if (n1 * n1 + n2 * n2 < 0.28) {
+        // 3D Nether Caverns
+        for (let y = 12; y < 118; y++) {
+          const n1 = this.smoothNoise3D(wx, y * 0.9, wz, 22, this.seed + 888) * 2.0 - 1.0;
+          const n2 = this.smoothNoise3D(wx, y * 0.9, wz, 22, this.seed + 999) * 2.0 - 1.0;
+          if (n1 * n1 + n2 * n2 < 0.32) {
             chunk.setBlock(lx, y, lz, 0);
           }
         }
@@ -1611,11 +1813,149 @@ export class WorldGen26_3 {
           }
         }
 
-        // Soul sand shores along lava
-        if (chunk.getBlock(lx, 31, lz) === lavaId && chunk.getBlock(lx, 32, lz) === netherrackId) {
-          chunk.setBlock(lx, 32, lz, soulSandId);
+        // Apply Biome Surface Materials
+        for (let y = 32; y < 115; y++) {
+          if (chunk.getBlock(lx, y, lz) === 0 && chunk.getBlock(lx, y - 1, lz) === netherrackId) {
+            // Cavern Floor
+            if (biomeId === 'minecraft:crimson_forest') {
+              chunk.setBlock(lx, y - 1, lz, crimsonNyliumId);
+            } else if (biomeId === 'minecraft:warped_forest') {
+              chunk.setBlock(lx, y - 1, lz, warpedNyliumId);
+            } else if (biomeId === 'minecraft:soul_sand_valley') {
+              const useSoil = (lx * 7 + lz * 13) % 2 === 0;
+              chunk.setBlock(lx, y - 1, lz, useSoil ? soulSoilId : soulSandId);
+            } else if (biomeId === 'minecraft:basalt_deltas') {
+              chunk.setBlock(lx, y - 1, lz, (lx * 3 + lz * 5) % 3 === 0 ? blackstoneId : basaltId);
+            }
+          }
         }
       }
+    }
+
+    // Biome Features: Huge Fungi, Basalt Columns, Bone Fossils
+    for (let lx = 3; lx < 13; lx += 4) {
+      for (let lz = 3; lz < 13; lz += 4) {
+        const wx = cx * CHUNK_SIZE + lx;
+        const wz = cz * CHUNK_SIZE + lz;
+        const biome = chunk.getBiome(lx, lz).id;
+
+        // Find floor around Y=32..80
+        for (let y = 32; y < 80; y++) {
+          if (chunk.getBlock(lx, y - 1, lz) !== 0 && chunk.getBlock(lx, y, lz) === 0 && chunk.getBlock(lx, y + 6, lz) === 0) {
+            if (biome === 'minecraft:crimson_forest') {
+              // Huge Crimson Fungus
+              const h = 5 + ((lx * 7 + lz * 11) % 4);
+              for (let fy = 0; fy < h; fy++) chunk.setBlock(lx, y + fy, lz, crimsonStemId);
+              for (let dx = -2; dx <= 2; dx++) {
+                for (let dz = -2; dz <= 2; dz++) {
+                  for (let dy = h - 2; dy <= h + 1; dy++) {
+                    if (Math.abs(dx) === 2 && Math.abs(dz) === 2 && dy > h) continue;
+                    const tx = lx + dx, tz = lz + dz, ty = y + dy;
+                    if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && ty < CHUNK_HEIGHT) {
+                      chunk.setBlock(tx, ty, tz, (dx === 0 && dz === 0 && dy === h) ? shroomlightId : netherWartBlockId);
+                    }
+                  }
+                }
+              }
+              // Weeping vines hanging down
+              if (weepingVinesId && y + h - 3 > y) {
+                chunk.setBlock(lx + 1, y + h - 3, lz, weepingVinesId);
+                chunk.setBlock(lx + 1, y + h - 4, lz, weepingVinesId);
+              }
+              break;
+            } else if (biome === 'minecraft:warped_forest') {
+              // Huge Warped Fungus
+              const h = 5 + ((lx * 13 + lz * 7) % 4);
+              for (let fy = 0; fy < h; fy++) chunk.setBlock(lx, y + fy, lz, warpedStemId);
+              for (let dx = -2; dx <= 2; dx++) {
+                for (let dz = -2; dz <= 2; dz++) {
+                  for (let dy = h - 2; dy <= h + 1; dy++) {
+                    if (Math.abs(dx) === 2 && Math.abs(dz) === 2 && dy > h) continue;
+                    const tx = lx + dx, tz = lz + dz, ty = y + dy;
+                    if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && ty < CHUNK_HEIGHT) {
+                      chunk.setBlock(tx, ty, tz, (dx === 0 && dz === 0 && dy === h) ? shroomlightId : warpedWartBlockId);
+                    }
+                  }
+                }
+              }
+              // Twisting vines growing up
+              if (twistingVinesId) {
+                chunk.setBlock(lx - 1, y, lz, twistingVinesId);
+                chunk.setBlock(lx - 1, y + 1, lz, twistingVinesId);
+              }
+              break;
+            } else if (biome === 'minecraft:soul_sand_valley' && (lx + lz) % 6 === 0) {
+              // Bone fossil rib cage
+              for (let dy = 0; dy < 5; dy++) {
+                chunk.setBlock(lx - 2, y + dy, lz, boneId);
+                chunk.setBlock(lx + 2, y + dy, lz, boneId);
+              }
+              chunk.setBlock(lx - 1, y + 5, lz, boneId);
+              chunk.setBlock(lx, y + 5, lz, boneId);
+              chunk.setBlock(lx + 1, y + 5, lz, boneId);
+              break;
+            } else if (biome === 'minecraft:basalt_deltas') {
+              // Basalt column
+              for (let dy = -1; dy < 7; dy++) {
+                chunk.setBlock(lx, y + dy, lz, basaltId);
+                chunk.setBlock(lx + 1, y + dy, lz, smoothBasaltId);
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Nether Fortress Structure
+    if (isFortress) {
+      const bridgeY = 56;
+      // East-West bridge walkway
+      for (let x = 0; x < CHUNK_SIZE; x++) {
+        for (let z = 5; z <= 10; z++) {
+          chunk.setBlock(x, bridgeY, z, netherBricksId);
+          // Balustrades
+          if (z === 5 || z === 10) {
+            chunk.setBlock(x, bridgeY + 1, z, netherBricksId);
+          }
+          // Air space above bridge
+          for (let y = bridgeY + 1; y <= bridgeY + 4; y++) {
+            if (z > 5 && z < 10) chunk.setBlock(x, y, z, 0);
+          }
+        }
+      }
+      // Blaze Spawner balcony at center
+      chunk.setBlock(8, bridgeY + 2, 7, spawnerId);
+      mobs.push({ type: 'blaze', x: cx * CHUNK_SIZE + 8.5, y: bridgeY + 3, z: cz * CHUNK_SIZE + 7.5 });
+      mobs.push({ type: 'wither_skeleton', x: cx * CHUNK_SIZE + 4.5, y: bridgeY + 1, z: cz * CHUNK_SIZE + 7.5 });
+    }
+
+    // Bastion Remnant Structure
+    if (isBastion) {
+      const baseY = 45;
+      for (let rx = 1; rx <= 14; rx++) {
+        for (let rz = 1; rz <= 14; rz++) {
+          for (let ry = baseY; ry <= baseY + 10; ry++) {
+            const isWall = rx === 1 || rx === 14 || rz === 1 || rz === 14 || ry === baseY;
+            chunk.setBlock(rx, ry, rz, isWall ? blackstoneId : 0);
+          }
+        }
+      }
+      // Gold block treasure hoard
+      chunk.setBlock(7, baseY + 1, 7, goldBlockId);
+      chunk.setBlock(8, baseY + 1, 7, goldBlockId);
+      chunk.setBlock(7, baseY + 1, 8, goldBlockId);
+      chunk.setBlock(8, baseY + 1, 8, goldBlockId);
+      mobs.push({ type: 'piglin', x: cx * CHUNK_SIZE + 7.5, y: baseY + 2, z: cz * CHUNK_SIZE + 7.5 });
+    }
+
+    // Ancient Debris veins (rare, embedded deep at Y=8..22)
+    if ((cx * 17 + cz * 23) % 4 === 0) {
+      const ax = Math.floor(this.hash2D(cx, cz, 301) * 14) + 1;
+      const az = Math.floor(this.hash2D(cx, cz, 302) * 14) + 1;
+      const ay = 8 + Math.floor(this.hash2D(cx, cz, 303) * 14);
+      chunk.setBlock(ax, ay, az, ancientDebrisId);
+      if (this.hash2D(cx, cz, 304) > 0.5) chunk.setBlock(ax, ay + 1, az, ancientDebrisId);
     }
 
     // Nether Quartz & Gold ore veins
@@ -1628,29 +1968,13 @@ export class WorldGen26_3 {
         const ox = Math.floor(this.hash2D(cx + v, cz, 401) * 16);
         const oz = Math.floor(this.hash2D(cx, cz + v, 402) * 16);
         const oy = Math.floor(10 + this.hash2D(cx + v, cz + v, 403) * 105);
-        const rSq = ore.radius * ore.radius;
-        const ceilR = Math.ceil(ore.radius);
-        for (let dx = -ceilR; dx <= ceilR; dx++) {
-          const bx = ox + dx;
-          if (bx < 0 || bx >= CHUNK_SIZE) continue;
-          for (let dz = -ceilR; dz <= ceilR; dz++) {
-            const bz = oz + dz;
-            if (bz < 0 || bz >= CHUNK_SIZE) continue;
-            for (let dy = -ceilR; dy <= ceilR; dy++) {
-              const by = oy + dy;
-              if (by <= 1 || by >= 126) continue;
-              if (dx * dx + dy * dy + dz * dz <= rSq) {
-                if (chunk.getBlock(bx, by, bz) === netherrackId) {
-                  chunk.setBlock(bx, by, bz, ore.id);
-                }
-              }
-            }
-          }
+        if (chunk.getBlock(ox, oy, oz) === netherrackId) {
+          chunk.setBlock(ox, oy, oz, ore.id);
         }
       }
     }
 
-    // Glowstone stalactites hanging from cavern ceilings
+    // Glowstone stalactites
     for (let i = 0; i < 4; i++) {
       const gx = Math.floor(this.hash2D(cx * 7 + i, cz, 701) * 16);
       const gz = Math.floor(this.hash2D(cx, cz * 7 + i, 702) * 16);
@@ -1663,7 +1987,7 @@ export class WorldGen26_3 {
       }
     }
 
-    return { chunk, cushions };
+    return { chunk, cushions, mobs };
   }
 
   static generateEndChunk(
@@ -1673,70 +1997,216 @@ export class WorldGen26_3 {
     chunk: Chunk;
     cushions: CushionEntityData[];
     crystals: Array<{ x: number; y: number; z: number }>;
+    mobs: Array<{ type: string; x: number; y: number; z: number }>;
   } {
     const chunk = new Chunk(cx, cz);
     const cushions: CushionEntityData[] = [];
     const crystals: Array<{ x: number; y: number; z: number }> = [];
+    const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
 
     const endStoneId = Registries.getBlock('end_stone')?.numId || 1;
+    const endStoneBricksId = Registries.getBlock('end_stone_bricks')?.numId || endStoneId;
     const obsidianId = Registries.getBlock('obsidian')?.numId || 1;
     const bedrockId = Registries.getBlock('bedrock')?.numId || 1;
+    const endPortalId = Registries.getBlock('end_portal')?.numId || 1;
+    const endGatewayId = Registries.getBlock('end_gateway')?.numId || 1;
+    const purpurId = Registries.getBlock('purpur_block')?.numId || endStoneId;
+    const purpurPillarId = Registries.getBlock('purpur_pillar')?.numId || purpurId;
+    const chorusPlantId = Registries.getBlock('chorus_plant')?.numId || endStoneId;
+    const chorusFlowerId = Registries.getBlock('chorus_flower')?.numId || chorusPlantId;
+    const barsId = Registries.getBlock('iron_bars')?.numId || 1;
+    const chestId = Registries.getBlock('chest')?.numId || 1;
 
     // 10 Obsidian Pillars around (0, 0)
-    const pillarPositions: Array<{ x: number; z: number; height: number }> = [];
+    const pillarPositions: Array<{ x: number; z: number; height: number; caged: boolean }> = [];
     for (let i = 0; i < 10; i++) {
       const angle = (i * Math.PI * 2) / 10;
       pillarPositions.push({
         x: Math.round(Math.cos(angle) * 42),
         z: Math.round(Math.sin(angle) * 42),
-        height: 76 + (i % 5) * 5,
+        height: 72 + (i % 5) * 6,
+        caged: i === 2 || i === 7, // 2 pillars with iron bar cages
       });
     }
+
+    const distFromOrigin = Math.hypot(cx * CHUNK_SIZE + 8, cz * CHUNK_SIZE + 8);
+    const isCentralIsland = distFromOrigin < 120;
+    const isOuterIslands = distFromOrigin > 750;
 
     for (let lz = 0; lz < CHUNK_SIZE; lz++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         const wx = cx * CHUNK_SIZE + lx;
         const wz = cz * CHUNK_SIZE + lz;
-        chunk.setBiome(lx, lz, 'minecraft:the_end');
-
         const dist = Math.hypot(wx, wz);
 
-        // Main End Island: diameter ~150 blocks, thickness up to 28
-        if (dist < 75) {
+        chunk.setBiome(lx, lz, isCentralIsland ? 'minecraft:the_end' : 'minecraft:end_highlands');
+
+        // Central Island (R < 80)
+        if (dist < 80) {
           const islandNoise = this.smoothNoise3D(wx, 60, wz, 18, 555) * 4.0;
           const topY = Math.floor(62 + islandNoise);
-          const maxThickness = (1.0 - dist / 75) * 26.0;
+          const maxThickness = (1.0 - dist / 80) * 28.0;
           const bottomY = Math.max(30, Math.floor(topY - maxThickness));
 
           for (let y = bottomY; y <= topY; y++) {
             chunk.setBlock(lx, y, lz, endStoneId);
           }
 
-          // Central Exit Portal structure at (0, 0)
-          if (Math.abs(wx) <= 2 && Math.abs(wz) <= 2) {
-            chunk.setBlock(lx, 60, lz, bedrockId);
-            if (Math.abs(wx) === 2 || Math.abs(wz) === 2) {
+          // Central Exit Portal Fountain at (0, 0)
+          if (Math.abs(wx) <= 3 && Math.abs(wz) <= 3) {
+            const rad = Math.hypot(wx, wz);
+            if (rad <= 2.8) {
+              chunk.setBlock(lx, 60, lz, bedrockId);
+              if (rad >= 2.0) {
+                chunk.setBlock(lx, 61, lz, bedrockId);
+              }
+            }
+            // Center bedrock pillar with dragon egg
+            if (wx === 0 && wz === 0) {
               chunk.setBlock(lx, 61, lz, bedrockId);
+              chunk.setBlock(lx, 62, lz, bedrockId);
+              chunk.setBlock(lx, 63, lz, bedrockId);
+              chunk.setBlock(lx, 64, lz, Registries.getBlock('dragon_egg')?.numId || bedrockId);
+            }
+          }
+
+          // Central Island End Gateway at (72, 70, 0)
+          if (wx === 72 && wz === 0) {
+            for (let y = 68; y <= 72; y++) {
+              chunk.setBlock(lx, y, lz, y === 70 ? endGatewayId : bedrockId);
             }
           }
         }
 
         // Obsidian Pillars
-        for (const p of pillarPositions) {
-          const pd = Math.hypot(wx - p.x, wz - p.z);
-          if (pd <= 3.2) {
-            for (let y = 55; y <= p.height; y++) {
-              chunk.setBlock(lx, y, lz, obsidianId);
+        if (isCentralIsland) {
+          for (const p of pillarPositions) {
+            const pd = Math.hypot(wx - p.x, wz - p.z);
+            if (pd <= 3.2) {
+              for (let y = 55; y <= p.height; y++) {
+                chunk.setBlock(lx, y, lz, obsidianId);
+              }
+              if (Math.abs(wx - p.x) <= 0.5 && Math.abs(wz - p.z) <= 0.5) {
+                chunk.setBlock(lx, p.height, lz, bedrockId);
+                crystals.push({ x: p.x + 0.5, y: p.height + 1, z: p.z + 0.5 });
+              }
+              // Iron bar cage around crystal
+              if (p.caged && Math.abs(wx - p.x) <= 1.5 && Math.abs(wz - p.z) <= 1.5) {
+                for (let y = p.height + 1; y <= p.height + 3; y++) {
+                  if (Math.abs(wx - p.x) > 0.5 || Math.abs(wz - p.z) > 0.5) {
+                    chunk.setBlock(lx, y, lz, barsId);
+                  }
+                }
+                chunk.setBlock(lx, p.height + 4, lz, barsId);
+              }
             }
-            if (Math.abs(wx - p.x) <= 0.5 && Math.abs(wz - p.z) <= 0.5) {
-              chunk.setBlock(lx, p.height, lz, bedrockId);
-              crystals.push({ x: p.x + 0.5, y: p.height + 1, z: p.z + 0.5 });
+          }
+        }
+
+        // Outer End Islands (R > 750)
+        if (isOuterIslands) {
+          const islandDensity = this.smoothNoise(wx, wz, 95, 777);
+          if (islandDensity > 0.48) {
+            const topY = Math.floor(58 + this.smoothNoise(wx, wz, 24, 888) * 8.0);
+            const thickness = Math.floor((islandDensity - 0.48) * 45.0);
+            const botY = Math.max(25, topY - thickness);
+
+            for (let y = botY; y <= topY; y++) {
+              chunk.setBlock(lx, y, lz, endStoneId);
             }
           }
         }
       }
     }
 
-    return { chunk, cushions, crystals };
+    // Outer Islands Chorus Plants, End Cities & End Ships
+    if (isOuterIslands) {
+      // 1. Chorus Plants
+      for (let lx = 2; lx < 14; lx += 5) {
+        for (let lz = 2; lz < 14; lz += 5) {
+          if (this.hash2D(cx * 11 + lx, cz * 13 + lz, 919) > 0.65) {
+            for (let y = 45; y < 70; y++) {
+              if (chunk.getBlock(lx, y, lz) === endStoneId && chunk.getBlock(lx, y + 1, lz) === 0) {
+                const plantH = 4 + Math.floor(this.hash2D(cx + lx, cz + lz, 920) * 5);
+                for (let py = 1; py <= plantH; py++) {
+                  chunk.setBlock(lx, y + py, lz, chorusPlantId);
+                }
+                // Chorus flower on top
+                chunk.setBlock(lx, y + plantH + 1, lz, chorusFlowerId);
+                // Branches
+                if (plantH >= 5) {
+                  if (lx + 1 < CHUNK_SIZE) {
+                    chunk.setBlock(lx + 1, y + plantH - 1, lz, chorusPlantId);
+                    chunk.setBlock(lx + 1, y + plantH, lz, chorusFlowerId);
+                  }
+                }
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // 2. End City & End Ship Structure (spaced every ~22 chunks)
+      const isEndCityChunk = Math.abs(((cx % 22) + 22) % 22) === 10 && Math.abs(((cz % 22) + 22) % 22) === 10;
+      if (isEndCityChunk) {
+        let cityBaseY = 0;
+        for (let y = 70; y >= 40; y--) {
+          if (chunk.getBlock(8, y, 8) === endStoneId) {
+            cityBaseY = y;
+            break;
+          }
+        }
+
+        if (cityBaseY > 0) {
+          // Central Purpur Tower
+          for (let y = cityBaseY + 1; y <= cityBaseY + 18; y++) {
+            for (let x = 4; x <= 12; x++) {
+              for (let z = 4; z <= 12; z++) {
+                const isWall = x === 4 || x === 12 || z === 4 || z === 12;
+                const isCorner = (x === 4 || x === 12) && (z === 4 || z === 12);
+                if (isCorner) {
+                  chunk.setBlock(x, y, z, purpurPillarId);
+                } else if (isWall) {
+                  chunk.setBlock(x, y, z, purpurId);
+                } else {
+                  chunk.setBlock(x, y, z, 0);
+                }
+              }
+            }
+          }
+
+          // Shulker mobs guarding the tower walls
+          mobs.push({ type: 'shulker', x: cx * CHUNK_SIZE + 4, y: cityBaseY + 6, z: cz * CHUNK_SIZE + 8 });
+          mobs.push({ type: 'shulker', x: cx * CHUNK_SIZE + 12, y: cityBaseY + 12, z: cz * CHUNK_SIZE + 8 });
+
+          // End Ship docked beside tower (at cx + 1, cz)
+          // Ship features: purpur hull, dragon head on bow, elytra in cabin
+          const shipY = cityBaseY + 15;
+          for (let x = 1; x <= 15; x++) {
+            chunk.setBlock(x, shipY, 2, purpurId);
+            chunk.setBlock(x, shipY, 3, purpurPillarId);
+            chunk.setBlock(x, shipY, 4, purpurId);
+          }
+          // Bow dragon head
+          chunk.setBlock(15, shipY + 1, 3, Registries.getBlock('dragon_head')?.numId || purpurId);
+          // Cabin treasure chest
+          if (chestId) {
+            chunk.setBlock(5, shipY + 1, 3, chestId);
+          }
+        }
+      }
+
+      // 3. Return End Gateway at (1200, 70, 1200)
+      if (Math.abs(cx * CHUNK_SIZE - 1200) < CHUNK_SIZE && Math.abs(cz * CHUNK_SIZE - 1200) < CHUNK_SIZE) {
+        const lx = ((1200 % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+        const lz = ((1200 % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+        for (let y = 68; y <= 72; y++) {
+          chunk.setBlock(lx, y, lz, y === 70 ? endGatewayId : bedrockId);
+        }
+      }
+    }
+
+    return { chunk, cushions, crystals, mobs };
   }
 }

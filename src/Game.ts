@@ -1,3 +1,4 @@
+import { RedstoneEngine } from './world/RedstoneEngine';
 import * as THREE from 'three';
 import { Registries } from './core/Registries';
 import { TextureAtlas } from './render/TextureAtlas';
@@ -936,6 +937,7 @@ export class Game {
     }
 
     this.world.setBlock(hit.bx, hit.by, hit.bz, 0);
+    RedstoneEngine.updateAt(this.world, hit.bx, hit.by, hit.bz);
 
     // Drop container contents if breaking a furnace, chest, or barrel
     const posKey = `${hit.bx}_${hit.by}_${hit.bz}`;
@@ -1247,6 +1249,84 @@ export class Game {
     }
 
     const targetDef = Registries.getBlock(hit.blockNumId);
+
+    // Eye of Ender throwing (when not clicking End Portal Frame)
+    if (held && held.item.shortId === 'ender_eye' && (!hit || this.player.isSneaking || targetDef?.shortId !== 'end_portal_frame')) {
+      const sh = WorldGen26_3.getNearestStronghold(this.player.position.x, this.player.position.z);
+      this.entityRenderer.spawnEyeOfEnder(
+        this.player.position.x,
+        this.player.position.y + 1.5,
+        this.player.position.z,
+        sh.x,
+        sh.z
+      );
+      AudioEngine.play('entity.ender_eye.launch', 0.9);
+      if (this.player.gameMode === 'survival') {
+        this.inventory.consumeHeld(1);
+      }
+      this.player.triggerSwing();
+      this.firstPersonHand.triggerSwing();
+      this.ui.addChatMessage(`§5Eye of Ender flies toward the nearest Stronghold §7(${sh.dist}m away)... `);
+      return;
+    }
+
+    // End Portal Frame interaction (place Eye of Ender)
+    if (hit && targetDef && targetDef.shortId === 'end_portal_frame') {
+      const curMeta = this.world.getMeta(hit.bx, hit.by, hit.bz);
+      const hasEye = (curMeta & 4) !== 0;
+      if (!hasEye && held && held.item.shortId === 'ender_eye') {
+        this.world.setBlock(hit.bx, hit.by, hit.bz, hit.blockNumId, curMeta | 4);
+        AudioEngine.play('block.end_portal_frame.fill', 0.9);
+        if (this.player.gameMode === 'survival') {
+          this.inventory.consumeHeld(1);
+        }
+        this.player.triggerSwing();
+        this.firstPersonHand.triggerSwing();
+        this.checkAndActivateEndPortal(hit.bx, hit.by, hit.bz);
+        return;
+      }
+    }
+
+    // Redstone Component Right-Click Interactions: Lever, Buttons, Repeater
+    if (hit && targetDef) {
+      if (targetDef.shortId === 'lever') {
+        const curMeta = this.world.getMeta(hit.bx, hit.by, hit.bz);
+        const newMeta = curMeta ^ 8;
+        this.world.setBlock(hit.bx, hit.by, hit.bz, hit.blockNumId, newMeta);
+        AudioEngine.play('block.lever.click', 0.85);
+        this.player.triggerSwing();
+        this.firstPersonHand.triggerSwing();
+        RedstoneEngine.updateAt(this.world, hit.bx, hit.by, hit.bz);
+        return;
+      }
+      if (targetDef.shortId.includes('button')) {
+        const curMeta = this.world.getMeta(hit.bx, hit.by, hit.bz);
+        this.world.setBlock(hit.bx, hit.by, hit.bz, hit.blockNumId, curMeta | 8);
+        AudioEngine.play('block.stone_button.click_on', 0.85);
+        this.player.triggerSwing();
+        this.firstPersonHand.triggerSwing();
+        RedstoneEngine.updateAt(this.world, hit.bx, hit.by, hit.bz);
+        setTimeout(() => {
+          this.world.setBlock(hit.bx, hit.by, hit.bz, hit.blockNumId, curMeta & ~8);
+          AudioEngine.play('block.stone_button.click_off', 0.85);
+          RedstoneEngine.updateAt(this.world, hit.bx, hit.by, hit.bz);
+        }, targetDef.shortId.includes('stone') ? 1000 : 1500);
+        return;
+      }
+      if (targetDef.shortId === 'repeater') {
+        const curMeta = this.world.getMeta(hit.bx, hit.by, hit.bz);
+        const curDelay = (curMeta >> 2) & 3;
+        const nextDelay = (curDelay + 1) % 4;
+        const newMeta = (curMeta & ~12) | (nextDelay << 2);
+        this.world.setBlock(hit.bx, hit.by, hit.bz, hit.blockNumId, newMeta);
+        AudioEngine.play('block.stone_button.click_on', 0.7);
+        this.player.triggerSwing();
+        this.firstPersonHand.triggerSwing();
+        RedstoneEngine.updateAt(this.world, hit.bx, hit.by, hit.bz);
+        return;
+      }
+    }
+
 
     // Trapdoor Interaction (Toggle open/close)
     if (targetDef.shape === 'trapdoor' || targetDef.shortId.endsWith('_trapdoor')) {
@@ -1708,10 +1788,108 @@ export class Game {
     return false;
   }
 
-  public teleportDimension(targetDimension: 'overworld' | 'nether') {
+  private checkAndActivateEndPortal(bx: number, by: number, bz: number) {
+    const frameId = Registries.getBlock('end_portal_frame')?.numId;
+    const endPortalId = Registries.getBlock('end_portal')?.numId;
+    if (!frameId || !endPortalId) return;
+
+    for (let cx = bx - 2; cx <= bx + 2; cx++) {
+      for (let cz = bz - 2; cz <= bz + 2; cz++) {
+        let allValid = true;
+        for (let x = cx - 1; x <= cx + 1; x++) {
+          const nBlock = this.world.getBlock(x, by, cz - 2);
+          const sBlock = this.world.getBlock(x, by, cz + 2);
+          const nMeta = this.world.getMeta(x, by, cz - 2);
+          const sMeta = this.world.getMeta(x, by, cz + 2);
+          if (nBlock !== frameId || (nMeta & 4) === 0 || sBlock !== frameId || (sMeta & 4) === 0) {
+            allValid = false;
+            break;
+          }
+        }
+        if (!allValid) continue;
+
+        for (let z = cz - 1; z <= cz + 1; z++) {
+          const wBlock = this.world.getBlock(cx - 2, by, z);
+          const eBlock = this.world.getBlock(cx + 2, by, z);
+          const wMeta = this.world.getMeta(cx - 2, by, z);
+          const eMeta = this.world.getMeta(cx + 2, by, z);
+          if (wBlock !== frameId || (wMeta & 4) === 0 || eBlock !== frameId || (eMeta & 4) === 0) {
+            allValid = false;
+            break;
+          }
+        }
+        if (!allValid) continue;
+
+        for (let ix = cx - 1; ix <= cx + 1; ix++) {
+          for (let iz = cz - 1; iz <= cz + 1; iz++) {
+            this.world.setBlock(ix, by, iz, endPortalId);
+          }
+        }
+        AudioEngine.play('block.end_portal.spawn', 1.0);
+        this.ui.addChatMessage('§dThe End Portal has opened!');
+        this.particleSystem.spawnDeathPoof(cx + 0.5, by + 1.0, cz + 0.5);
+        return;
+      }
+    }
+  }
+
+  public teleportDimension(targetDimension: 'overworld' | 'nether' | 'the_end') {
     if (this.world.dimension === targetDimension) return;
     const oldX = this.player.position.x;
     const oldZ = this.player.position.z;
+
+    const obsidianId = Registries.getBlock('obsidian').numId;
+    const portalId = Registries.getBlock('nether_portal').numId;
+
+    if (targetDimension === 'the_end') {
+      this.world.switchDimension('the_end');
+      this.world.updateChunksAroundPlayer(100, 0);
+
+      // Spawn 5x5 Obsidian platform at (100, 48, 0)
+      for (let x = 98; x <= 102; x++) {
+        for (let z = -2; z <= 2; z++) {
+          this.world.setBlock(x, 48, z, obsidianId);
+          for (let y = 49; y <= 52; y++) {
+            this.world.setBlock(x, y, z, 0);
+          }
+        }
+      }
+
+      this.player.position.set(100.5, 49.0, 0.5);
+      this.player.velocity.set(0, 0, 0);
+      this.player.portalTimer = 0;
+      this.player.inPortal = false;
+
+      this.skyColor.setRGB(0.05, 0.02, 0.08);
+      if (this.scene.fog instanceof THREE.FogExp2) {
+        this.scene.fog.color.copy(this.skyColor);
+        this.scene.fog.density = 0.02;
+      }
+      this.ui.addChatMessage('§dEntered The End dimension.');
+      this.ui.unlockAdvancement('the_end');
+      AudioEngine.play('block.portal.travel', 0.9);
+      return;
+    }
+
+    if (this.world.dimension === 'the_end' && targetDimension === 'overworld') {
+      this.world.switchDimension('overworld');
+      const spawn = WorldGen26_3.getSpawnCoords();
+      this.world.updateChunksAroundPlayer(spawn.x, spawn.z);
+      const topY = Math.max(64, this.world.getTopSolidY(spawn.x, spawn.z));
+      this.player.position.set(spawn.x + 0.5, topY + 1.0, spawn.z + 0.5);
+      this.player.velocity.set(0, 0, 0);
+      this.player.portalTimer = 0;
+      this.player.inPortal = false;
+
+      this.skyColor.setRGB(0.47, 0.65, 1.0);
+      if (this.scene.fog instanceof THREE.FogExp2) {
+        this.scene.fog.color.copy(this.skyColor);
+        this.scene.fog.density = 0.015;
+      }
+      this.ui.addChatMessage('§aReturned to the Overworld.');
+      AudioEngine.play('block.portal.travel', 0.9);
+      return;
+    }
 
     const newX = targetDimension === 'nether' ? Math.floor(oldX / 8) : Math.floor(oldX * 8);
     const newZ = targetDimension === 'nether' ? Math.floor(oldZ / 8) : Math.floor(oldZ * 8);
@@ -1731,8 +1909,6 @@ export class Game {
       arrivalY = Math.max(64, this.world.getTopSolidY(newX, newZ));
     }
 
-    const obsidianId = Registries.getBlock('obsidian').numId;
-    const portalId = Registries.getBlock('nether_portal').numId;
     const floorY = arrivalY - 1;
     for (let x = -1; x <= 2; x++) {
       this.world.setBlock(newX + x, floorY, newZ, obsidianId);
@@ -2034,6 +2210,32 @@ export class Game {
           this.player.portalTimer = 0;
           this.teleportDimension(this.world.dimension === 'overworld' ? 'nether' : 'overworld');
         }
+      }
+
+      // Check End Portal Immediate Teleportation Trigger
+      if (this.player.inEndPortal && controlsActive) {
+        this.player.inEndPortal = false;
+        if (this.world.dimension === 'the_end') {
+          this.teleportDimension('overworld');
+        } else {
+          this.teleportDimension('the_end');
+        }
+      }
+
+      // Check End Gateway Teleportation Trigger
+      if (this.player.inEndGateway && controlsActive) {
+        this.player.inEndGateway = false;
+        const distCenter = Math.hypot(this.player.position.x, this.player.position.z);
+        if (distCenter < 250) {
+          this.player.position.set(1200.5, 72.0, 1200.5);
+          this.world.updateChunksAroundPlayer(1200, 1200);
+          this.ui.addChatMessage('§dTeleported to Outer End Islands!');
+        } else {
+          this.player.position.set(0.5, 65.0, 0.5);
+          this.world.updateChunksAroundPlayer(0, 0);
+          this.ui.addChatMessage('§dReturned to Central End Island!');
+        }
+        AudioEngine.play('block.portal.travel', 0.9);
       }
       if (controlsActive) {
         this.updateMining(dt);

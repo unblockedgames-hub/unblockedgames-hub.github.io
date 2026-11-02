@@ -1037,6 +1037,33 @@ export class Registries {
       ['redstone_lamp_on', 'redstone', 'glass', 0.3],
       ['dragon_egg', 'natural', 'stone', 3.0],
       ['end_portal_frame', 'functional', 'glass', -1.0],
+      ['soul_soil', 'natural', 'sand', 0.5],
+      ['nether_bricks', 'building', 'stone', 2.0],
+      ['red_nether_bricks', 'building', 'stone', 2.0],
+      ['chiseled_nether_bricks', 'building', 'stone', 2.0],
+      ['cracked_nether_bricks', 'building', 'stone', 2.0],
+      ['crimson_nylium', 'natural', 'stone', 0.4],
+      ['warped_nylium', 'natural', 'stone', 0.4],
+      ['crimson_stem', 'building', 'wood', 2.0],
+      ['warped_stem', 'building', 'wood', 2.0],
+      ['crimson_planks', 'building', 'wood', 2.0],
+      ['warped_planks', 'building', 'wood', 2.0],
+      ['nether_wart_block', 'building', 'grass', 1.0],
+      ['warped_wart_block', 'building', 'grass', 1.0],
+      ['basalt', 'building', 'stone', 1.25],
+      ['polished_basalt', 'building', 'stone', 1.25],
+      ['smooth_basalt', 'building', 'stone', 1.25],
+      ['blackstone', 'building', 'stone', 1.5],
+      ['polished_blackstone', 'building', 'stone', 1.5],
+      ['polished_blackstone_bricks', 'building', 'stone', 1.5],
+      ['gilded_blackstone', 'building', 'stone', 1.5],
+      ['ancient_debris', 'natural', 'stone', 30.0],
+      ['end_stone_bricks', 'building', 'stone', 3.0],
+      ['purpur_block', 'building', 'stone', 1.5],
+      ['purpur_pillar', 'building', 'stone', 1.5],
+      ['iron_bars', 'building', 'metal', 5.0, true],
+      ['bone_block', 'building', 'stone', 2.0],
+      ['spawner', 'functional', 'metal', 5.0, true],
     ];
 
     for (const [shortId, category, soundGroup, hardness, transparent] of simpleCubes) {
@@ -1050,6 +1077,20 @@ export class Registries {
             ? this.topBottomSide('tnt_top', 'tnt_bottom', 'tnt_side')
             : shortId === 'end_portal_frame'
             ? this.topBottomSide('end_portal_frame_top', 'end_stone', 'end_portal_frame_side')
+            : shortId === 'crimson_nylium'
+            ? this.topBottomSide('crimson_nylium', 'netherrack', 'crimson_nylium_side')
+            : shortId === 'warped_nylium'
+            ? this.topBottomSide('warped_nylium', 'netherrack', 'warped_nylium_side')
+            : shortId === 'basalt'
+            ? this.topBottomSide('basalt_top', 'basalt_top', 'basalt_side')
+            : shortId === 'polished_basalt'
+            ? this.topBottomSide('polished_basalt_top', 'polished_basalt_top', 'polished_basalt_side')
+            : shortId === 'ancient_debris'
+            ? this.topBottomSide('ancient_debris_top', 'ancient_debris_top', 'ancient_debris_side')
+            : shortId === 'bone_block'
+            ? this.topBottomSide('bone_block_top', 'bone_block_top', 'bone_block_side')
+            : shortId === 'purpur_pillar'
+            ? this.topBottomSide('purpur_pillar_top', 'purpur_pillar_top', 'purpur_pillar')
             : this.allFaces(shortId);
         this.registerBlock({
           shortId,
@@ -1072,6 +1113,166 @@ export class Registries {
         });
       }
     }
+
+    // End Portal & End Gateway (Special starry/void planes)
+    this.registerBlock({
+      shortId: 'end_portal',
+      shape: 'carpet',
+      transparent: true,
+      solid: false,
+      lightEmission: 15,
+      hardness: -1,
+      soundGroup: 'glass',
+      textures: this.allFaces('obsidian'),
+      category: 'functional',
+    });
+    this.registerBlock({
+      shortId: 'end_gateway',
+      shape: 'cube',
+      transparent: true,
+      solid: false,
+      lightEmission: 15,
+      hardness: -1,
+      soundGroup: 'glass',
+      textures: this.allFaces('obsidian'),
+      category: 'functional',
+    });
+
+    // Chorus Plant & Flower
+    this.registerBlock({
+      shortId: 'chorus_plant',
+      shape: 'cube',
+      transparent: false,
+      solid: true,
+      lightEmission: 0,
+      hardness: 0.4,
+      soundGroup: 'wool',
+      textures: this.allFaces('chorus_plant'),
+      category: 'natural',
+    });
+    this.registerBlock({
+      shortId: 'chorus_flower',
+      shape: 'cube',
+      transparent: false,
+      solid: true,
+      lightEmission: 0,
+      hardness: 0.4,
+      soundGroup: 'wool',
+      textures: this.allFaces('chorus_flower'),
+      category: 'natural',
+    });
+
+    // Pistons & Redstone components
+    this.registerBlock({
+      shortId: 'piston',
+      shape: 'cube',
+      transparent: false,
+      solid: true,
+      lightEmission: 0,
+      hardness: 0.5,
+      soundGroup: 'stone',
+      textures: this.topBottomSide('piston_top', 'piston_bottom', 'piston_side'),
+      category: 'redstone',
+    });
+    this.registerBlock({
+      shortId: 'sticky_piston',
+      shape: 'cube',
+      transparent: false,
+      solid: true,
+      lightEmission: 0,
+      hardness: 0.5,
+      soundGroup: 'stone',
+      textures: this.topBottomSide('piston_top_sticky', 'piston_bottom', 'piston_side'),
+      category: 'redstone',
+    });
+    this.registerBlock({
+      shortId: 'repeater',
+      shape: 'carpet',
+      transparent: true,
+      solid: false,
+      lightEmission: 0,
+      hardness: 0.1,
+      soundGroup: 'stone',
+      textures: this.allFaces('repeater'),
+      category: 'redstone',
+    });
+    this.registerBlock({
+      shortId: 'lever',
+      shape: 'carpet',
+      transparent: true,
+      solid: false,
+      lightEmission: 0,
+      hardness: 0.5,
+      soundGroup: 'wood',
+      textures: this.allFaces('lever'),
+      category: 'redstone',
+    });
+    this.registerBlock({
+      shortId: 'stone_button',
+      shape: 'carpet',
+      transparent: true,
+      solid: false,
+      lightEmission: 0,
+      hardness: 0.5,
+      soundGroup: 'stone',
+      textures: this.allFaces('stone'),
+      category: 'redstone',
+    });
+    this.registerBlock({
+      shortId: 'oak_button',
+      shape: 'carpet',
+      transparent: true,
+      solid: false,
+      lightEmission: 0,
+      hardness: 0.5,
+      soundGroup: 'wood',
+      textures: this.allFaces('oak_planks'),
+      category: 'redstone',
+    });
+    this.registerBlock({
+      shortId: 'stone_pressure_plate',
+      shape: 'carpet',
+      transparent: true,
+      solid: false,
+      lightEmission: 0,
+      hardness: 0.5,
+      soundGroup: 'stone',
+      textures: this.allFaces('stone'),
+      category: 'redstone',
+    });
+    this.registerBlock({
+      shortId: 'oak_pressure_plate',
+      shape: 'carpet',
+      transparent: true,
+      solid: false,
+      lightEmission: 0,
+      hardness: 0.5,
+      soundGroup: 'wood',
+      textures: this.allFaces('oak_planks'),
+      category: 'redstone',
+    });
+    this.registerBlock({
+      shortId: 'weeping_vines',
+      shape: 'cross',
+      transparent: true,
+      solid: false,
+      lightEmission: 0,
+      hardness: 0.1,
+      soundGroup: 'grass',
+      textures: this.allFaces('weeping_vines'),
+      category: 'natural',
+    });
+    this.registerBlock({
+      shortId: 'twisting_vines',
+      shape: 'cross',
+      transparent: true,
+      solid: false,
+      lightEmission: 0,
+      hardness: 0.1,
+      soundGroup: 'grass',
+      textures: this.allFaces('twisting_vines'),
+      category: 'natural',
+    });
 
     // Hay Block & Bone Block
     this.registerBlock({
@@ -1208,7 +1409,18 @@ export class Registries {
       ['poplar_chest_boat', 'combat_tools', true],
       ['poplar_sign', 'functional', true],
       ['poplar_hanging_sign', 'functional', true],
-      ['filled_map', 'combat_tools', true], // Abandoned Camp Explorer Map!
+      ['filled_map', 'combat_tools', true],
+      ['ender_eye', 'combat_tools'],
+      ['ender_pearl', 'combat_tools'],
+      ['blaze_rod', 'natural'],
+      ['blaze_powder', 'natural'],
+      ['magma_cream', 'natural'],
+      ['ghast_tear', 'natural'],
+      ['nether_wart', 'natural'],
+      ['chorus_fruit', 'natural'],
+      ['elytra', 'combat_tools'],
+      ['shulker_shell', 'natural'],
+      ['dragon_breath', 'natural'], // Abandoned Camp Explorer Map!
       ['wheat', 'natural'],
       ['stick', 'natural'],
       ['coal', 'natural'],

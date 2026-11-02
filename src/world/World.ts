@@ -64,12 +64,24 @@ export class World {
       if (this.dimension === 'nether') {
         const gen = WorldGen26_3.generateNetherChunk(cx, cz);
         chunk = gen.chunk;
+        if (gen.mobs) {
+          for (const m of gen.mobs) {
+            const mid = `${m.type}_${Math.floor(m.x)}_${Math.floor(m.y)}_${Math.floor(m.z)}`;
+            this.entityRenderer.spawnMob(mid, m.type as any, m.x, m.y, m.z);
+          }
+        }
       } else if (this.dimension === 'the_end') {
         const gen = WorldGen26_3.generateEndChunk(cx, cz);
         chunk = gen.chunk;
         for (const cry of gen.crystals) {
           const cid = `crystal_${cry.x}_${cry.y}_${cry.z}`;
           this.entityRenderer.spawnMob(cid, 'end_crystal', cry.x, cry.y, cry.z);
+        }
+        if (gen.mobs) {
+          for (const m of gen.mobs) {
+            const mid = `${m.type}_${Math.floor(m.x)}_${Math.floor(m.y)}_${Math.floor(m.z)}`;
+            this.entityRenderer.spawnMob(mid, m.type as any, m.x, m.y, m.z);
+          }
         }
         if (!this.dragonSpawned && Math.abs(cx) <= 1 && Math.abs(cz) <= 1) {
           this.dragonSpawned = true;

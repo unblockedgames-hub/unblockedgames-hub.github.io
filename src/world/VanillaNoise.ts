@@ -189,6 +189,46 @@ export class VanillaClimate {
     };
   }
 
+  private hash3D(x: number, y: number, z: number, seed = 0): number {
+    let n = Math.imul(x, 374761393) + Math.imul(y, 1013904223) + Math.imul(z, 668265263) + Math.imul(seed, 1442695041);
+    n = (n ^ (n >>> 13)) * 1274126177;
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+  }
+
+  private smoothNoise3D(x: number, y: number, z: number, scale: number, seed = 0): number {
+    const sx = x / scale;
+    const sy = y / scale;
+    const sz = z / scale;
+    const ix = Math.floor(sx);
+    const iy = Math.floor(sy);
+    const iz = Math.floor(sz);
+    const fx = sx - ix;
+    const fy = sy - iy;
+    const fz = sz - iz;
+    const u = fx * fx * (3 - 2 * fx);
+    const v = fy * fy * (3 - 2 * fy);
+    const w = fz * fz * (3 - 2 * fz);
+
+    const c000 = this.hash3D(ix, iy, iz, seed);
+    const c100 = this.hash3D(ix + 1, iy, iz, seed);
+    const c010 = this.hash3D(ix, iy + 1, iz, seed);
+    const c110 = this.hash3D(ix + 1, iy + 1, iz, seed);
+    const c001 = this.hash3D(ix, iy, iz + 1, seed);
+    const c101 = this.hash3D(ix + 1, iy, iz + 1, seed);
+    const c011 = this.hash3D(ix, iy + 1, iz + 1, seed);
+    const c111 = this.hash3D(ix + 1, iy + 1, iz + 1, seed);
+
+    const x00 = c000 * (1 - u) + c100 * u;
+    const x10 = c010 * (1 - u) + c110 * u;
+    const x01 = c001 * (1 - u) + c101 * u;
+    const x11 = c011 * (1 - u) + c111 * u;
+
+    const y0 = x00 * (1 - v) + x10 * v;
+    const y1 = x01 * (1 - v) + x11 * v;
+
+    return y0 * (1 - w) + y1 * w;
+  }
+
   buildTerrainAndSurface(
     cx: number,
     cz: number,
@@ -196,50 +236,115 @@ export class VanillaClimate {
     setBiome: (lx: number, lz: number, biomeId: string) => void,
     getBlockId: (name: string) => number
   ): Int32Array {
-    const dChunk = new deepslate.Chunk(-64, 384, [cx, cz]);
-    this.generator.buildTerrain(this.randomState, dChunk);
-
-    const heightMap = new Int32Array(256);
+    const heightMap = this.getChunkHeightMap(cx, cz);
     const minX = cx * 16;
     const minZ = cz * 16;
+
     const bedrockId = getBlockId('bedrock');
+    const deepslateId = getBlockId('deepslate') || getBlockId('stone');
+    const stoneId = getBlockId('stone');
+    const dirtId = getBlockId('dirt');
+    const grassId = getBlockId('grass_block');
+    const sandId = getBlockId('sand');
+    const sandstoneId = getBlockId('sandstone') || stoneId;
+    const redSandId = getBlockId('red_sand') || sandId;
+    const terracottaId = getBlockId('terracotta') || stoneId;
+    const waterId = getBlockId('water');
+    const lavaId = getBlockId('lava');
+    const gravelId = getBlockId('gravel') || dirtId;
+    const snowBlockId = getBlockId('snow_block') || stoneId;
+
+    const SEA_LEVEL = 62;
+    const seedOffset = Number(this.seed & 0x7fffffffn);
 
     for (let lz = 0; lz < 16; lz++) {
       const wz = minZ + lz;
       for (let lx = 0; lx < 16; lx++) {
         const wx = minX + lx;
-        let topY = 0;
+        const rawH = heightMap[lz * 16 + lx];
+        const H = Math.max(1, Math.min(127, rawH));
 
-        for (let y = 0; y < 128; y++) {
-          const bs = dChunk.getBlockState(deepslate.BlockPos.create(wx, y, wz));
-          if (bs) {
-            const pathName = bs.getName().path;
-            if (pathName !== 'air') {
-              const numId = getBlockId(pathName);
-              if (numId) {
-                setBlock(lx, y, lz, numId);
-                topY = y;
-              }
-            }
-          }
-        }
-
-        // Bedrock floor at Y=0 (solid) and Y=1..4 (dithered)
-        setBlock(lx, 0, lz, bedrockId);
-        const dither = (this.hash2D(wx, wz, 999) * 4) | 0;
-        for (let y = 1; y <= dither; y++) {
-          setBlock(lx, y, lz, bedrockId);
-        }
-
-        heightMap[lz * 16 + lx] = Math.max(1, topY);
-
+        // Sample authentic 3D biome
         const biome = this.generator.computeBiome(
           this.randomState,
           wx >> 2,
-          Math.max(16, topY) >> 2,
+          Math.max(16, H) >> 2,
           wz >> 2
-        );
-        setBiome(lx, lz, biome.toString());
+        ).toString();
+        setBiome(lx, lz, biome);
+
+        const isDesert = biome.includes('desert') || biome.includes('beach');
+        const isBadlands = biome.includes('badlands');
+        const isSnowy = biome.includes('snowy') || biome.includes('ice') || biome.includes('frozen');
+
+        // Solid bedrock floor at Y=0, dithered at Y=1..4
+        setBlock(lx, 0, lz, bedrockId);
+        const bedDither = (this.hash2D(wx, wz, 999) * 4) | 0;
+        for (let y = 1; y <= bedDither; y++) {
+          setBlock(lx, y, lz, bedrockId);
+        }
+
+        // Fill rock column up to H with 1.18+ cheese & noodle caves
+        for (let y = 1; y <= H; y++) {
+          // Deepslate transition below Y=16
+          const deepslateThreshold = 16 - ((this.hash2D(wx, wz, y * 31) * 6) | 0);
+          const baseRock = y <= deepslateThreshold ? deepslateId : stoneId;
+
+          // 1.18+ Cheese caves (large cavernous halls)
+          const cheese = this.smoothNoise3D(wx, y * 1.15, wz, 34, seedOffset + 101);
+          // 1.18+ Spaghetti / Noodle caves (twisting 3D tunnels)
+          const n1 = this.smoothNoise3D(wx, y * 0.95, wz, 22, seedOffset + 202) * 2.0 - 1.0;
+          const n2 = this.smoothNoise3D(wx, y * 0.95, wz, 22, seedOffset + 303) * 2.0 - 1.0;
+          const noodleDistSq = n1 * n1 + n2 * n2;
+
+          const isCaveAir =
+            (cheese > 0.46 && y >= 10 && y <= H - 4) ||
+            (noodleDistSq < 0.038 && y >= 6 && y <= H - 4);
+
+          if (isCaveAir) {
+            // Lava sea below Y<=10
+            if (y <= 10) {
+              setBlock(lx, y, lz, lavaId);
+            }
+            // Subterranean aquifers (flooded caves) around Y=12..28
+            else if (y <= 24 && this.smoothNoise3D(wx, 20, wz, 40, seedOffset + 404) > 0.58) {
+              setBlock(lx, y, lz, waterId);
+            }
+            continue;
+          }
+
+          // Surface & subsurface block palette
+          if (y === H) {
+            if (H < SEA_LEVEL) {
+              setBlock(lx, y, lz, isDesert ? sandId : gravelId);
+            } else if (isDesert) {
+              setBlock(lx, y, lz, sandId);
+            } else if (isBadlands) {
+              setBlock(lx, y, lz, redSandId);
+            } else if (isSnowy && H > 90) {
+              setBlock(lx, y, lz, snowBlockId);
+            } else {
+              setBlock(lx, y, lz, grassId);
+            }
+          } else if (y >= H - 3) {
+            if (isDesert) {
+              setBlock(lx, y, lz, sandstoneId);
+            } else if (isBadlands) {
+              setBlock(lx, y, lz, terracottaId);
+            } else {
+              setBlock(lx, y, lz, dirtId);
+            }
+          } else {
+            setBlock(lx, y, lz, baseRock);
+          }
+        }
+
+        // Fill sea level water if surface is below SEA_LEVEL
+        if (H < SEA_LEVEL) {
+          for (let y = H + 1; y <= SEA_LEVEL; y++) {
+            setBlock(lx, y, lz, waterId);
+          }
+        }
       }
     }
 

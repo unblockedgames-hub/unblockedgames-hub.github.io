@@ -63,7 +63,12 @@ export interface MobEntity {
     | 'iron_golem'
     | 'villager'
     | 'ender_dragon'
-    | 'end_crystal';
+    | 'end_crystal'
+    | 'blaze'
+    | 'ghast'
+    | 'shulker'
+    | 'piglin'
+    | 'wither_skeleton';
   name?: string;
   x: number;
   y: number;
@@ -109,6 +114,7 @@ export class EntityRenderer {
   droppedItems = new Map<string, DroppedItemEntity>();
   fallingBlocks = new Map<string, FallingBlockEntity>();
   arrows = new Map<string, ArrowEntity>();
+  eyes = new Map<string, { id: string; mesh: THREE.Mesh; x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; targetX: number; targetZ: number }>();
   cushionTextures = new Map<string, THREE.Texture>();
   entityImages = new Map<string, HTMLImageElement>();
   textureLoader = new THREE.TextureLoader();
@@ -802,6 +808,96 @@ export class EntityRenderer {
         }
         innerCore.applyTexture(img, 0, 16);
       });
+    } else if (type === 'blaze') {
+      const head = this.createUprightPartMesh(8, 8, 8, 0, 0xffaa00);
+      head.mesh.position.set(0, 1.3, 0);
+      const rods: THREE.Mesh[] = [];
+      for (let i = 0; i < 8; i++) {
+        const rod = this.createUprightPartMesh(2, 8, 2, 0, 0xff8800);
+        const ang = (i * Math.PI * 2) / 8;
+        rod.mesh.position.set(Math.cos(ang) * 0.45, 0.8 + (i % 2) * 0.4, Math.sin(ang) * 0.45);
+        rods.push(rod.mesh);
+        group.add(rod.mesh);
+      }
+      group.add(head.mesh);
+      this.loadEntityImage('/assets/minecraft/textures/entity/blaze/blaze.png', (img) => {
+        head.applyTexture(img, 0, 0);
+      });
+    } else if (type === 'ghast') {
+      const body = this.createUprightPartMesh(16, 16, 16, 0, 0xffffff);
+      body.mesh.position.set(0, 2.5, 0);
+      body.mesh.scale.set(2.5, 2.5, 2.5);
+      const tentacles: THREE.Mesh[] = [];
+      for (let i = 0; i < 9; i++) {
+        const t = this.createUprightPartMesh(2, 8, 2, 0, 0xeeeeee);
+        const ox = ((i % 3) - 1) * 0.8;
+        const oz = (Math.floor(i / 3) - 1) * 0.8;
+        t.mesh.position.set(ox, 1.2, oz);
+        tentacles.push(t.mesh);
+        group.add(t.mesh);
+      }
+      group.add(body.mesh);
+      this.loadEntityImage('/assets/minecraft/textures/entity/ghast/ghast.png', (img) => {
+        body.applyTexture(img, 0, 0);
+      });
+    } else if (type === 'shulker') {
+      const baseShell = this.createUprightPartMesh(14, 6, 14, 0, 0x976797);
+      baseShell.mesh.position.set(0, 0.2, 0);
+      const topShell = this.createUprightPartMesh(16, 8, 16, 0, 0x976797);
+      topShell.mesh.position.set(0, 0.7, 0);
+      const head = this.createUprightPartMesh(6, 6, 6, 0, 0xf0f0f0);
+      head.mesh.position.set(0, 0.4, 0);
+      group.add(baseShell.mesh, topShell.mesh, head.mesh);
+      this.loadEntityImage('/assets/minecraft/textures/entity/shulker/shulker.png', (img) => {
+        baseShell.applyTexture(img, 0, 28);
+        topShell.applyTexture(img, 0, 0);
+        head.applyTexture(img, 0, 52);
+      });
+    } else if (type === 'piglin') {
+      const head = this.createUprightPartMesh(10, 8, 8, 0, 0xe5997f);
+      head.mesh.position.set(0, 24 / 16, 0);
+      const body = this.createUprightPartMesh(8, 12, 4, 0, 0x7a523a);
+      body.mesh.position.set(0, 18 / 16, 0);
+      const rArm = this.createUprightPartMesh(4, 12, 4, 0, 0xe5997f);
+      rArm.mesh.position.set(-6 / 16, 18 / 16, 0);
+      const lArm = this.createUprightPartMesh(4, 12, 4, 0, 0xe5997f);
+      lArm.mesh.position.set(6 / 16, 18 / 16, 0);
+      const rLeg = this.createUprightPartMesh(4, 12, 4, 0, 0x5a3d28);
+      rLeg.mesh.position.set(-2 / 16, 6 / 16, 0);
+      const lLeg = this.createUprightPartMesh(4, 12, 4, 0, 0x5a3d28);
+      lLeg.mesh.position.set(2 / 16, 6 / 16, 0);
+      group.add(head.mesh, body.mesh, rArm.mesh, lArm.mesh, rLeg.mesh, lLeg.mesh);
+      this.loadEntityImage('/assets/minecraft/textures/entity/piglin/piglin.png', (img) => {
+        head.applyTexture(img, 0, 0);
+        body.applyTexture(img, 16, 16);
+        rArm.applyTexture(img, 40, 16);
+        lArm.applyTexture(img, 32, 48);
+        rLeg.applyTexture(img, 0, 16);
+        lLeg.applyTexture(img, 16, 48);
+      });
+    } else if (type === 'wither_skeleton') {
+      const head = this.createUprightPartMesh(8, 8, 8, 0, 0x222222);
+      head.mesh.position.set(0, 28 / 16, 0);
+      const body = this.createUprightPartMesh(8, 12, 4, 0, 0x222222);
+      body.mesh.position.set(0, 20 / 16, 0);
+      const rArm = this.createUprightPartMesh(2, 12, 2, 0, 0x222222);
+      rArm.mesh.position.set(-5 / 16, 20 / 16, 0);
+      const lArm = this.createUprightPartMesh(2, 12, 2, 0, 0x222222);
+      lArm.mesh.position.set(5 / 16, 20 / 16, 0);
+      const rLeg = this.createUprightPartMesh(2, 12, 2, 0, 0x222222);
+      rLeg.mesh.position.set(-2 / 16, 6 / 16, 0);
+      const lLeg = this.createUprightPartMesh(2, 12, 2, 0, 0x222222);
+      lLeg.mesh.position.set(2 / 16, 6 / 16, 0);
+      group.add(head.mesh, body.mesh, rArm.mesh, lArm.mesh, rLeg.mesh, lLeg.mesh);
+      group.scale.set(1.2, 1.2, 1.2);
+      this.loadEntityImage('/assets/minecraft/textures/entity/skeleton/wither_skeleton.png', (img) => {
+        head.applyTexture(img, 0, 0);
+        body.applyTexture(img, 16, 16);
+        rArm.applyTexture(img, 40, 16);
+        lArm.applyTexture(img, 40, 16);
+        rLeg.applyTexture(img, 0, 16);
+        lLeg.applyTexture(img, 0, 16);
+      });
     }
 
     if (isBaby) {
@@ -825,6 +921,14 @@ export class EntityRenderer {
         ? 8
         : type === 'end_crystal'
         ? 1
+        : type === 'blaze' || type === 'wither_skeleton'
+        ? 20
+        : type === 'shulker'
+        ? 30
+        : type === 'ghast'
+        ? 10
+        : type === 'piglin'
+        ? 16
         : 10;
     group.position.set(x, y, z);
     this.scene.add(group);
@@ -1315,6 +1419,35 @@ export class EntityRenderer {
       targetY,
       vy: 0,
       mesh,
+    });
+  }
+
+  spawnEyeOfEnder(x: number, y: number, z: number, targetX: number, targetZ: number) {
+    const id = `eye_${Date.now()}_${Math.random()}`;
+    const geo = new THREE.SphereGeometry(0.18, 8, 8);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x22ee88 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    this.scene.add(mesh);
+
+    const dx = targetX - x;
+    const dz = targetZ - z;
+    const dist = Math.hypot(dx, dz);
+    const normX = dist > 0 ? dx / dist : 0;
+    const normZ = dist > 0 ? dz / dist : 0;
+
+    this.eyes.set(id, {
+      id,
+      mesh,
+      x,
+      y,
+      z,
+      vx: normX * 12.0,
+      vy: 3.5,
+      vz: normZ * 12.0,
+      life: 0,
+      targetX,
+      targetZ,
     });
   }
 
