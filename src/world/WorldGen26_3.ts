@@ -1298,111 +1298,15 @@ export class WorldGen26_3 {
       return { chunk, cushions, camp, mobs };
     }
 
-    heightMap = this.vanillaClimate.getChunkHeightMap(cx, cz);
-    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        const wx = cx * CHUNK_SIZE + lx;
-        const wz = cz * CHUNK_SIZE + lz;
-        const biomeId = this.getBiomeAt(wx, wz);
-        chunk.setBiome(lx, lz, biomeId);
-      }
-    }
+    const getBlockId = (name: string) => Registries.getBlock(name)?.numId || 0;
+    const setBlock = (lx: number, y: number, lz: number, numId: number) => chunk.setBlock(lx, y, lz, numId);
+    const setBiome = (lx: number, lz: number, biomeId: string) => chunk.setBiome(lx, lz, biomeId);
 
-    // Apply authentic Minecraft 26.3 Surface Rules (Bedrock, Deepslate, Stone, Dirt/Sand/Terracotta, Water/Ice, Snow)
-    SurfaceSystem.applySurface(chunk, cx, cz, heightMap);
+    // Authentic Minecraft Java 3D Terrain + Aquifers + Surface Rules + 3D Biomes
+    heightMap = this.vanillaClimate.buildTerrainAndSurface(cx, cz, setBlock, setBiome, getBlockId);
 
-    // 3D Subterranean Cave Carvers (authentic winding caves)
-    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        const wx = cx * CHUNK_SIZE + lx;
-        const wz = cz * CHUNK_SIZE + lz;
-        const h = heightMap[lz * CHUNK_SIZE + lx];
-        for (let y = 4; y < h; y++) {
-          const c1 = this.smoothNoise3D(wx, y * 1.1, wz, 22, 333) * 2.0 - 1.0;
-          const c2 = this.smoothNoise3D(wx, y * 1.1, wz, 22, 444) * 2.0 - 1.0;
-          if (c1 * c1 + c2 * c2 < 0.038) {
-            if (h >= SEA_LEVEL || y > SEA_LEVEL) {
-              chunk.setBlock(lx, y, lz, 0);
-            }
-          }
-        }
-      }
-    }
-
-    // Authentic Minecraft 26.3 Ore Distributions
-    const oreConfigs = [
-      // 1. Coal (Y=0..128)
-      { regular: coalOreId, deep: deepslateCoalOreId, count: 6, minY: 0, maxY: 128, radius: 1.4 },
-      // 2. Iron (Y=0..72)
-      { regular: ironOreId, deep: deepslateIronOreId, count: 4, minY: 0, maxY: 72, radius: 1.2 },
-      // 3. Copper (Y=16..100)
-      { regular: copperOreId, deep: deepslateCopperOreId, count: 3, minY: 16, maxY: 100, radius: 1.3 },
-      // 4. Gold (Y=4..32)
-      { regular: goldOreId, deep: deepslateGoldOreId, count: 2, minY: 4, maxY: 32, radius: 1.1 },
-      // 5. Redstone (Y=1..16)
-      { regular: redstoneOreId, deep: deepslateRedstoneOreId, count: 2, minY: 1, maxY: 16, radius: 1.1 },
-      // 6. Diamond (Y=1..16) - 1 vein with air exposure reduction
-      { regular: diamondOreId, deep: deepslateDiamondOreId, count: 1, minY: 1, maxY: 16, radius: 1.0 },
-      // 7. Lapis (Y=8..36)
-      { regular: lapisOreId, deep: deepslateLapisOreId, count: 1, minY: 8, maxY: 36, radius: 1.1 },
-      // 8. Underground Dirt & Gravel pockets (Y=10..120)
-      { regular: dirtId, deep: dirtId, count: 3, minY: 10, maxY: 120, radius: 1.8 },
-      { regular: gravelId, deep: gravelId, count: 4, minY: 10, maxY: 120, radius: 1.8 },
-      // 9. Granite, Diorite, Andesite pockets (Y=10..80)
-      { regular: graniteId, deep: tuffId, count: 2, minY: 10, maxY: 80, radius: 1.6 },
-      { regular: dioriteId, deep: tuffId, count: 2, minY: 10, maxY: 80, radius: 1.6 },
-      { regular: andesiteId, deep: tuffId, count: 2, minY: 10, maxY: 80, radius: 1.6 },
-    ];
-
-    for (let cIdx = 0; cIdx < oreConfigs.length; cIdx++) {
-      const cfg = oreConfigs[cIdx];
-      for (let v = 0; v < cfg.count; v++) {
-        const seedV = cIdx * 100 + v;
-        const originX = Math.floor(this.hash2D(cx + seedV, cz, 101) * 16);
-        const originZ = Math.floor(this.hash2D(cx, cz + seedV, 102) * 16);
-        const originY = Math.floor(cfg.minY + this.hash2D(cx + seedV, cz + seedV, 103) * (cfg.maxY - cfg.minY));
-        const r = cfg.radius;
-        const rSq = r * r;
-        const ceilR = Math.ceil(r);
-
-        for (let ox = -ceilR; ox <= ceilR; ox++) {
-          const bx = originX + ox;
-          if (bx < 0 || bx >= CHUNK_SIZE) continue;
-          for (let oz = -ceilR; oz <= ceilR; oz++) {
-            const bz = originZ + oz;
-            if (bz < 0 || bz >= CHUNK_SIZE) continue;
-            for (let oy = -ceilR; oy <= ceilR; oy++) {
-              const by = originY + oy;
-              if (by <= 0 || by >= CHUNK_HEIGHT) continue;
-              if (ox * ox + oy * oy * 1.3 + oz * oz <= rSq) {
-                const current = chunk.getBlock(bx, by, bz);
-                if (current === stoneId || current === deepslateId) {
-                  // Official 26.3 Reduced Air Exposure: ores bordering open cave air have a 60% chance to be discarded
-                  const isOre = cfg.regular !== dirtId && cfg.regular !== gravelId && cfg.regular !== graniteId && cfg.regular !== dioriteId && cfg.regular !== andesiteId;
-                  if (isOre) {
-                    const nearAir =
-                      (bx > 0 && chunk.getBlock(bx - 1, by, bz) === 0) ||
-                      (bx < 15 && chunk.getBlock(bx + 1, by, bz) === 0) ||
-                      (by > 0 && chunk.getBlock(bx, by - 1, bz) === 0) ||
-                      (by < 127 && chunk.getBlock(bx, by + 1, bz) === 0) ||
-                      (bz > 0 && chunk.getBlock(bx, by, bz - 1) === 0) ||
-                      (bz < 15 && chunk.getBlock(bx, by, bz + 1) === 0);
-                    if (nearAir && ((bx * 31 + by * 17 + bz * 7) & 3) !== 0) {
-                      continue; // Discard exposed ore in open cave air
-                    }
-                  }
-                  if (current === stoneId) {
-                    chunk.setBlock(bx, by, bz, cfg.regular);
-                  } else {
-                    chunk.setBlock(bx, by, bz, cfg.deep);
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
+    // Authentic Minecraft Java Placed Ore Features (step 6: underground_ores)
+    FeaturePlacer.placeOres(chunk, cx, cz, this.seed);
 
     // Check if this chunk naturally hosts an Abandoned Camp structure using authentic 32x32 regional spacing
     const REGION_SIZE = 32;

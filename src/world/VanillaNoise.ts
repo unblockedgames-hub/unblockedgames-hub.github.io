@@ -13,6 +13,21 @@ for (const [key, val] of Object.entries((worldgenData as any).densityFunctions))
   deepslate.WorldgenRegistries.DENSITY_FUNCTION.register(id, deepslate.WorldgenRegistries.DENSITY_FUNCTION.parser(val));
 }
 
+for (const [key, val] of Object.entries((worldgenData as any).materialConditions || {})) {
+  const id = deepslate.Identifier.create(key);
+  deepslate.WorldgenRegistries.MATERIAL_CONDITION.register(id, deepslate.WorldgenRegistries.MATERIAL_CONDITION.parser(val));
+}
+
+for (const [key, val] of Object.entries((worldgenData as any).materialRules || {})) {
+  const id = deepslate.Identifier.create(key);
+  deepslate.WorldgenRegistries.MATERIAL_RULE.register(id, deepslate.WorldgenRegistries.MATERIAL_RULE.parser(val));
+}
+
+for (const [key, val] of Object.entries((worldgenData as any).biomes || {})) {
+  const id = deepslate.Identifier.create(key);
+  deepslate.WorldgenRegistries.BIOME.register(id, val);
+}
+
 const overworldSettings = deepslate.NoiseGeneratorSettings.fromJson((worldgenData as any).overworldSettings);
 
 const biomeEntries = biomePointsRaw as any[];
@@ -172,6 +187,69 @@ export class VanillaClimate {
       erosion: c.erosion,
       ridge: c.weirdness
     };
+  }
+
+  buildTerrainAndSurface(
+    cx: number,
+    cz: number,
+    setBlock: (lx: number, y: number, lz: number, numId: number) => void,
+    setBiome: (lx: number, lz: number, biomeId: string) => void,
+    getBlockId: (name: string) => number
+  ): Int32Array {
+    const dChunk = new deepslate.Chunk(-64, 384, [cx, cz]);
+    this.generator.buildTerrain(this.randomState, dChunk);
+
+    const heightMap = new Int32Array(256);
+    const minX = cx * 16;
+    const minZ = cz * 16;
+    const bedrockId = getBlockId('bedrock');
+
+    for (let lz = 0; lz < 16; lz++) {
+      const wz = minZ + lz;
+      for (let lx = 0; lx < 16; lx++) {
+        const wx = minX + lx;
+        let topY = 0;
+
+        for (let y = 0; y < 128; y++) {
+          const bs = dChunk.getBlockState(deepslate.BlockPos.create(wx, y, wz));
+          if (bs) {
+            const pathName = bs.getName().path;
+            if (pathName !== 'air') {
+              const numId = getBlockId(pathName);
+              if (numId) {
+                setBlock(lx, y, lz, numId);
+                topY = y;
+              }
+            }
+          }
+        }
+
+        // Bedrock floor at Y=0 (solid) and Y=1..4 (dithered)
+        setBlock(lx, 0, lz, bedrockId);
+        const dither = (this.hash2D(wx, wz, 999) * 4) | 0;
+        for (let y = 1; y <= dither; y++) {
+          setBlock(lx, y, lz, bedrockId);
+        }
+
+        heightMap[lz * 16 + lx] = Math.max(1, topY);
+
+        const biome = this.generator.computeBiome(
+          this.randomState,
+          wx >> 2,
+          Math.max(16, topY) >> 2,
+          wz >> 2
+        );
+        setBiome(lx, lz, biome.toString());
+      }
+    }
+
+    return heightMap;
+  }
+
+  private hash2D(x: number, z: number, seed = 0): number {
+    let n = Math.imul(x, 374761393) + Math.imul(z, 668265263) + Math.imul(seed, 1442695041);
+    n = (n ^ (n >>> 13)) * 1274126177;
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
   }
 
   getTerrainHeight(blockX: number, blockZ: number): number {

@@ -13,6 +13,140 @@ export class FeaturePlacer {
   static SEA_LEVEL = 63;
 
   /**
+   * Places authentic Minecraft 26.3 ore veins (step 6: underground_ores) using Mojang's
+   * exact ellipsoidal line equations, triangular/uniform height ranges, and air-exposure discard checks.
+   */
+  static placeOres(chunk: Chunk, cx: number, cz: number, worldSeed: number) {
+    const r = deepslate.XoroshiroRandom.create(BigInt(worldSeed));
+    const pr = r.forkPositional();
+
+    const stoneId = Registries.getBlock('stone')?.numId || 0;
+    const deepslateId = Registries.getBlock('deepslate')?.numId || 0;
+
+    const ores = [
+      // Coal upper: 30 attempts, uniform [136..256], size 17, air 0
+      { ore: 'coal_ore', deep: 'deepslate_coal_ore', count: 30, type: 'uniform', min: 136, max: 256, size: 17, airDiscard: 0.0, step: 0 },
+      // Coal lower: 20 attempts, trapezoid [0..192], size 17, air 0.5
+      { ore: 'coal_ore', deep: 'deepslate_coal_ore', count: 20, type: 'trapezoid', min: 0, max: 192, size: 17, airDiscard: 0.5, step: 1 },
+      // Iron upper: 90 attempts, trapezoid [80..256], size 9, air 0
+      { ore: 'iron_ore', deep: 'deepslate_iron_ore', count: 90, type: 'trapezoid', min: 80, max: 256, size: 9, airDiscard: 0.0, step: 2 },
+      // Iron middle: 10 attempts, trapezoid [-24..56], size 9, air 0
+      { ore: 'iron_ore', deep: 'deepslate_iron_ore', count: 10, type: 'trapezoid', min: -24, max: 56, size: 9, airDiscard: 0.0, step: 3 },
+      // Iron small: 10 attempts, uniform [0..72], size 4, air 0
+      { ore: 'iron_ore', deep: 'deepslate_iron_ore', count: 10, type: 'uniform', min: 0, max: 72, size: 4, airDiscard: 0.0, step: 4 },
+      // Copper: 16 attempts, trapezoid [-16..112], size 10, air 0
+      { ore: 'copper_ore', deep: 'deepslate_copper_ore', count: 16, type: 'trapezoid', min: -16, max: 112, size: 10, airDiscard: 0.0, step: 5 },
+      // Copper large: 16 attempts, trapezoid [-16..112], size 20, air 0
+      { ore: 'copper_ore', deep: 'deepslate_copper_ore', count: 16, type: 'trapezoid', min: -16, max: 112, size: 20, airDiscard: 0.0, step: 6 },
+      // Gold: 4 attempts, trapezoid [-64..32], size 9, air 0.5
+      { ore: 'gold_ore', deep: 'deepslate_gold_ore', count: 4, type: 'trapezoid', min: -64, max: 32, size: 9, airDiscard: 0.5, step: 7 },
+      // Redstone: 4 attempts, uniform [0..15], size 8, air 0
+      { ore: 'redstone_ore', deep: 'deepslate_redstone_ore', count: 4, type: 'uniform', min: 0, max: 15, size: 8, airDiscard: 0.0, step: 8 },
+      // Redstone lower: 8 attempts, trapezoid [0..32], size 8, air 0
+      { ore: 'redstone_ore', deep: 'deepslate_redstone_ore', count: 8, type: 'trapezoid', min: 0, max: 32, size: 8, airDiscard: 0.0, step: 9 },
+      // Diamond: 7 attempts, trapezoid [0..16], size 4, air 0.5
+      { ore: 'diamond_ore', deep: 'deepslate_diamond_ore', count: 7, type: 'trapezoid', min: 0, max: 16, size: 4, airDiscard: 0.5, step: 10 },
+      // Diamond medium: 2 attempts, uniform [0..16], size 8, air 0.5
+      { ore: 'diamond_ore', deep: 'deepslate_diamond_ore', count: 2, type: 'uniform', min: 0, max: 16, size: 8, airDiscard: 0.5, step: 11 },
+      // Lapis: 2 attempts, trapezoid [0..64], size 7, air 0
+      { ore: 'lapis_ore', deep: 'deepslate_lapis_ore', count: 2, type: 'trapezoid', min: 0, max: 64, size: 7, airDiscard: 0.0, step: 12 },
+      // Dirt: 7 attempts, uniform [0..160], size 33, air 0
+      { ore: 'dirt', deep: 'dirt', count: 7, type: 'uniform', min: 0, max: 160, size: 33, airDiscard: 0.0, step: 13 },
+      // Gravel: 14 attempts, uniform [0..128], size 33, air 0
+      { ore: 'gravel', deep: 'gravel', count: 14, type: 'uniform', min: 0, max: 128, size: 33, airDiscard: 0.0, step: 14 },
+      // Granite: 2 attempts, uniform [0..60], size 64, air 0
+      { ore: 'granite', deep: 'tuff', count: 2, type: 'uniform', min: 0, max: 60, size: 64, airDiscard: 0.0, step: 15 },
+      // Diorite: 2 attempts, uniform [0..60], size 64, air 0
+      { ore: 'diorite', deep: 'tuff', count: 2, type: 'uniform', min: 0, max: 60, size: 64, airDiscard: 0.0, step: 16 },
+      // Andesite: 2 attempts, uniform [0..60], size 64, air 0
+      { ore: 'andesite', deep: 'tuff', count: 2, type: 'uniform', min: 0, max: 60, size: 64, airDiscard: 0.0, step: 17 },
+      // Tuff: 2 attempts, uniform [0..16], size 64, air 0
+      { ore: 'tuff', deep: 'tuff', count: 2, type: 'uniform', min: 0, max: 16, size: 64, airDiscard: 0.0, step: 18 }
+    ];
+
+    for (const cfg of ores) {
+      const oreId = Registries.getBlock(cfg.ore)?.numId || stoneId;
+      const deepId = Registries.getBlock(cfg.deep)?.numId || deepslateId;
+      const oreRng = pr.at(cx, cfg.step, cz);
+
+      for (let c = 0; c < cfg.count; c++) {
+        const originX = cx * 16 + oreRng.nextInt(16);
+        const originZ = cz * 16 + oreRng.nextInt(16);
+
+        let originY = 0;
+        if (cfg.type === 'trapezoid') {
+          originY = trapezoid(oreRng, cfg.min, cfg.max);
+        } else {
+          originY = cfg.min + oreRng.nextInt(Math.max(1, cfg.max - cfg.min + 1));
+        }
+
+        if (originY < 1 || originY >= CHUNK_HEIGHT) continue;
+
+        // Mojang OreFeature line equation
+        const f = oreRng.nextFloat() * Math.PI;
+        const g = cfg.size / 8.0;
+        const d = originX + Math.sin(f) * g;
+        const e = originX - Math.sin(f) * g;
+        const h = originZ + Math.cos(f) * g;
+        const j = originZ - Math.cos(f) * g;
+        const k = originY + oreRng.nextInt(3) - 2;
+        const m = originY + oreRng.nextInt(3) - 2;
+
+        for (let s = 0; s < cfg.size; s++) {
+          const progress = s / cfg.size;
+          const curX = d + (e - d) * progress;
+          const curY = k + (m - k) * progress;
+          const curZ = h + (j - h) * progress;
+          const spread = oreRng.nextDouble() * cfg.size / 16.0;
+          const radius = ((Math.sin(Math.PI * progress) + 1.0) * spread + 1.0) / 2.0;
+
+          const minBx = Math.floor(curX - radius);
+          const maxBx = Math.floor(curX + radius);
+          const minBy = Math.floor(curY - radius);
+          const maxBy = Math.floor(curY + radius);
+          const minBz = Math.floor(curZ - radius);
+          const maxBz = Math.floor(curZ + radius);
+
+          for (let bx = minBx; bx <= maxBx; bx++) {
+            const dx = (bx + 0.5 - curX) / radius;
+            if (dx * dx >= 1.0) continue;
+            const lx = bx - cx * 16;
+            if (lx < 0 || lx >= 16) continue;
+
+            for (let by = minBy; by <= maxBy; by++) {
+              const dy = (by + 0.5 - curY) / radius;
+              if (dx * dx + dy * dy >= 1.0) continue;
+              if (by < 1 || by >= CHUNK_HEIGHT) continue;
+
+              for (let bz = minBz; bz <= maxBz; bz++) {
+                const dz = (bz + 0.5 - curZ) / radius;
+                if (dx * dx + dy * dy + dz * dz >= 1.0) continue;
+                const lz = bz - cz * 16;
+                if (lz < 0 || lz >= 16) continue;
+
+                const curBlock = chunk.getBlock(lx, by, lz);
+                if (curBlock === stoneId || curBlock === deepslateId) {
+                  if (cfg.airDiscard > 0) {
+                    const nearAir =
+                      (lx > 0 && chunk.getBlock(lx - 1, by, lz) === 0) ||
+                      (lx < 15 && chunk.getBlock(lx + 1, by, lz) === 0) ||
+                      (by > 0 && chunk.getBlock(lx, by - 1, lz) === 0) ||
+                      (by < CHUNK_HEIGHT - 1 && chunk.getBlock(lx, by + 1, lz) === 0) ||
+                      (lz > 0 && chunk.getBlock(lx, by, lz - 1) === 0) ||
+                      (lz < 15 && chunk.getBlock(lx, by, lz + 1) === 0);
+                    if (nearAir && oreRng.nextFloat() < cfg.airDiscard) continue;
+                  }
+                  chunk.setBlock(lx, by, lz, curBlock === deepslateId ? deepId : oreId);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Places authentic Minecraft 26.3 features per chunk according to official biome definitions.
    * Tree canopies are checked across 3x3 neighboring chunks to ensure seamless boundaries without clipping.
    */
