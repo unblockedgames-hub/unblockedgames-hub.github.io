@@ -28,6 +28,10 @@ export class World {
   netherDiffs = new Map<string, { numId: number; meta: number }>();
   endDiffs = new Map<string, { numId: number; meta: number }>();
   dragonSpawned = false;
+  private cachedCenterCx = -999999;
+  private cachedCenterCz = -999999;
+  private cachedRadius = -1;
+  private cachedNeededCoords: { cx: number; cz: number; distSq: number }[] = [];
 
   constructor(scene: THREE.Scene, entityRenderer: EntityRenderer, particleSystem: ParticleSystem) {
     this.scene = scene;
@@ -412,38 +416,46 @@ export class World {
     return 65;
   }
 
-  updateChunksAroundPlayer(px: number, pz: number) {
+  updateChunksAroundPlayer(px: number, pz: number, immediateRadius = 0) {
     const centerCx = Math.floor(px / CHUNK_SIZE);
     const centerCz = Math.floor(pz / CHUNK_SIZE);
     const radius = OptionsManager.current.renderDistance || 8;
 
-    // Collect all chunk coordinates in render radius sorted by distance from player (closest first)
-    const neededCoords: { cx: number; cz: number; distSq: number }[] = [];
-    const genRadius = radius + 1;
-    for (let dz = -genRadius; dz <= genRadius; dz++) {
-      for (let dx = -genRadius; dx <= genRadius; dx++) {
-        const distSq = dx * dx + dz * dz;
-        if (distSq <= (genRadius + 0.5) * (genRadius + 0.5)) {
-          neededCoords.push({ cx: centerCx + dx, cz: centerCz + dz, distSq });
+    if (centerCx !== this.cachedCenterCx || centerCz !== this.cachedCenterCz || radius !== this.cachedRadius) {
+      this.cachedCenterCx = centerCx;
+      this.cachedCenterCz = centerCz;
+      this.cachedRadius = radius;
+      this.cachedNeededCoords = [];
+      const genRadius = radius + 1;
+      for (let dz = -genRadius; dz <= genRadius; dz++) {
+        for (let dx = -genRadius; dx <= genRadius; dx++) {
+          const distSq = dx * dx + dz * dz;
+          if (distSq <= (genRadius + 0.5) * (genRadius + 0.5)) {
+            this.cachedNeededCoords.push({ cx: centerCx + dx, cz: centerCz + dz, distSq });
+          }
         }
       }
+      this.cachedNeededCoords.sort((a, b) => a.distSq - b.distSq);
     }
-    neededCoords.sort((a, b) => a.distSq - b.distSq);
 
-    // Time-budgeted chunk generation: max 2 chunks or 4ms per frame (closest chunks first)
+    const neededCoords = this.cachedNeededCoords;
+
+    // Time-budgeted chunk generation: up to 6 chunks or 12ms per frame (closest chunks first)
     const genStartTime = performance.now();
     let genCount = 0;
-    for (const { cx, cz } of neededCoords) {
+    for (const { cx, cz, distSq } of neededCoords) {
       if (!this.chunks.has(this.chunkKey(cx, cz))) {
         this.ensureChunk(cx, cz);
         genCount++;
-        if (genCount >= 2 || performance.now() - genStartTime > 4) {
-          break;
+        if (distSq > immediateRadius * immediateRadius) {
+          if (genCount >= 6 || performance.now() - genStartTime > 12) {
+            break;
+          }
         }
       }
     }
 
-    // Time-budgeted meshing: build meshes for closest dirty chunks (max 2 chunks or 6ms per frame)
+    // Time-budgeted meshing: build meshes for closest dirty chunks (up to 6 chunks or 12ms per frame)
     const meshStartTime = performance.now();
     let meshCount = 0;
     const boundGetBlock = (wx: number, wy: number, wz: number): number => {
@@ -460,8 +472,10 @@ export class World {
         if (!hadSolid && chunk.solidMesh) this.scene.add(chunk.solidMesh);
         if (!hadWater && chunk.waterMesh) this.scene.add(chunk.waterMesh);
         meshCount++;
-        if (meshCount >= 2 || performance.now() - meshStartTime > 6) {
-          break;
+        if (distSq > immediateRadius * immediateRadius) {
+          if (meshCount >= 6 || performance.now() - meshStartTime > 12) {
+            break;
+          }
         }
       }
     }

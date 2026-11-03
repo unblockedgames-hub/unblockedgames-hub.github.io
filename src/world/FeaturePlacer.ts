@@ -188,53 +188,23 @@ export class FeaturePlacer {
     };
 
     const getSurfaceHeight = (wx: number, wz: number): number => {
-      const lx = wx - cx * CHUNK_SIZE;
-      const lz = wz - cz * CHUNK_SIZE;
-      if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE) {
-        return heightMap[lz * CHUNK_SIZE + lx];
-      }
-      return WorldGen26_3.vanillaClimate.generator.getBaseHeight(
-        wx,
-        wz,
-        'WORLD_SURFACE_WG',
-        WorldGen26_3.vanillaClimate.randomState
-      );
+      const lx = Math.max(0, Math.min(15, wx - cx * CHUNK_SIZE));
+      const lz = Math.max(0, Math.min(15, wz - cz * CHUNK_SIZE));
+      return heightMap[lz * CHUNK_SIZE + lx];
     };
 
-    // --- 1. TREE GENERATION (3x3 neighborhood for seamless border canopies) ---
-    for (let dcx = -1; dcx <= 1; dcx++) {
-      for (let dcz = -1; dcz <= 1; dcz++) {
-        const ncx = cx + dcx;
-        const ncz = cz + dcz;
-        const chunkRng = pr.at(ncx, 0, ncz);
+    // --- 1. TREE GENERATION (fast deterministic chunk placement) ---
+    const chunkRng = pr.at(cx, 0, cz);
+    const candidateAttempts = 4;
+    for (let i = 0; i < candidateAttempts; i++) {
+      const lx = chunkRng.nextInt(16);
+      const lz = chunkRng.nextInt(16);
+      const twx = cx * CHUNK_SIZE + lx;
+      const twz = cz * CHUNK_SIZE + lz;
 
-        // Sample candidate tree locations across the chunk
-        const candidateAttempts = 4;
-        for (let i = 0; i < candidateAttempts; i++) {
-          const lx = chunkRng.nextInt(16);
-          const lz = chunkRng.nextInt(16);
-          const twx = ncx * CHUNK_SIZE + lx;
-          const twz = ncz * CHUNK_SIZE + lz;
-
-          // Quick distance check: skip if tree canopy cannot reach current chunk
-          if (
-            twx < cx * CHUNK_SIZE - 4 ||
-            twx > (cx + 1) * CHUNK_SIZE + 4 ||
-            twz < cz * CHUNK_SIZE - 4 ||
-            twz > (cz + 1) * CHUNK_SIZE + 4
-          ) {
-            continue;
-          }
-
-          if (
-            hasStructure &&
-            twx >= cx * CHUNK_SIZE &&
-            twx < (cx + 1) * CHUNK_SIZE &&
-            twz >= cz * CHUNK_SIZE &&
-            twz < (cz + 1) * CHUNK_SIZE
-          ) {
-            continue;
-          }
+      if (hasStructure && lx >= 4 && lx <= 12 && lz >= 4 && lz <= 12) {
+        continue;
+      }
 
           const biomeId = WorldGen26_3.vanillaClimate.getBiomeAt(twx, twz);
           const h = getSurfaceHeight(twx, twz);
@@ -297,8 +267,6 @@ export class FeaturePlacer {
             this.placeClassicTree(setBlockInChunk, twx, h + 1, twz, 'oak_log', 'oak_leaves', 5);
           }
         }
-      }
-    }
 
     // --- 2. FLORA & SURFACE COVER DECORATION (per-block biome evaluation) ---
     for (let lz = 0; lz < CHUNK_SIZE; lz++) {

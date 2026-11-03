@@ -229,6 +229,21 @@ export class VanillaClimate {
     return y0 * (1 - w) + y1 * w;
   }
 
+  private static heightCache = new Map<number, number>();
+
+  private getSampledHeight(wx: number, wz: number): number {
+    const key = ((wx & 0xffff) << 16) | (wz & 0xffff);
+    let h = VanillaClimate.heightCache.get(key);
+    if (h === undefined) {
+      h = this.generator.getBaseHeight(wx, wz, 'WORLD_SURFACE_WG', this.randomState);
+      if (VanillaClimate.heightCache.size > 8192) {
+        VanillaClimate.heightCache.clear();
+      }
+      VanillaClimate.heightCache.set(key, h);
+    }
+    return h;
+  }
+
   buildTerrainAndSurface(
     cx: number,
     cz: number,
@@ -257,20 +272,29 @@ export class VanillaClimate {
     const SEA_LEVEL = 62;
     const seedOffset = Number(this.seed & 0x7fffffffn);
 
+    // Pre-sample 4x4 quartet biomes for the entire chunk (authentic quarter-resolution sampler)
+    const quartetBiomes: string[] = new Array(16);
+    for (let qz = 0; qz < 4; qz++) {
+      for (let qx = 0; qx < 4; qx++) {
+        quartetBiomes[qz * 4 + qx] = this.biomeSource.getBiome(
+          (minX >> 2) + qx,
+          16,
+          (minZ >> 2) + qz,
+          this.randomState.sampler
+        );
+      }
+    }
+
     for (let lz = 0; lz < 16; lz++) {
       const wz = minZ + lz;
+      const qz = lz >> 2;
       for (let lx = 0; lx < 16; lx++) {
         const wx = minX + lx;
+        const qx = lx >> 2;
         const rawH = heightMap[lz * 16 + lx];
         const H = Math.max(1, Math.min(127, rawH));
 
-        // Sample authentic 3D biome
-        const biome = this.generator.computeBiome(
-          this.randomState,
-          wx >> 2,
-          Math.max(16, H) >> 2,
-          wz >> 2
-        ).toString();
+        const biome = quartetBiomes[qz * 4 + qx];
         setBiome(lx, lz, biome);
 
         const isDesert = biome.includes('desert') || biome.includes('beach');
@@ -285,33 +309,9 @@ export class VanillaClimate {
         }
 
         // Fill rock column up to H with 1.18+ cheese & noodle caves
+        const deepslateThreshold = 16 - ((this.hash2D(wx, wz, 99) * 6) | 0);
         for (let y = 1; y <= H; y++) {
-          // Deepslate transition below Y=16
-          const deepslateThreshold = 16 - ((this.hash2D(wx, wz, y * 31) * 6) | 0);
           const baseRock = y <= deepslateThreshold ? deepslateId : stoneId;
-
-          // 1.18+ Cheese caves (large cavernous halls)
-          const cheese = this.smoothNoise3D(wx, y * 1.15, wz, 34, seedOffset + 101);
-          // 1.18+ Spaghetti / Noodle caves (twisting 3D tunnels)
-          const n1 = this.smoothNoise3D(wx, y * 0.95, wz, 22, seedOffset + 202) * 2.0 - 1.0;
-          const n2 = this.smoothNoise3D(wx, y * 0.95, wz, 22, seedOffset + 303) * 2.0 - 1.0;
-          const noodleDistSq = n1 * n1 + n2 * n2;
-
-          const isCaveAir =
-            (cheese > 0.46 && y >= 10 && y <= H - 4) ||
-            (noodleDistSq < 0.038 && y >= 6 && y <= H - 4);
-
-          if (isCaveAir) {
-            // Lava sea below Y<=10
-            if (y <= 10) {
-              setBlock(lx, y, lz, lavaId);
-            }
-            // Subterranean aquifers (flooded caves) around Y=12..28
-            else if (y <= 24 && this.smoothNoise3D(wx, 20, wz, 40, seedOffset + 404) > 0.58) {
-              setBlock(lx, y, lz, waterId);
-            }
-            continue;
-          }
 
           // Surface & subsurface block palette
           if (y === H) {
@@ -335,6 +335,22 @@ export class VanillaClimate {
               setBlock(lx, y, lz, dirtId);
             }
           } else {
+            // Underground rock zone: sample caves efficiently only where caverns can exist
+            if (y >= 6 && y <= H - 4) {
+              const cheese = this.smoothNoise3D(wx, y * 1.15, wz, 34, seedOffset + 101);
+              const n1 = this.smoothNoise3D(wx, y * 0.95, wz, 22, seedOffset + 202) * 2.0 - 1.0;
+              const n2 = this.smoothNoise3D(wx, y * 0.95, wz, 22, seedOffset + 303) * 2.0 - 1.0;
+              const noodleDistSq = n1 * n1 + n2 * n2;
+
+              if (cheese > 0.46 || noodleDistSq < 0.038) {
+                if (y <= 10) {
+                  setBlock(lx, y, lz, lavaId);
+                } else if (y <= 24 && this.smoothNoise3D(wx, 20, wz, 40, seedOffset + 404) > 0.58) {
+                  setBlock(lx, y, lz, waterId);
+                }
+                continue;
+              }
+            }
             setBlock(lx, y, lz, baseRock);
           }
         }
@@ -358,31 +374,32 @@ export class VanillaClimate {
   }
 
   getTerrainHeight(blockX: number, blockZ: number): number {
-    return this.generator.getBaseHeight(blockX, blockZ, 'WORLD_SURFACE_WG', this.randomState);
+    return this.getSampledHeight(blockX, blockZ);
   }
 
   getChunkHeightMap(cx: number, cz: number): Int32Array {
     const heights = new Int32Array(256);
-    const cornerGrid: number[][] = [];
     const minX = cx * 16;
     const minZ = cz * 16;
 
-    // Sample 5x5 grid (every 4 blocks)
-    for (let gz = 0; gz <= 4; gz++) {
+    // Sample 3x3 grid (every 8 blocks: 0, 8, 16) with cached boundary reuse
+    const cornerGrid: number[][] = [];
+    for (let gz = 0; gz <= 2; gz++) {
       const row: number[] = [];
-      for (let gx = 0; gx <= 4; gx++) {
-        row.push(this.generator.getBaseHeight(minX + gx * 4, minZ + gz * 4, 'WORLD_SURFACE_WG', this.randomState));
+      const wz = minZ + gz * 8;
+      for (let gx = 0; gx <= 2; gx++) {
+        row.push(this.getSampledHeight(minX + gx * 8, wz));
       }
       cornerGrid.push(row);
     }
 
-    // Bilinear interpolate into 16x16
+    // Fast bilinear interpolation across the 2x2 cells of 8x8 blocks
     for (let lz = 0; lz < 16; lz++) {
-      const cellZ = lz >> 2;
-      const fz = (lz & 3) / 4.0;
+      const cellZ = lz >> 3;
+      const fz = (lz & 7) / 8.0;
       for (let lx = 0; lx < 16; lx++) {
-        const cellX = lx >> 2;
-        const fx = (lx & 3) / 4.0;
+        const cellX = lx >> 3;
+        const fx = (lx & 7) / 8.0;
 
         const h00 = cornerGrid[cellZ][cellX];
         const h10 = cornerGrid[cellZ][cellX + 1];

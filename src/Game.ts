@@ -213,7 +213,8 @@ export class Game {
     }
     this.world.updateChunksAroundPlayer(
       this.player.position.x,
-      this.player.position.z
+      this.player.position.z,
+      1
     );
 
     // Spawn passive mobs nearby on dry terrain around player spawn if none exist
@@ -2072,7 +2073,8 @@ export class Game {
 
     this.world.updateChunksAroundPlayer(
       this.player.position.x,
-      this.player.position.z
+      this.player.position.z,
+      1
     );
 
     if (!isSingleplayerPaused) {
