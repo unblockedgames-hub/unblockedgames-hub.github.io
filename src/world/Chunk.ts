@@ -693,6 +693,41 @@ export class Chunk {
                 0.46,
                 0.26
               );
+            } else if (def.shortId === 'lily_pad') {
+              // Official Minecraft LilyPadBlock: flat horizontal quad hovering at y + 0.016 over water
+              // With official Minecraft Lily Pad green foliage tint 0x208030 (RGB: 0.125, 0.502, 0.188)
+              const lr = 0.125;
+              const lg = 0.502;
+              const lb = 0.188;
+              const yOffset = y + 0.016;
+              pushQuad(
+                false,
+                [lx, yOffset, lz + 1],
+                [lx + 1, yOffset, lz + 1],
+                [lx + 1, yOffset, lz],
+                [lx, yOffset, lz],
+                0,
+                1,
+                0,
+                def.textures.top,
+                lr,
+                lg,
+                lb
+              );
+              pushQuad(
+                false,
+                [lx, yOffset, lz],
+                [lx + 1, yOffset, lz],
+                [lx + 1, yOffset, lz + 1],
+                [lx, yOffset, lz + 1],
+                0,
+                -1,
+                0,
+                def.textures.top,
+                lr * 0.8,
+                lg * 0.8,
+                lb * 0.8
+              );
             } else if (def.shortId === 'snow') {
               // Official Minecraft snow layer: 2/16 (0.125) height box
               pushBox(lx, y, lz, lx + 1, y + 0.125, lz + 1, def, biome, 0x3f, 0, wx, wz);

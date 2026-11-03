@@ -1639,6 +1639,14 @@ export class Game {
         return;
       }
 
+      if (placeDef.shortId === 'lily_pad') {
+        const underBlock = this.world.getBlock(placeX, placeY - 1, placeZ);
+        const underDef = Registries.getBlock(underBlock);
+        if (underDef.fluid !== 'water' && underDef.shortId !== 'water') {
+          return;
+        }
+      }
+
       if (placeDef.shortId === 'straw_bed') {
         const offsets = [
           [0, -1],

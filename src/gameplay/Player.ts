@@ -422,6 +422,9 @@ export class Player {
     if (b === 0) return 0;
     const def = Registries.getBlock(b);
     if (!def.solid) return 0;
+    if (def.shortId === 'lily_pad') {
+      return 0.09375;
+    }
     if (def.shape === 'slab_bottom') {
       const meta = this.world.getMeta(bx, by, bz);
       return (meta & 4) !== 0 ? 1.0 : 0.5;
@@ -1024,6 +1027,9 @@ export class Player {
 
     this.currentHit = null;
 
+    const heldItemShortId = this.inventory.getHeldStack()?.item?.shortId || '';
+    const canTargetFluid = heldItemShortId === 'bucket' || heldItemShortId === 'lily_pad' || heldItemShortId.includes('boat');
+
     for (let d = 0.05; d <= maxDist; d += step) {
       const px = origin.x + dir.x * d;
       const py = origin.y + dir.y * d;
@@ -1035,7 +1041,7 @@ export class Player {
       const b = this.world.getBlock(bx, by, bz);
       if (b !== 0) {
         const def = Registries.getBlock(b);
-        if (def.shape !== 'air' && def.shape !== 'fluid') {
+        if (def.shape !== 'air' && (def.shape !== 'fluid' || canTargetFluid)) {
           this.currentHit = {
             bx,
             by,

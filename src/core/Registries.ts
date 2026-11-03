@@ -933,6 +933,19 @@ export class Registries {
       textures: this.allFaces(blockTexSet.has('snow') ? 'snow' : 'snow_block'),
       category: 'natural',
     });
+    this.registerBlock({
+      shortId: 'lily_pad',
+      displayName: 'Lily Pad',
+      shape: 'carpet',
+      transparent: true,
+      solid: true,
+      lightEmission: 0,
+      hardness: 0,
+      soundGroup: 'grass',
+      tint: 'foliage',
+      textures: this.allFaces('lily_pad'),
+      category: 'natural',
+    });
     const plants = [
       'short_grass',
       'fern',

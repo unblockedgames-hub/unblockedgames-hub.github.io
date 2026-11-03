@@ -283,7 +283,8 @@ export class FeaturePlacer {
         const biomeId = chunk.biomes[lz * CHUNK_SIZE + lx] || 'minecraft:plains';
 
         if (h <= this.SEA_LEVEL) {
-          if (biomeId.includes('swamp') && lilyPadId && chunk.getBlock(lx, this.SEA_LEVEL, lz) === waterId) {
+          const isCold = biomeId.includes('snowy') || biomeId.includes('frozen') || biomeId.includes('ice');
+          if (!isCold && biomeId.includes('swamp') && lilyPadId && chunk.getBlock(lx, this.SEA_LEVEL, lz) === waterId) {
             if (this.hash2D(wx, wz, 555) < 0.03 && chunk.getBlock(lx, this.SEA_LEVEL + 1, lz) === 0) {
               chunk.setBlock(lx, this.SEA_LEVEL + 1, lz, lilyPadId);
             }
@@ -387,6 +388,12 @@ export class FeaturePlacer {
         // 1. Freeze surface water
         if (chunk.getBlock(lx, this.SEA_LEVEL, lz) === waterId) {
           chunk.setBlock(lx, this.SEA_LEVEL, lz, iceId);
+          // If a lily pad was on the water, it cannot survive on ice: pop it off
+          const aboveBlock = chunk.getBlock(lx, this.SEA_LEVEL + 1, lz);
+          const aboveDef = Registries.getBlock(aboveBlock);
+          if (aboveDef && aboveDef.shortId === 'lily_pad') {
+            chunk.setBlock(lx, this.SEA_LEVEL + 1, lz, 0);
+          }
         }
 
         // 2. Scan downwards through column to place snow on leaves and ground

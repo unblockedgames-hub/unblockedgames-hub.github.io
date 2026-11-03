@@ -33,7 +33,8 @@ export class ItemIconRenderer {
       shortName.endsWith('_cushion') ||
       shortName === 'torch' ||
       shortName === 'campfire' ||
-      shortName === 'lantern';
+      shortName === 'lantern' ||
+      shortName === 'lily_pad';
 
     if (isFlatSprite) {
       let url = `/assets/minecraft/textures/${item.texture}.png`;

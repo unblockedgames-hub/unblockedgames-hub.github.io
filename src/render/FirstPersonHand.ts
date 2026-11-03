@@ -393,7 +393,8 @@ export class FirstPersonHand {
       !blockDef ||
       blockDef.shape === 'cross' ||
       blockDef.shape === 'torch' ||
-      blockDef.shape === 'campfire';
+      blockDef.shape === 'campfire' ||
+      blockDef.shortId === 'lily_pad';
 
     if (is2DItem) {
       // Official firstperson_righthand transform from models/item/handheld.json & generated.json:
@@ -415,7 +416,24 @@ export class FirstPersonHand {
       img.crossOrigin = 'anonymous';
       img.onload = () => {
         if (this.currentItemId !== id) return;
-        const mesh = this.buildExtruded2DItemMesh(img);
+        let sourceImg: CanvasImageSource = img;
+        if (item.shortId === 'lily_pad') {
+          const tc = document.createElement('canvas');
+          tc.width = img.width || 16;
+          tc.height = img.height || 16;
+          const tctx = tc.getContext('2d')!;
+          tctx.drawImage(img, 0, 0);
+          const idata = tctx.getImageData(0, 0, tc.width, tc.height);
+          const d = idata.data;
+          for (let i = 0; i < d.length; i += 4) {
+            d[i] = Math.floor(d[i] * 0.125);
+            d[i + 1] = Math.floor(d[i + 1] * 0.502);
+            d[i + 2] = Math.floor(d[i + 2] * 0.188);
+          }
+          tctx.putImageData(idata, 0, 0);
+          sourceImg = tc as any;
+        }
+        const mesh = this.buildExtruded2DItemMesh(sourceImg as HTMLImageElement);
         this.itemDisplayGroup.add(mesh);
       };
       img.src = url;
