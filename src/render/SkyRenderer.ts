@@ -120,6 +120,7 @@ export class SkyRenderer {
       opacity: 0.82,
       side: THREE.DoubleSide,
       depthWrite: false,
+      fog: false,
     });
     loader.load('/assets/minecraft/textures/environment/clouds.png', (tex) => {
       tex.magFilter = THREE.NearestFilter;

@@ -415,46 +415,68 @@ export class World {
   updateChunksAroundPlayer(px: number, pz: number) {
     const centerCx = Math.floor(px / CHUNK_SIZE);
     const centerCz = Math.floor(pz / CHUNK_SIZE);
-    const radius = OptionsManager.current.renderDistance || 4;
+    const radius = OptionsManager.current.renderDistance || 8;
 
-    // Ensure chunks within radius + 1 exist so all meshed chunks have neighbor data
+    // Collect all chunk coordinates in render radius sorted by distance from player (closest first)
+    const neededCoords: { cx: number; cz: number; distSq: number }[] = [];
     const genRadius = radius + 1;
     for (let dz = -genRadius; dz <= genRadius; dz++) {
       for (let dx = -genRadius; dx <= genRadius; dx++) {
-        if (dx * dx + dz * dz <= (genRadius + 0.5) * (genRadius + 0.5)) {
-          this.ensureChunk(centerCx + dx, centerCz + dz);
+        const distSq = dx * dx + dz * dz;
+        if (distSq <= (genRadius + 0.5) * (genRadius + 0.5)) {
+          neededCoords.push({ cx: centerCx + dx, cz: centerCz + dz, distSq });
+        }
+      }
+    }
+    neededCoords.sort((a, b) => a.distSq - b.distSq);
+
+    // Time-budgeted chunk generation: max 2 chunks or 4ms per frame (closest chunks first)
+    const genStartTime = performance.now();
+    let genCount = 0;
+    for (const { cx, cz } of neededCoords) {
+      if (!this.chunks.has(Chunk.chunkKey(cx, cz))) {
+        this.ensureChunk(cx, cz);
+        genCount++;
+        if (genCount >= 2 || performance.now() - genStartTime > 4) {
+          break;
         }
       }
     }
 
-    // Rebuild up to 3 dirty chunks per frame for smooth FPS
-    let rebuilt = 0;
+    // Time-budgeted meshing: build meshes for closest dirty chunks (max 2 chunks or 6ms per frame)
+    const meshStartTime = performance.now();
+    let meshCount = 0;
     const boundGetBlock = (wx: number, wy: number, wz: number): number => {
       return this.getBlock(wx, wy, wz);
     };
 
-    for (let dz = -radius; dz <= radius; dz++) {
-      for (let dx = -radius; dx <= radius; dx++) {
-        const chunk = this.getChunk(centerCx + dx, centerCz + dz);
-        if (chunk && chunk.dirty) {
-          const hadSolid = !!chunk.solidMesh;
-          const hadWater = !!chunk.waterMesh;
-          chunk.buildMeshes(boundGetBlock, this.solidMaterial, this.waterMaterial);
-          if (!hadSolid && chunk.solidMesh) this.scene.add(chunk.solidMesh);
-          if (!hadWater && chunk.waterMesh) this.scene.add(chunk.waterMesh);
-          rebuilt++;
-          if (rebuilt >= 3) break;
+    for (const { cx, cz, distSq } of neededCoords) {
+      if (distSq > radius * radius) continue;
+      const chunk = this.getChunk(cx, cz);
+      if (chunk && chunk.dirty) {
+        const hadSolid = !!chunk.solidMesh;
+        const hadWater = !!chunk.waterMesh;
+        chunk.buildMeshes(boundGetBlock, this.solidMaterial, this.waterMaterial);
+        if (!hadSolid && chunk.solidMesh) this.scene.add(chunk.solidMesh);
+        if (!hadWater && chunk.waterMesh) this.scene.add(chunk.waterMesh);
+        meshCount++;
+        if (meshCount >= 2 || performance.now() - meshStartTime > 6) {
+          break;
         }
       }
-      if (rebuilt >= 3) break;
     }
 
-    // Hide far chunks outside radius + 2
+    // Toggle chunk mesh visibility based on render distance to eliminate unnecessary GPU draw calls
+    const maxVisibleDistSq = (radius + 0.5) ** 2;
     for (const [, chunk] of this.chunks) {
       const distSq = (chunk.cx - centerCx) ** 2 + (chunk.cz - centerCz) ** 2;
-      const visible = distSq <= (radius + 1.5) ** 2;
-      if (chunk.solidMesh) chunk.solidMesh.visible = visible;
-      if (chunk.waterMesh) chunk.waterMesh.visible = visible;
+      const visible = distSq <= maxVisibleDistSq;
+      if (chunk.solidMesh && chunk.solidMesh.visible !== visible) {
+        chunk.solidMesh.visible = visible;
+      }
+      if (chunk.waterMesh && chunk.waterMesh.visible !== visible) {
+        chunk.waterMesh.visible = visible;
+      }
     }
   }
 

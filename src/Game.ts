@@ -60,13 +60,15 @@ export class Game {
 
     this.scene = new THREE.Scene();
     this.scene.background = this.skyColor;
-    this.scene.fog = new THREE.FogExp2(0x78a7ff, 0.011);
+    const initialRenderDist = OptionsManager.current.renderDistance || 8;
+    const initialFogEnd = initialRenderDist * 16;
+    this.scene.fog = new THREE.Fog(this.skyColor, initialFogEnd * 0.75, initialFogEnd);
 
     this.camera = new THREE.PerspectiveCamera(
       70,
       window.innerWidth / window.innerHeight,
       0.1,
-      250
+      500
     );
 
     this.ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
@@ -1889,10 +1891,7 @@ export class Game {
       this.player.inPortal = false;
 
       this.skyColor.setRGB(0.05, 0.02, 0.08);
-      if (this.scene.fog instanceof THREE.FogExp2) {
-        this.scene.fog.color.copy(this.skyColor);
-        this.scene.fog.density = 0.02;
-      }
+      this.scene.fog = new THREE.Fog(this.skyColor, 32, 160);
       this.ui.addChatMessage('§dEntered The End dimension.');
       this.ui.unlockAdvancement('the_end');
       AudioEngine.play('block.portal.travel', 0.9);
@@ -1910,10 +1909,8 @@ export class Game {
       this.player.inPortal = false;
 
       this.skyColor.setRGB(0.47, 0.65, 1.0);
-      if (this.scene.fog instanceof THREE.FogExp2) {
-        this.scene.fog.color.copy(this.skyColor);
-        this.scene.fog.density = 0.015;
-      }
+      const rBlocks = (OptionsManager.current.renderDistance || 8) * 16;
+      this.scene.fog = new THREE.Fog(this.skyColor, rBlocks * 0.75, rBlocks);
       this.ui.addChatMessage('§aReturned to the Overworld.');
       AudioEngine.play('block.portal.travel', 0.9);
       return;
@@ -1956,18 +1953,13 @@ export class Game {
 
     if (targetDimension === 'nether') {
       this.skyColor.setRGB(0.2, 0.03, 0.03);
-      if (this.scene.fog instanceof THREE.FogExp2) {
-        this.scene.fog.color.copy(this.skyColor);
-        this.scene.fog.density = 0.035;
-      }
+      this.scene.fog = new THREE.Fog(this.skyColor, 16, 96);
       this.ui.addChatMessage('§cEntered The Nether dimension.');
       this.ui.unlockAdvancement('nether');
     } else {
       this.skyColor.setRGB(0.47, 0.65, 1.0);
-      if (this.scene.fog instanceof THREE.FogExp2) {
-        this.scene.fog.color.copy(this.skyColor);
-        this.scene.fog.density = 0.015;
-      }
+      const rBlocks = (OptionsManager.current.renderDistance || 8) * 16;
+      this.scene.fog = new THREE.Fog(this.skyColor, rBlocks * 0.75, rBlocks);
       this.ui.addChatMessage('§aReturned to the Overworld.');
     }
 
@@ -1988,8 +1980,11 @@ export class Game {
     }
 
     this.skyColor.setRGB(0.47 * daylight, 0.65 * daylight, 1.0 * daylight);
-    if (this.scene.fog instanceof THREE.FogExp2) {
+    if (this.scene.fog instanceof THREE.Fog) {
       this.scene.fog.color.copy(this.skyColor);
+      const rDist = OptionsManager.current.renderDistance || 8;
+      this.scene.fog.far = rDist * 16;
+      this.scene.fog.near = this.scene.fog.far * 0.75;
     }
     this.ambientLight.intensity = 0.18 + 0.62 * daylight;
     this.sunLight.intensity = 0.95 * daylight;

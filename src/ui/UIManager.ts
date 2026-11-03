@@ -2357,60 +2357,67 @@ export class UIManager {
     const centerX = Math.floor(sw / 2);
     const centerY = Math.floor(sh / 2);
 
-    // Vanilla LevelLoadingScreen: menu background (dirt)
+    // Vanilla Minecraft LevelLoadingScreen: authentic full dirt background
     this.gui.renderMenuBackground(false);
 
-    // Centered title: "Loading terrain" and "Preparing spawn area: X%"
-    const textY = centerY - 60;
-    this.font.drawCentered(this.gui.ctx, 'Loading terrain', centerX, textY, '#FFFFFF', true);
-
     const progressPct = Math.min(100, Math.floor(this.loadingTerrainProgress));
-    this.font.drawCentered(
-      this.gui.ctx,
-      `Preparing spawn area: ${progressPct}%`,
-      centerX,
-      textY + 16,
-      '#E0E0E0',
-      true
-    );
 
-    // Official 9x9 chunk loading status grid
-    const gridSize = 9;
-    const tileSize = 8;
-    const gap = 1;
-    const totalGridW = gridSize * tileSize + (gridSize - 1) * gap;
-    const gridStartX = centerX - Math.floor(totalGridW / 2);
-    const gridStartY = textY + 32;
+    // Official Minecraft 21x21 spawn chunk status map (LevelLoadingScreen.java)
+    const gridSize = 21;
+    const tileSize = 3;
+    const totalW = gridSize * tileSize;
+    const startX = centerX - Math.floor(totalW / 2);
+    const startY = centerY - Math.floor(totalW / 2);
 
-    const totalTiles = gridSize * gridSize;
-    const loadedCount = Math.floor((this.loadingTerrainProgress / 100) * totalTiles);
+    // Outer 1px black border
+    this.gui.fill(startX - 1, startY - 1, startX + totalW + 1, startY + totalW + 1, '#000000');
 
-    let tileIdx = 0;
+    // Radius of current generation wave
+    const maxR = (gridSize - 1) / 2; // 10
+    const progressRatio = this.loadingTerrainProgress / 100;
+    const currentR = progressRatio * (maxR + 2);
+
+    // Render 21x21 chunk tiles with authentic ChunkStatus color palette
     for (let gy = 0; gy < gridSize; gy++) {
+      const dz = gy - maxR;
       for (let gx = 0; gx < gridSize; gx++) {
-        const tx = gridStartX + gx * (tileSize + gap);
-        const ty = gridStartY + gy * (tileSize + gap);
+        const dx = gx - maxR;
+        const dist = Math.hypot(dx, dz);
+        const tx = startX + gx * tileSize;
+        const ty = startY + gy * tileSize;
 
-        if (tileIdx < loadedCount) {
-          // Loaded spawn chunk: Minecraft lime green
-          this.gui.fill(tx, ty, tx + tileSize, ty + tileSize, '#4de64d');
-        } else if (tileIdx === loadedCount) {
-          // Currently loading chunk: amber
-          this.gui.fill(tx, ty, tx + tileSize, ty + tileSize, '#e6b800');
-        } else {
-          // Pending chunk: dark green
-          this.gui.fill(tx, ty, tx + tileSize, ty + tileSize, '#1a331a');
+        let color = '#0a0a20'; // EMPTY / UNLOADED: Deep navy
+        if (progressPct >= 100 || dist <= currentR - 1.6) {
+          color = '#4de64d'; // FULL: Vibrant Minecraft Lime Green
+        } else if (dist <= currentR - 0.9) {
+          color = '#e6c020'; // LIGHT / SPAWN: Golden yellow / Amber
+        } else if (dist <= currentR - 0.3) {
+          color = '#b050d0'; // FEATURES: Rich violet / magenta
+        } else if (dist <= currentR + 0.5) {
+          color = '#4a4ab0'; // SURFACE / BIOMES: Slate blue
+        } else if (dist <= currentR + 1.2) {
+          color = '#202060'; // NOISE / STRUCTURES: Dark indigo
         }
-        // Dark 1px outline
-        this.gui.ctx.strokeStyle = '#000000';
-        this.gui.ctx.lineWidth = 1;
-        this.gui.ctx.strokeRect(tx, ty, tileSize, tileSize);
 
-        tileIdx++;
+        this.gui.fill(tx, ty, tx + tileSize, ty + tileSize, color);
       }
     }
 
-    this.loadingTerrainProgress = Math.min(100, this.loadingTerrainProgress + dt * 55);
+    // Central percentage readout with dark backing box
+    const pctText = `${progressPct}%`;
+    const textW = this.font.width(pctText);
+    const boxPadX = 6;
+    const boxPadY = 4;
+    this.gui.fill(
+      centerX - Math.floor(textW / 2) - boxPadX,
+      centerY - boxPadY - 2,
+      centerX + Math.floor(textW / 2) + boxPadX,
+      centerY + boxPadY + 6,
+      'rgba(0, 0, 0, 0.88)'
+    );
+    this.font.drawCentered(this.gui.ctx, pctText, centerX, centerY - 2, '#FFFFFF', true);
+
+    this.loadingTerrainProgress = Math.min(100, this.loadingTerrainProgress + dt * 45);
 
     if (this.loadingTerrainProgress >= 100) {
       this.finalizeLaunchWorld();

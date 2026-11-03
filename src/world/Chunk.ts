@@ -305,9 +305,9 @@ export class Chunk {
         (def.shortId === 'grass_block' || def.shortId === 'grass_block_snow') &&
         (def.shortId === 'grass_block_snow' ||
           (() => {
-            const aboveId = getWorldBlock(wx, Math.floor(y0) + 1, wz);
+            const aboveId = getBlockFast(x0, Math.floor(y0) + 1, z0);
             const aboveDef = Registries.getBlock(aboveId);
-            return !!(aboveDef && (aboveDef.shortId === 'snow' || aboveDef.shortId === 'snow_block'));
+            return !!(aboveDef && (aboveDef.shortId === 'snow' || aboveDef.shortId === 'snow_block' || aboveDef.shortId === 'powder_snow'));
           })());
 
       // Top (+Y)
@@ -470,6 +470,18 @@ export class Chunk {
 
     const baseX = this.cx * CHUNK_SIZE;
     const baseZ = this.cz * CHUNK_SIZE;
+    const blocks = this.blocks;
+
+    // High performance local/neighbor block reader:
+    // Direct typed array memory access (0ms) for interior blocks (95%+ of queries),
+    // only delegating to getWorldBlock on chunk borders.
+    const getBlockFast = (x: number, y: number, z: number): number => {
+      if (y < 0 || y >= CHUNK_HEIGHT) return 0;
+      if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE) {
+        return blocks[(y * CHUNK_SIZE + z) * CHUNK_SIZE + x];
+      }
+      return getWorldBlock(baseX + x, y, baseZ + z);
+    };
 
     const shouldRenderNeighborFace = (selfDef: BlockDefinition, neighborNum: number): boolean => {
       if (neighborNum === 0) return true;
@@ -492,10 +504,25 @@ export class Chunk {
       return false;
     };
 
-    for (let y = 0; y < CHUNK_HEIGHT; y++) {
+    // Find maximum block height in chunk to skip looping over empty sky
+    let maxY = CHUNK_HEIGHT - 1;
+    while (maxY > 1) {
+      let hasBlock = false;
+      const yOffset = maxY * CHUNK_SIZE * CHUNK_SIZE;
+      for (let i = 0; i < CHUNK_SIZE * CHUNK_SIZE; i++) {
+        if (blocks[yOffset + i] !== 0) {
+          hasBlock = true;
+          break;
+        }
+      }
+      if (hasBlock) break;
+      maxY--;
+    }
+
+    for (let y = 0; y <= maxY; y++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-          const bNum = this.getBlock(lx, y, lz);
+          const bNum = blocks[(y * CHUNK_SIZE + lz) * CHUNK_SIZE + lx];
           if (bNum === 0) continue;
 
           const def = Registries.getBlock(bNum);
@@ -508,25 +535,25 @@ export class Chunk {
 
           if (def.shape === 'cube' || def.shape === 'pillar') {
             let mask = 0;
-            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y + 1, wz))) mask |= 1;
-            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y - 1, wz))) mask |= 2;
-            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y, wz + 1))) mask |= 4;
-            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y, wz - 1))) mask |= 8;
-            if (shouldRenderNeighborFace(def, getWorldBlock(wx + 1, y, wz))) mask |= 16;
-            if (shouldRenderNeighborFace(def, getWorldBlock(wx - 1, y, wz))) mask |= 32;
+            if (shouldRenderNeighborFace(def, getBlockFast(lx, y + 1, lz))) mask |= 1;
+            if (shouldRenderNeighborFace(def, getBlockFast(lx, y - 1, lz))) mask |= 2;
+            if (shouldRenderNeighborFace(def, getBlockFast(lx, y, lz + 1))) mask |= 4;
+            if (shouldRenderNeighborFace(def, getBlockFast(lx, y, lz - 1))) mask |= 8;
+            if (shouldRenderNeighborFace(def, getBlockFast(lx + 1, y, lz))) mask |= 16;
+            if (shouldRenderNeighborFace(def, getBlockFast(lx - 1, y, lz))) mask |= 32;
             if (mask !== 0) {
               pushBox(lx, y, lz, lx + 1, y + 1, lz + 1, def, biome, mask, meta, wx, wz);
             }
           } else if (def.shape === 'fluid') {
             let mask = 0;
-            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y + 1, wz))) mask |= 1;
-            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y - 1, wz))) mask |= 2;
-            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y, wz + 1))) mask |= 4;
-            if (shouldRenderNeighborFace(def, getWorldBlock(wx, y, wz - 1))) mask |= 8;
-            if (shouldRenderNeighborFace(def, getWorldBlock(wx + 1, y, wz))) mask |= 16;
-            if (shouldRenderNeighborFace(def, getWorldBlock(wx - 1, y, wz))) mask |= 32;
+            if (shouldRenderNeighborFace(def, getBlockFast(lx, y + 1, lz))) mask |= 1;
+            if (shouldRenderNeighborFace(def, getBlockFast(lx, y - 1, lz))) mask |= 2;
+            if (shouldRenderNeighborFace(def, getBlockFast(lx, y, lz + 1))) mask |= 4;
+            if (shouldRenderNeighborFace(def, getBlockFast(lx, y, lz - 1))) mask |= 8;
+            if (shouldRenderNeighborFace(def, getBlockFast(lx + 1, y, lz))) mask |= 16;
+            if (shouldRenderNeighborFace(def, getBlockFast(lx - 1, y, lz))) mask |= 32;
             if (mask !== 0) {
-              const topY = getWorldBlock(wx, y + 1, wz) === bNum ? y + 1 : y + 0.88;
+              const topY = getBlockFast(lx, y + 1, lz) === bNum ? y + 1 : y + 0.88;
               pushBox(lx, y, lz, lx + 1, topY, lz + 1, def, biome, mask);
             }
           } else if (def.shape === 'slab_bottom') {
@@ -534,12 +561,12 @@ export class Chunk {
             const y0 = topHalf ? y + 0.5 : y;
             const y1 = topHalf ? y + 1.0 : y + 0.5;
             let mask = 0x3f;
-            if (!topHalf && !shouldRenderNeighborFace(def, getWorldBlock(wx, y - 1, wz))) mask &= ~2;
-            if (topHalf && !shouldRenderNeighborFace(def, getWorldBlock(wx, y + 1, wz))) mask &= ~1;
+            if (!topHalf && !shouldRenderNeighborFace(def, getBlockFast(lx, y - 1, lz))) mask &= ~2;
+            if (topHalf && !shouldRenderNeighborFace(def, getBlockFast(lx, y + 1, lz))) mask &= ~1;
             pushBox(lx, y0, lz, lx + 1, y1, lz + 1, def, biome, mask);
           } else if (def.shape === 'slab_top') {
             let mask = 0x3f;
-            if (!shouldRenderNeighborFace(def, getWorldBlock(wx, y + 1, wz))) mask &= ~1;
+            if (!shouldRenderNeighborFace(def, getBlockFast(lx, y + 1, lz))) mask &= ~1;
             pushBox(lx, y + 0.5, lz, lx + 1, y + 1.0, lz + 1, def, biome, mask);
           } else if (def.shape === 'trapdoor') {
             const isOpen = (meta & 8) !== 0;
@@ -550,8 +577,8 @@ export class Chunk {
               const y0 = isTop ? y + 0.8125 : y;
               const y1 = isTop ? y + 1.0 : y + 0.1875;
               let mask = 0x3f;
-              if (!isTop && !shouldRenderNeighborFace(def, getWorldBlock(wx, y - 1, wz))) mask &= ~2;
-              if (isTop && !shouldRenderNeighborFace(def, getWorldBlock(wx, y + 1, wz))) mask &= ~1;
+              if (!isTop && !shouldRenderNeighborFace(def, getBlockFast(lx, y - 1, lz))) mask &= ~2;
+              if (isTop && !shouldRenderNeighborFace(def, getBlockFast(lx, y + 1, lz))) mask &= ~1;
               pushBox(lx, y0, lz, lx + 1, y1, lz + 1, def, biome, mask);
             } else {
               // Upright open trapdoor against attached wall (3/16 thick)
@@ -575,8 +602,8 @@ export class Chunk {
             const yStep1 = isUpsideDown ? y + 0.5 : y + 1.0;
 
             let baseMask = 0x3f;
-            if (!isUpsideDown && !shouldRenderNeighborFace(def, getWorldBlock(wx, y - 1, wz))) baseMask &= ~2;
-            if (isUpsideDown && !shouldRenderNeighborFace(def, getWorldBlock(wx, y + 1, wz))) baseMask &= ~1;
+            if (!isUpsideDown && !shouldRenderNeighborFace(def, getBlockFast(lx, y - 1, lz))) baseMask &= ~2;
+            if (isUpsideDown && !shouldRenderNeighborFace(def, getBlockFast(lx, y + 1, lz))) baseMask &= ~1;
             pushBox(lx, yBase0, lz, lx + 1, yBase1, lz + 1, def, biome, baseMask);
 
             if (facing === 0) {

@@ -208,8 +208,9 @@ export class FeaturePlacer {
         const ncz = cz + dcz;
         const chunkRng = pr.at(ncx, 0, ncz);
 
-        // Sample tree count and positions for chunk (ncx, ncz)
-        const sampleTree = () => {
+        // Sample candidate tree locations across the chunk
+        const candidateAttempts = 4;
+        for (let i = 0; i < candidateAttempts; i++) {
           const lx = chunkRng.nextInt(16);
           const lz = chunkRng.nextInt(16);
           const twx = ncx * CHUNK_SIZE + lx;
@@ -222,17 +223,41 @@ export class FeaturePlacer {
             twz < cz * CHUNK_SIZE - 4 ||
             twz > (cz + 1) * CHUNK_SIZE + 4
           ) {
-            return;
+            continue;
           }
 
-          if (hasStructure && twx >= cx * CHUNK_SIZE && twx < (cx + 1) * CHUNK_SIZE &&
-              twz >= cz * CHUNK_SIZE && twz < (cz + 1) * CHUNK_SIZE) {
-            return;
+          if (
+            hasStructure &&
+            twx >= cx * CHUNK_SIZE &&
+            twx < (cx + 1) * CHUNK_SIZE &&
+            twz >= cz * CHUNK_SIZE &&
+            twz < (cz + 1) * CHUNK_SIZE
+          ) {
+            continue;
           }
 
           const biomeId = WorldGen26_3.vanillaClimate.getBiomeAt(twx, twz);
           const h = getSurfaceHeight(twx, twz);
-          if (h <= this.SEA_LEVEL) return;
+          if (h <= this.SEA_LEVEL) continue;
+
+          // Per-candidate probability based on biome density
+          let treeChance = 0;
+          if (biomeId.includes('forest') || biomeId.includes('taiga') || biomeId.includes('grove')) {
+            treeChance = 0.85;
+          } else if (biomeId === 'minecraft:dappled_forest' || biomeId === 'minecraft:poplar_grove') {
+            treeChance = 0.85;
+          } else if (biomeId.includes('jungle')) {
+            treeChance = 0.95;
+          } else if (biomeId === 'minecraft:snowy_plains') {
+            // Authentic Minecraft trees_snowy: sparse spruce pines scattered across the plains
+            treeChance = 0.45;
+          } else if (biomeId === 'minecraft:plains' || biomeId === 'minecraft:sunflower_plains') {
+            treeChance = 0.15;
+          } else if (biomeId === 'minecraft:savanna') {
+            treeChance = 0.35;
+          }
+
+          if (chunkRng.nextFloat() > treeChance) continue;
 
           if (biomeId === 'minecraft:snowy_plains') {
             // Authentic Minecraft trees_snowy: tall conical pines with tiered snowy crowns
@@ -269,115 +294,75 @@ export class FeaturePlacer {
           } else if (biomeId === 'minecraft:savanna') {
             this.placeAcaciaTree(setBlockInChunk, twx, h + 1, twz);
           } else if (biomeId === 'minecraft:plains' || biomeId === 'minecraft:sunflower_plains') {
-            if (chunkRng.nextInt(10) < 3) {
-              this.placeClassicTree(setBlockInChunk, twx, h + 1, twz, 'oak_log', 'oak_leaves', 5);
-            }
+            this.placeClassicTree(setBlockInChunk, twx, h + 1, twz, 'oak_log', 'oak_leaves', 5);
           }
-        };
-
-        // Determine number of tree attempts for this chunk
-        const treeRoll = chunkRng.nextInt(10);
-        const centerBiome = WorldGen26_3.vanillaClimate.getBiomeAt(ncx * CHUNK_SIZE + 8, ncz * CHUNK_SIZE + 8);
-
-        let treeAttempts = 0;
-        if (centerBiome.includes('forest') || centerBiome.includes('taiga') || centerBiome.includes('grove')) {
-          treeAttempts = 3 + (treeRoll % 3);
-        } else if (centerBiome === 'minecraft:dappled_forest' || centerBiome === 'minecraft:poplar_grove') {
-          treeAttempts = 3 + (treeRoll % 3);
-        } else if (centerBiome.includes('jungle')) {
-          treeAttempts = 4 + (treeRoll % 3);
-        } else if (centerBiome === 'minecraft:snowy_plains') {
-          treeAttempts = 1 + (treeRoll % 2);
-        } else if (centerBiome === 'minecraft:plains' || centerBiome === 'minecraft:sunflower_plains') {
-          treeAttempts = treeRoll < 2 ? 1 : 0;
-        } else if (centerBiome === 'minecraft:savanna') {
-          treeAttempts = treeRoll < 4 ? 1 : 0;
-        }
-
-        for (let i = 0; i < treeAttempts; i++) {
-          sampleTree();
         }
       }
     }
 
-    // --- 2. FLORA & SURFACE COVER DECORATION (per chunk) ---
-    const biomeAtCenter = chunk.biomes[8 * CHUNK_SIZE + 8] || 'minecraft:plains';
+    // --- 2. FLORA & SURFACE COVER DECORATION (per-block biome evaluation) ---
+    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const wx = cx * CHUNK_SIZE + lx;
+        const wz = cz * CHUNK_SIZE + lz;
+        const h = heightMap[lz * CHUNK_SIZE + lx];
+        const biomeId = chunk.biomes[lz * CHUNK_SIZE + lx] || 'minecraft:plains';
 
-    if (biomeAtCenter === 'minecraft:snowy_plains' || biomeAtCenter.includes('snowy')) {
-      // 1. Clustered grass patches (patch_grass_plain) - small natural tufts
-      const patchRng = pr.at(cx, 1, cz);
-      if (patchRng.nextInt(2) === 0) {
-        const ox = cx * CHUNK_SIZE + patchRng.nextInt(16);
-        const oz = cz * CHUNK_SIZE + patchRng.nextInt(16);
-        for (let i = 0; i < 8; i++) {
-          const dx = trapezoid(patchRng, -4, 4);
-          const dz = trapezoid(patchRng, -4, 4);
-          const wx = ox + dx;
-          const wz = oz + dz;
-          const lx = wx - cx * CHUNK_SIZE;
-          const lz = wz - cz * CHUNK_SIZE;
-          if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE) {
-            const h = heightMap[lz * CHUNK_SIZE + lx];
-            if (h > this.SEA_LEVEL && chunk.getBlock(lx, h, lz) === grassId && chunk.getBlock(lx, h + 1, lz) === 0) {
-              chunk.setBlock(lx, h + 1, lz, shortGrassId);
+        if (h <= this.SEA_LEVEL) {
+          if (biomeId.includes('swamp') && lilyPadId && chunk.getBlock(lx, this.SEA_LEVEL, lz) === waterId) {
+            if (this.hash2D(wx, wz, 555) < 0.03 && chunk.getBlock(lx, this.SEA_LEVEL + 1, lz) === 0) {
+              chunk.setBlock(lx, this.SEA_LEVEL + 1, lz, lilyPadId);
             }
           }
+          continue;
         }
-      }
-      // NO flowers in snowy plains (vanilla Minecraft 26.3 parity: zero dandelions/poppies)
-    } else {
-      // General Biome flora
-      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-          const wx = cx * CHUNK_SIZE + lx;
-          const wz = cz * CHUNK_SIZE + lz;
-          const h = heightMap[lz * CHUNK_SIZE + lx];
-          if (h <= this.SEA_LEVEL) {
-            if (biomeAtCenter.includes('swamp') && lilyPadId && chunk.getBlock(lx, this.SEA_LEVEL, lz) === waterId) {
-              if (this.hash2D(wx, wz, 555) < 0.03 && chunk.getBlock(lx, this.SEA_LEVEL + 1, lz) === 0) {
-                chunk.setBlock(lx, this.SEA_LEVEL + 1, lz, lilyPadId);
-              }
-            }
-            continue;
+
+        const topBlock = chunk.getBlock(lx, h, lz);
+        if (chunk.getBlock(lx, h + 1, lz) !== 0) continue;
+
+        const fRoll = this.hash2D(wx, wz, worldSeed ^ 5555);
+
+        // Snowy biomes: ZERO flowers (vanilla Minecraft 26.3 parity: no dandelions or poppies)
+        if (
+          biomeId.includes('snowy') ||
+          biomeId.includes('frozen') ||
+          biomeId === 'minecraft:grove' ||
+          biomeId.includes('peaks') ||
+          biomeId.includes('slopes')
+        ) {
+          if ((topBlock === grassId || topBlock === podzolId) && fRoll < 0.04 && shortGrassId) {
+            chunk.setBlock(lx, h + 1, lz, shortGrassId);
           }
-
-          const topBlock = chunk.getBlock(lx, h, lz);
-          if (chunk.getBlock(lx, h + 1, lz) !== 0) continue;
-
-          const biomeId = chunk.biomes[lz * CHUNK_SIZE + lx] || 'minecraft:plains';
-          const fRoll = this.hash2D(wx, wz, worldSeed ^ 5555);
-
-          if (biomeId.includes('desert') || biomeId.includes('badlands')) {
-            if (topBlock === sandId) {
-              if (fRoll < 0.008 && cactusId) {
-                const cactusHeight = 1 + Math.floor(this.hash2D(wx, wz, 77) * 3);
-                for (let y = 1; y <= cactusHeight; y++) {
-                  if (h + y < CHUNK_HEIGHT) chunk.setBlock(lx, h + y, lz, cactusId);
-                }
-              } else if (fRoll < 0.025 && deadBushId) {
-                chunk.setBlock(lx, h + 1, lz, deadBushId);
+        } else if (biomeId.includes('desert') || biomeId.includes('badlands')) {
+          if (topBlock === sandId) {
+            if (fRoll < 0.008 && cactusId) {
+              const cactusHeight = 1 + Math.floor(this.hash2D(wx, wz, 77) * 3);
+              for (let y = 1; y <= cactusHeight; y++) {
+                if (h + y < CHUNK_HEIGHT) chunk.setBlock(lx, h + y, lz, cactusId);
               }
+            } else if (fRoll < 0.025 && deadBushId) {
+              chunk.setBlock(lx, h + 1, lz, deadBushId);
             }
-          } else if (biomeId === 'minecraft:dappled_forest' || biomeId === 'minecraft:poplar_grove') {
-            if (fRoll < 0.07 && leafLitterId) chunk.setBlock(lx, h + 1, lz, leafLitterId);
-            else if (fRoll < 0.14 && shortGrassId) chunk.setBlock(lx, h + 1, lz, shortGrassId);
-            else if (fRoll < 0.155 && brownMushroomId) chunk.setBlock(lx, h + 1, lz, brownMushroomId);
-          } else if (biomeId === 'minecraft:cherry_grove') {
-            if (fRoll < 0.18 && pinkPetalsId) chunk.setBlock(lx, h + 1, lz, pinkPetalsId);
-            else if (fRoll < 0.22 && shortGrassId) chunk.setBlock(lx, h + 1, lz, shortGrassId);
-          } else if (biomeId === 'minecraft:sunflower_plains') {
-            if (fRoll < 0.05 && sunflowerId) {
-              chunk.setBlock(lx, h + 1, lz, sunflowerId);
-              if (h + 2 < CHUNK_HEIGHT) chunk.setBlock(lx, h + 2, lz, sunflowerId);
-            } else if (fRoll < 0.15 && shortGrassId) {
-              chunk.setBlock(lx, h + 1, lz, shortGrassId);
-            }
-          } else {
-            if (topBlock === grassId || topBlock === podzolId) {
-              if (fRoll < 0.11 && shortGrassId) chunk.setBlock(lx, h + 1, lz, shortGrassId);
-              else if (fRoll < 0.135 && poppyId) chunk.setBlock(lx, h + 1, lz, poppyId);
-              else if (fRoll < 0.155 && dandelionId) chunk.setBlock(lx, h + 1, lz, dandelionId);
-            }
+          }
+        } else if (biomeId === 'minecraft:dappled_forest' || biomeId === 'minecraft:poplar_grove') {
+          if (fRoll < 0.07 && leafLitterId) chunk.setBlock(lx, h + 1, lz, leafLitterId);
+          else if (fRoll < 0.14 && shortGrassId) chunk.setBlock(lx, h + 1, lz, shortGrassId);
+          else if (fRoll < 0.155 && brownMushroomId) chunk.setBlock(lx, h + 1, lz, brownMushroomId);
+        } else if (biomeId === 'minecraft:cherry_grove') {
+          if (fRoll < 0.18 && pinkPetalsId) chunk.setBlock(lx, h + 1, lz, pinkPetalsId);
+          else if (fRoll < 0.22 && shortGrassId) chunk.setBlock(lx, h + 1, lz, shortGrassId);
+        } else if (biomeId === 'minecraft:sunflower_plains') {
+          if (fRoll < 0.05 && sunflowerId) {
+            chunk.setBlock(lx, h + 1, lz, sunflowerId);
+            if (h + 2 < CHUNK_HEIGHT) chunk.setBlock(lx, h + 2, lz, sunflowerId);
+          } else if (fRoll < 0.15 && shortGrassId) {
+            chunk.setBlock(lx, h + 1, lz, shortGrassId);
+          }
+        } else {
+          if (topBlock === grassId || topBlock === podzolId) {
+            if (fRoll < 0.11 && shortGrassId) chunk.setBlock(lx, h + 1, lz, shortGrassId);
+            else if (fRoll < 0.135 && poppyId) chunk.setBlock(lx, h + 1, lz, poppyId);
+            else if (fRoll < 0.155 && dandelionId) chunk.setBlock(lx, h + 1, lz, dandelionId);
           }
         }
       }
@@ -487,8 +472,10 @@ export class FeaturePlacer {
     const logId = Registries.getBlock('spruce_log')?.numId || Registries.getBlock('oak_log').numId;
     const leafId = Registries.getBlock('spruce_leaves')?.numId || Registries.getBlock('oak_leaves').numId;
     const snowId = Registries.getBlock('snow')?.numId || 0;
+    const dirtId = Registries.getBlock('dirt')?.numId || 0;
 
-    // 1. Trunk
+    // 1. Trunk and ground foundation
+    if (dirtId) setBlockWorld(baseX, baseY - 1, baseZ, dirtId);
     for (let y = baseY; y < baseY + trunkHeight; y++) {
       setBlockWorld(baseX, y, baseZ, logId);
     }

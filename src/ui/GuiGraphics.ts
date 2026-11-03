@@ -847,9 +847,9 @@ export class GuiGraphics {
     lines: string[],
     mouseX: number,
     mouseY: number,
-    _widgetAnchor?: { x: number; y: number; w: number; h: number }
+    widgetAnchor?: { x: number; y: number; w: number; h: number }
   ): void {
-    if (lines.length === 0) return;
+    if (!lines || lines.length === 0) return;
 
     // In Minecraft Java 26.3 Tooltip.splitTooltip(font, 170): max width is 170px
     const processedLines: string[] = [];
@@ -874,15 +874,22 @@ export class GuiGraphics {
     let tx = Math.floor(mouseX + 12);
     let ty = Math.floor(mouseY - 12);
 
-    if (tx + boxW > this.scaledWidth - 4) {
+    if (tx + boxW > this.scaledWidth - 6) {
       tx = Math.floor(mouseX - boxW - 8);
-      if (tx < 4) tx = Math.max(4, this.scaledWidth - boxW - 4);
     }
-    if (ty + boxH > this.scaledHeight - 4) {
-      ty = this.scaledHeight - boxH - 4;
+    if (tx < 4) tx = 4;
+    if (tx + boxW > this.scaledWidth - 4) {
+      tx = Math.max(4, this.scaledWidth - boxW - 4);
+    }
+
+    if (ty + boxH > this.scaledHeight - 6) {
+      ty = Math.floor(this.scaledHeight - boxH - 6);
     }
     if (ty < 4) {
-      ty = 4;
+      ty = Math.floor(mouseY + 16);
+      if (ty + boxH > this.scaledHeight - 4) {
+        ty = Math.max(4, this.scaledHeight - boxH - 4);
+      }
     }
 
     // Classic Minecraft purple/dark tooltip border & fill
@@ -891,23 +898,23 @@ export class GuiGraphics {
     this.fill(tx + boxW - 1, ty + 1, tx + boxW, ty + boxH - 1, 'rgba(16, 0, 16, 0.94)');
 
     // Inner purple gradient frame
-    this.fill(tx + 1, ty + 1, tx + boxW - 1, ty + 2, 'rgba(80, 0, 255, 0.5)');
-    this.fill(tx + 1, ty + boxH - 2, tx + boxW - 1, ty + boxH - 1, 'rgba(40, 0, 127, 0.5)');
+    this.fill(tx + 1, ty + 1, tx + boxW - 1, ty + 2, 'rgba(80, 0, 255, 0.65)');
+    this.fill(tx + 1, ty + boxH - 2, tx + boxW - 1, ty + boxH - 1, 'rgba(40, 0, 127, 0.65)');
     this.fillGradient(
       tx + 1,
       ty + 2,
       tx + 2,
       ty + boxH - 2,
-      'rgba(80, 0, 255, 0.5)',
-      'rgba(40, 0, 127, 0.5)'
+      'rgba(80, 0, 255, 0.65)',
+      'rgba(40, 0, 127, 0.65)'
     );
     this.fillGradient(
       tx + boxW - 2,
       ty + 2,
       tx + boxW - 1,
       ty + boxH - 2,
-      'rgba(80, 0, 255, 0.5)',
-      'rgba(40, 0, 127, 0.5)'
+      'rgba(80, 0, 255, 0.65)',
+      'rgba(40, 0, 127, 0.65)'
     );
 
     let curY = ty + 4;
