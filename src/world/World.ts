@@ -434,7 +434,7 @@ export class World {
     const genStartTime = performance.now();
     let genCount = 0;
     for (const { cx, cz } of neededCoords) {
-      if (!this.chunks.has(Chunk.chunkKey(cx, cz))) {
+      if (!this.chunks.has(this.chunkKey(cx, cz))) {
         this.ensureChunk(cx, cz);
         genCount++;
         if (genCount >= 2 || performance.now() - genStartTime > 4) {

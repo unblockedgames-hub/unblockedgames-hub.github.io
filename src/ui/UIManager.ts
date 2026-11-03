@@ -2361,61 +2361,96 @@ export class UIManager {
     this.gui.renderMenuBackground(false);
 
     const progressPct = Math.min(100, Math.floor(this.loadingTerrainProgress));
+    const progressRatio = this.loadingTerrainProgress / 100;
 
-    // Official Minecraft 21x21 spawn chunk status map (LevelLoadingScreen.java)
-    const gridSize = 21;
-    const tileSize = 3;
-    const totalW = gridSize * tileSize;
+    // Authentic ChunkStatus colors directly from net.minecraft.client.gui.screens.LevelLoadingScreen
+    const CHUNK_STATUS_COLORS = [
+      '#545454', // EMPTY
+      '#999999', // STRUCTURE_STARTS
+      '#5F6191', // STRUCTURE_REFERENCES
+      '#80B252', // BIOMES
+      '#303572', // TERRAIN
+      '#21C600', // FEATURES
+      '#CCCCCC', // INITIALIZE_LIGHT
+      '#FFE0A0', // LIGHT
+      '#F26060', // SPAWN
+      '#FFFFFF', // FULL
+    ];
+
+    // Official Minecraft 19x19 spawn chunk status map (radius 9, diameter 19)
+    // LevelLoadingScreen.extractChunksForRendering(graphics, xCenter, yCenter, tileSize=2, margin=0, statusView)
+    const radius = 9;
+    const diameter = radius * 2 + 1; // 19
+    const tileSize = 2;
+    const totalW = diameter * tileSize; // 38 px
     const startX = centerX - Math.floor(totalW / 2);
     const startY = centerY - Math.floor(totalW / 2);
 
-    // Outer 1px black border
-    this.gui.fill(startX - 1, startY - 1, startX + totalW + 1, startY + totalW + 1, '#000000');
+    // Above the chunk map: textTop = yCenter - (radius * 2) - 27
+    const textTop = centerY - radius * 2 - 27;
 
-    // Radius of current generation wave
-    const maxR = (gridSize - 1) / 2; // 10
-    const progressRatio = this.loadingTerrainProgress / 100;
-    const currentR = progressRatio * (maxR + 2);
+    // "Loading terrain..." title
+    this.font.drawCentered(this.gui.ctx, 'Loading terrain...', centerX, textTop, '#FFFFFF', true);
 
-    // Render 21x21 chunk tiles with authentic ChunkStatus color palette
-    for (let gy = 0; gy < gridSize; gy++) {
-      const dz = gy - maxR;
-      for (let gx = 0; gx < gridSize; gx++) {
-        const dx = gx - maxR;
-        const dist = Math.hypot(dx, dz);
-        const tx = startX + gx * tileSize;
-        const ty = startY + gy * tileSize;
+    // 200px wide, 2px tall thin progress bar (drawProgressBar)
+    const barW = 200;
+    const barH = 2;
+    const barX = centerX - 100;
+    const barY = textTop + 14;
+    this.gui.fill(barX, barY, barX + barW, barY + barH, '#000000');
+    const fillW = Math.round(progressRatio * barW);
+    if (fillW > 0) {
+      this.gui.fill(barX, barY, barX + fillW, barY + barH, '#00FF00');
+    }
 
-        let color = '#0a0a20'; // EMPTY / UNLOADED: Deep navy
-        if (progressPct >= 100 || dist <= currentR - 1.6) {
-          color = '#4de64d'; // FULL: Vibrant Minecraft Lime Green
-        } else if (dist <= currentR - 0.9) {
-          color = '#e6c020'; // LIGHT / SPAWN: Golden yellow / Amber
-        } else if (dist <= currentR - 0.3) {
-          color = '#b050d0'; // FEATURES: Rich violet / magenta
-        } else if (dist <= currentR + 0.5) {
-          color = '#4a4ab0'; // SURFACE / BIOMES: Slate blue
-        } else if (dist <= currentR + 1.2) {
-          color = '#202060'; // NOISE / STRUCTURES: Dark indigo
+    // Render 19x19 chunk map with authentic ChunkStatus progression
+    const centerWave = progressRatio * (diameter + 2);
+    for (let cz = 0; cz < diameter; cz++) {
+      const dz = cz - radius;
+      for (let cx = 0; cx < diameter; cx++) {
+        const dx = cx - radius;
+        const r = Math.max(Math.abs(dx), Math.abs(dz));
+        const hash = Math.abs(Math.sin((cx + 1) * 31.7 + (cz + 1) * 79.3) * 43758.5453) % 1;
+
+        let stage = 0;
+        if (progressPct >= 100) {
+          stage = 9; // FULL
+        } else {
+          const wave = centerWave - r;
+          if (wave >= 9) {
+            stage = 9;
+          } else if (wave >= 8) {
+            stage = hash > 0.3 ? 9 : 8;
+          } else if (wave >= 7) {
+            stage = hash > 0.4 ? 8 : 7;
+          } else if (wave >= 6) {
+            stage = hash > 0.35 ? 7 : 6;
+          } else if (wave >= 5) {
+            stage = hash > 0.35 ? 6 : 5;
+          } else if (wave >= 4) {
+            stage = hash > 0.3 ? 5 : 4;
+          } else if (wave >= 3) {
+            stage = hash > 0.4 ? 4 : 3;
+          } else if (wave >= 2) {
+            stage = hash > 0.3 ? 3 : 2;
+          } else if (wave >= 1) {
+            stage = hash > 0.3 ? 2 : 1;
+          } else if (wave >= 0) {
+            stage = hash > 0.5 ? 1 : 0;
+          } else {
+            stage = 0; // EMPTY
+          }
         }
 
-        this.gui.fill(tx, ty, tx + tileSize, ty + tileSize, color);
+        const cellX = startX + cx * tileSize;
+        const cellY = startY + cz * tileSize;
+        this.gui.fill(cellX, cellY, cellX + tileSize, cellY + tileSize, CHUNK_STATUS_COLORS[stage]);
       }
     }
 
-    // Central percentage readout with dark backing box
+    // Centered percentage readout string right over the chunk status map
     const pctText = `${progressPct}%`;
-    const textW = this.font.width(pctText);
-    const boxPadX = 6;
-    const boxPadY = 4;
-    this.gui.fill(
-      centerX - Math.floor(textW / 2) - boxPadX,
-      centerY - boxPadY - 2,
-      centerX + Math.floor(textW / 2) + boxPadX,
-      centerY + boxPadY + 6,
-      'rgba(0, 0, 0, 0.88)'
-    );
-    this.font.drawCentered(this.gui.ctx, pctText, centerX, centerY - 2, '#FFFFFF', true);
+    this.font.drawCentered(this.gui.ctx, pctText, centerX, centerY - 4, '#FFFFFF', true);
 
     this.loadingTerrainProgress = Math.min(100, this.loadingTerrainProgress + dt * 45);
 
