@@ -193,27 +193,35 @@ export class FeaturePlacer {
       return heightMap[lz * CHUNK_SIZE + lx];
     };
 
-    // --- 1. TREE GENERATION (fast deterministic chunk placement) ---
-    const chunkRng = pr.at(cx, 0, cz);
-    const candidateAttempts = 4;
-    for (let i = 0; i < candidateAttempts; i++) {
-      const lx = chunkRng.nextInt(16);
-      const lz = chunkRng.nextInt(16);
-      const twx = cx * CHUNK_SIZE + lx;
-      const twz = cz * CHUNK_SIZE + lz;
+    // --- 1. TREE GENERATION (fast deterministic chunk placement with 3x3 neighborhood for seamless cross-chunk canopies) ---
+    for (let nox = -1; nox <= 1; nox++) {
+      for (let noz = -1; noz <= 1; noz++) {
+        const ncx = cx + nox;
+        const ncz = cz + noz;
+        const chunkRng = pr.at(ncx, 0, ncz);
+        const candidateAttempts = 4;
+        for (let i = 0; i < candidateAttempts; i++) {
+          const lx = chunkRng.nextInt(16);
+          const lz = chunkRng.nextInt(16);
+          const twx = ncx * CHUNK_SIZE + lx;
+          const twz = ncz * CHUNK_SIZE + lz;
 
-      if (hasStructure && lx >= 4 && lx <= 12 && lz >= 4 && lz <= 12) {
-        continue;
-      }
+          if (hasStructure && nox === 0 && noz === 0 && lx >= 4 && lx <= 12 && lz >= 4 && lz <= 12) {
+            continue;
+          }
 
           const biomeId = WorldGen26_3.vanillaClimate.getBiomeAt(twx, twz);
-          const h = getSurfaceHeight(twx, twz);
+          const h = (nox === 0 && noz === 0)
+            ? heightMap[lz * CHUNK_SIZE + lx]
+            : WorldGen26_3.vanillaClimate.getTerrainHeight(twx, twz);
           if (h <= this.SEA_LEVEL) continue;
 
-          // Trees require soil ground (grass_block, dirt, podzol)
-          const groundBlock = chunk.getBlock(lx, h, lz);
-          if (groundBlock !== grassId && groundBlock !== podzolId && groundBlock !== (Registries.getBlock('dirt')?.numId || 0)) {
-            continue;
+          // Soil check for root chunk
+          if (nox === 0 && noz === 0) {
+            const groundBlock = chunk.getBlock(lx, h, lz);
+            if (groundBlock !== grassId && groundBlock !== podzolId && groundBlock !== (Registries.getBlock('dirt')?.numId || 0)) {
+              continue;
+            }
           }
 
           // Per-candidate probability based on biome density
@@ -273,6 +281,8 @@ export class FeaturePlacer {
             this.placeClassicTree(setBlockInChunk, twx, h + 1, twz, 'oak_log', 'oak_leaves', 5);
           }
         }
+      }
+    }
 
     // --- 2. FLORA & SURFACE COVER DECORATION (per-block biome evaluation) ---
     for (let lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -441,6 +451,7 @@ export class FeaturePlacer {
   /**
    * Conical Spruce Tree matching Minecraft's authentic SpruceFoliagePlacer:
    * 3-4 distinct tiered conical layers alternating between cross and 5x5 disc with corner truncation.
+   * Preserves bare lower trunk and never overwrites log column.
    */
   static placeSpruceTree(
     setBlockWorld: (x: number, y: number, z: number, id: number) => void,
@@ -471,8 +482,9 @@ export class FeaturePlacer {
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
         if (Math.abs(dx) + Math.abs(dz) <= 1) {
+          if (dx === 0 && dz === 0) continue; // Preserve log trunk!
           setBlockWorld(baseX + dx, topY - 1, baseZ + dz, leafId);
-          if (snowId && (dx !== 0 || dz !== 0)) {
+          if (snowId) {
             setBlockWorld(baseX + dx, topY, baseZ + dz, snowId);
           }
         }
@@ -482,6 +494,7 @@ export class FeaturePlacer {
     // Tier 2: 3x3 square at topY - 2
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
+        if (dx === 0 && dz === 0) continue; // Preserve log trunk!
         setBlockWorld(baseX + dx, topY - 2, baseZ + dz, leafId);
         if (snowId && Math.abs(dx) === 1 && Math.abs(dz) === 1) {
           setBlockWorld(baseX + dx, topY - 1, baseZ + dz, snowId);
@@ -489,9 +502,10 @@ export class FeaturePlacer {
       }
     }
 
-    // Tiers downwards to baseY + 1: alternating conical widening
+    // Tiers downwards: leave 2-3 bare trunk blocks at the bottom!
+    const foliageBottomY = baseY + 2 + (trunkHeight > 8 ? 1 : 0);
     let currentR = 1;
-    for (let y = topY - 3; y >= baseY + 1; y--) {
+    for (let y = topY - 3; y >= foliageBottomY; y--) {
       const step = topY - y;
       const isWide = step % 2 === 0;
       if (isWide && currentR < foliageRadius) {
@@ -501,6 +515,7 @@ export class FeaturePlacer {
 
       for (let dx = -r; dx <= r; dx++) {
         for (let dz = -r; dz <= r; dz++) {
+          if (dx === 0 && dz === 0 && y < topY) continue; // Preserve log trunk!
           if (r >= 2 && Math.abs(dx) === r && Math.abs(dz) === r) continue; // Truncate corners
           if (r === 1 && !isWide && Math.abs(dx) + Math.abs(dz) > 1) continue; // Cross shape
 
@@ -563,6 +578,7 @@ export class FeaturePlacer {
       const radius = y >= baseY + height ? 2 : 3;
       for (let dx = -radius; dx <= radius + 1; dx++) {
         for (let dz = -radius; dz <= radius + 1; dz++) {
+          if ((dx === 0 || dx === 1) && (dz === 0 || dz === 1) && y < baseY + height) continue;
           setBlockWorld(baseX + dx, y, baseZ + dz, leafId);
         }
       }
@@ -593,6 +609,7 @@ export class FeaturePlacer {
         const radius = y >= baseY + height ? 2 : 3;
         for (let dx = -radius; dx <= radius + 1; dx++) {
           for (let dz = -radius; dz <= radius + 1; dz++) {
+            if ((dx === 0 || dx === 1) && (dz === 0 || dz === 1) && y < baseY + height) continue;
             setBlockWorld(baseX + dx, y, baseZ + dz, leafId);
           }
         }

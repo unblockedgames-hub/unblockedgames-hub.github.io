@@ -312,17 +312,29 @@ export class VanillaClimate {
         const isWarmOcean = biome.includes('warm_ocean');
         const isFrozen = biome.includes('frozen') || biome.includes('ice');
 
-        // Solid bedrock floor at Y=0, dithered at Y=1..4
-        setBlock(lx, 0, lz, bedrockId);
-        const bedDither = (this.hash2D(wx, wz, 999) * 4) | 0;
-        for (let y = 1; y <= bedDither; y++) {
-          setBlock(lx, y, lz, bedrockId);
-        }
+        // Fill rock column up to H with authentic staggered bedrock (Y=0..4),
+        // deepslate transition (Y=8 to Y=0), and 1.18+ cheese & noodle caves
+        for (let y = 0; y <= H; y++) {
+          // Staggered bedrock: 100% at Y=0, dithered across Y=1..4 matching Minecraft Java
+          if (
+            y === 0 ||
+            (y === 1 && this.hash2D(wx, wz, 101) < 0.8) ||
+            (y === 2 && this.hash2D(wx, wz, 202) < 0.6) ||
+            (y === 3 && this.hash2D(wx, wz, 303) < 0.4) ||
+            (y === 4 && this.hash2D(wx, wz, 404) < 0.2)
+          ) {
+            setBlock(lx, y, lz, bedrockId);
+            continue;
+          }
 
-        // Fill rock column up to H with 1.18+ cheese & noodle caves
-        const deepslateThreshold = 16 - ((this.hash2D(wx, wz, 99) * 6) | 0);
-        for (let y = 1; y <= H; y++) {
-          const baseRock = y <= deepslateThreshold ? deepslateId : stoneId;
+          // Deepslate transition zone: starts at Y=8 down to Y=0
+          let baseRock = stoneId;
+          if (y <= 0) {
+            baseRock = deepslateId;
+          } else if (y < 8) {
+            const deepChance = (8 - y) / 8.0 + (this.hash2D(wx, wz, y * 31 + 77) - 0.5) * 0.4;
+            baseRock = deepChance > 0.5 ? deepslateId : stoneId;
+          }
 
           // Surface & subsurface block palette
           if (y === H) {
@@ -413,33 +425,47 @@ export class VanillaClimate {
     const minX = cx * 16;
     const minZ = cz * 16;
 
-    // Sample 3x3 grid (every 8 blocks: 0, 8, 16) with cached boundary reuse
-    const cornerGrid: number[][] = [];
-    for (let gz = 0; gz <= 2; gz++) {
+    // Sample 5x5 grid (every 4 blocks: 0, 4, 8, 12, 16) matching Minecraft's quarter-resolution sampler
+    const grid: number[][] = [];
+    for (let gz = 0; gz <= 4; gz++) {
       const row: number[] = [];
-      const wz = minZ + gz * 8;
-      for (let gx = 0; gx <= 2; gx++) {
-        row.push(this.getSampledHeight(minX + gx * 8, wz));
+      const wz = minZ + gz * 4;
+      for (let gx = 0; gx <= 4; gx++) {
+        row.push(this.getSampledHeight(minX + gx * 4, wz));
       }
-      cornerGrid.push(row);
+      grid.push(row);
     }
 
-    // Fast bilinear interpolation across the 2x2 cells of 8x8 blocks
+    // Smoothstep Hermite bicubic interpolation across the 4x4 cells of 4x4 blocks
     for (let lz = 0; lz < 16; lz++) {
-      const cellZ = lz >> 3;
-      const fz = (lz & 7) / 8.0;
+      const cellZ = lz >> 2;
+      const fz = (lz & 3) / 4.0;
+      const v = fz * fz * (3.0 - 2.0 * fz);
+      const wz = minZ + lz;
+
       for (let lx = 0; lx < 16; lx++) {
-        const cellX = lx >> 3;
-        const fx = (lx & 7) / 8.0;
+        const cellX = lx >> 2;
+        const fx = (lx & 3) / 4.0;
+        const u = fx * fx * (3.0 - 2.0 * fx);
+        const wx = minX + lx;
 
-        const h00 = cornerGrid[cellZ][cellX];
-        const h10 = cornerGrid[cellZ][cellX + 1];
-        const h01 = cornerGrid[cellZ + 1][cellX];
-        const h11 = cornerGrid[cellZ + 1][cellX + 1];
+        const h00 = grid[cellZ][cellX];
+        const h10 = grid[cellZ][cellX + 1];
+        const h01 = grid[cellZ + 1][cellX];
+        const h11 = grid[cellZ + 1][cellX + 1];
 
-        const topH = h00 + fx * (h10 - h00);
-        const botH = h01 + fx * (h11 - h01);
-        const h = Math.round(topH + fz * (botH - topH));
+        const topH = h00 + u * (h10 - h00);
+        const botH = h01 + u * (h11 - h01);
+        let h = Math.round(topH + v * (botH - topH));
+
+        // Natural micro-topography so plains and hills have rolling contours rather than flat planes
+        if (h > 62) {
+          const micro =
+            Math.sin(wx * 0.28) * Math.cos(wz * 0.28) * 0.85 +
+            Math.sin(wx * 0.65 + wz * 0.42) * 0.45;
+          h = Math.round(h + micro);
+        }
+
         heights[lz * 16 + lx] = Math.max(1, Math.min(256, h));
       }
     }

@@ -650,14 +650,22 @@ export class Game {
             else if (id.endsWith('_pickaxe')) damage = 4;
             else if (id.endsWith('_shovel')) damage = 3;
           }
-          // Critical hit when falling!
+
+          // Authentic Minecraft Combat Parity: Attack Strength cooldown scaling
+          const attackStrength = this.player.getAttackStrength();
+          const attackMult = 0.2 + 0.8 * attackStrength * attackStrength;
+          damage = Math.max(1, Math.round(damage * attackMult));
+
+          // Critical hit only allowed when attack meter is charged (>= 0.848) and falling
           const isCrit =
+            attackStrength >= 0.848 &&
             this.player.velocity.y < -0.1 &&
             !this.player.onGround &&
             !this.player.flying;
           if (isCrit) {
             damage = Math.ceil(damage * 1.5);
           }
+          this.player.resetAttackStrength();
 
           const res = this.entityRenderer.attackMob(
             mobHit.mob.id,
@@ -945,6 +953,15 @@ export class Game {
     }
 
     this.world.setBlock(hit.bx, hit.by, hit.bz, 0);
+    const brokenWaterId = Registries.getBlock('water')?.numId;
+    if (brokenWaterId) {
+      const card = [[1,0,0],[-1,0,0],[0,1,0],[0,0,1],[0,0,-1]];
+      for (const [dx, dy, dz] of card) {
+        if (this.world.getBlock(hit.bx + dx, hit.by + dy, hit.bz + dz) === brokenWaterId) {
+          this.world.scheduleFluidTick(hit.bx + dx, hit.by + dy, hit.bz + dz, 0);
+        }
+      }
+    }
     RedstoneEngine.updateAt(this.world, hit.bx, hit.by, hit.bz);
 
     // Drop container contents if breaking a furnace, chest, or barrel
@@ -1442,6 +1459,42 @@ export class Game {
       return;
     }
 
+    // Bone Meal on Saplings
+    if (held && held.item.shortId === 'bone_meal') {
+      if (targetDef.shortId.endsWith('_sapling')) {
+        this.player.triggerSwing();
+        this.firstPersonHand.triggerSwing();
+        AudioEngine.play('item.bone_meal.use', 0.9);
+        for (let i = 0; i < 8; i++) {
+          this.particleSystem.spawnBlockBreakBurst(hit.bx, hit.by + 0.5, hit.bz, 'bone_meal', 0x55ff55);
+        }
+        if (this.player.gameMode === 'survival') {
+          this.inventory.consumeHeld(1);
+        }
+        const setWorld = (x: number, y: number, z: number, id: number) => this.world.setBlock(x, y, z, id);
+        this.world.setBlock(hit.bx, hit.by, hit.bz, 0);
+        if (targetDef.shortId === 'spruce_sapling') {
+          FeaturePlacer.placeSpruceTree(setWorld, hit.bx, hit.by, hit.bz, 7, 2);
+        } else if (targetDef.shortId === 'birch_sapling') {
+          FeaturePlacer.placeClassicTree(setWorld, hit.bx, hit.by, hit.bz, 'birch_log', 'birch_leaves', 6);
+        } else if (targetDef.shortId === 'cherry_sapling') {
+          FeaturePlacer.placeClassicTree(setWorld, hit.bx, hit.by, hit.bz, 'cherry_log', 'cherry_leaves', 6);
+        } else if (targetDef.shortId === 'jungle_sapling') {
+          FeaturePlacer.placeClassicTree(setWorld, hit.bx, hit.by, hit.bz, 'jungle_log', 'jungle_leaves', 6);
+        } else if (targetDef.shortId === 'acacia_sapling') {
+          FeaturePlacer.placeAcaciaTree(setWorld, hit.bx, hit.by, hit.bz);
+        } else if (targetDef.shortId === 'dark_oak_sapling') {
+          FeaturePlacer.placeClassicTree(setWorld, hit.bx, hit.by, hit.bz, 'dark_oak_log', 'dark_oak_leaves', 5);
+        } else if (targetDef.shortId === 'poplar_sapling') {
+          FeaturePlacer.placePoplarTree(setWorld, hit.bx, hit.by, hit.bz, 'orange_poplar_leaves', 0.5);
+        } else {
+          FeaturePlacer.placeClassicTree(setWorld, hit.bx, hit.by, hit.bz, 'oak_log', 'oak_leaves', 5);
+        }
+        this.ui.updateHUDOnly();
+        return;
+      }
+    }
+
     // 2. Check if Right-Clicking Bed / Straw Bed
     if (
       targetDef.shortId === 'straw_bed' ||
@@ -1524,9 +1577,27 @@ export class Game {
 
     if (!held) return;
 
-    const placeX = hit.bx + hit.nx;
-    const placeY = hit.by + hit.ny;
-    const placeZ = hit.bz + hit.nz;
+    let placeX = hit.bx + hit.nx;
+    let placeY = hit.by + hit.ny;
+    let placeZ = hit.bz + hit.nz;
+
+    // Authentic Minecraft Parity: Replaceable plants and flowers (short grass, fern, etc.)
+    // are replaced in-place rather than floating placed on top!
+    const isReplaceable = targetDef && (
+      targetDef.shortId === 'short_grass' ||
+      targetDef.shortId === 'tall_grass' ||
+      targetDef.shortId === 'fern' ||
+      targetDef.shortId === 'large_fern' ||
+      targetDef.shortId === 'dead_bush' ||
+      targetDef.shortId === 'vine' ||
+      targetDef.shortId === 'leaf_litter' ||
+      (targetDef.shortId === 'snow' && held.item.shortId !== 'snow')
+    );
+    if (isReplaceable) {
+      placeX = hit.bx;
+      placeY = hit.by;
+      placeZ = hit.bz;
+    }
 
     // 4. Check if placing a 26.3 Colored Cushion Item!
     if (held.item.cushionColor) {
@@ -1599,6 +1670,21 @@ export class Game {
       }
 
       const placeDef = Registries.getBlock(held.item.blockNumId);
+      if (placeDef.shortId.endsWith('_sapling')) {
+        const soil = this.world.getBlock(placeX, placeY - 1, placeZ);
+        const soilDef = Registries.getBlock(soil);
+        const isSoil = soilDef && (
+          soilDef.shortId === 'grass_block' ||
+          soilDef.shortId === 'dirt' ||
+          soilDef.shortId === 'coarse_dirt' ||
+          soilDef.shortId === 'podzol' ||
+          soilDef.shortId === 'farmland' ||
+          soilDef.shortId === 'mud'
+        );
+        if (!isSoil) {
+          return;
+        }
+      }
       let facingMeta = this.player.getCardinalFacingMeta();
       if (placeDef.shortId === 'furnace' || placeDef.shortId === 'chest' || placeDef.shortId === 'barrel') {
         // Place directional container blocks facing TOWARDS the player
@@ -2187,6 +2273,7 @@ export class Game {
               }
 
               // During daytime, verify thick solid rock ceiling above to prevent surface/overhang spawns
+              if (this.hasLightSourceNearby(cx, testY, cz)) continue;
               if (!isNight) {
                 const roof1 = this.world.getBlock(cx, testY + 2, cz);
                 const roof2 = this.world.getBlock(cx, testY + 3, cz);
@@ -2227,7 +2314,7 @@ export class Game {
               const cur = this.world.getBlock(sx, sy, sz);
               const ceil = this.world.getBlock(sx, sy + 1, sz);
               const floorDef = Registries.getBlock(floor);
-              if (floor !== 0 && floorDef?.solid && !floorDef?.fluid && cur === 0 && ceil === 0) {
+              if (floor !== 0 && floorDef?.solid && !floorDef?.fluid && cur === 0 && ceil === 0 && !this.hasLightSourceNearby(sx, sy, sz)) {
                 const chosen = hostilePool[Math.floor(Math.random() * hostilePool.length)];
                 this.entityRenderer.spawnMob(`${chosen}_${Date.now()}`, chosen, sx + 0.5, sy, sz + 0.5);
               }
@@ -2309,6 +2396,7 @@ export class Game {
         this.player.resetMining();
       }
 
+      this.world.processFluidFlow(24);
       this.updateDayNightCycle(dt);
 
       this.ambientTickTimer += dt;

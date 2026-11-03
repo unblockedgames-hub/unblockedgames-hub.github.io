@@ -32,7 +32,7 @@ export interface BlockDefinition {
   fluid?: 'water' | 'lava';
   lightEmission: number;
   hardness: number;
-  soundGroup: 'stone' | 'wood' | 'grass' | 'poplar_leaves' | 'straw_bed' | 'wool' | 'sand' | 'gravel' | 'glass';
+  soundGroup: 'stone' | 'deepslate' | 'wood' | 'grass' | 'poplar_leaves' | 'straw_bed' | 'wool' | 'sand' | 'gravel' | 'glass';
   tint?: 'grass' | 'foliage' | 'birch' | 'spruce' | 'water';
   textures: {
     top: string;
@@ -984,6 +984,33 @@ export class Registries {
       }
     }
 
+    // Official Minecraft Saplings: instant break (hardness 0), cross shape, grass sound
+    const saplings = [
+      'oak_sapling',
+      'spruce_sapling',
+      'birch_sapling',
+      'jungle_sapling',
+      'acacia_sapling',
+      'dark_oak_sapling',
+      'cherry_sapling',
+      'pale_oak_sapling',
+    ];
+    for (const s of saplings) {
+      if (blockTexSet.has(s) && !this.blocksById.has(`minecraft:${s}`)) {
+        this.registerBlock({
+          shortId: s,
+          shape: 'cross',
+          transparent: true,
+          solid: false,
+          lightEmission: 0,
+          hardness: 0,
+          soundGroup: 'grass',
+          textures: this.allFaces(s),
+          category: 'natural',
+        });
+      }
+    }
+
     // Ores, Bricks, Glass, Building Blocks
     const simpleCubes: Array<[string, BlockDefinition['category'], BlockDefinition['soundGroup'], number, boolean?]> = [
       ['stone_bricks', 'building', 'stone', 1.5],
@@ -998,10 +1025,10 @@ export class Registries {
       ['polished_diorite', 'building', 'stone', 1.5],
       ['andesite', 'natural', 'stone', 1.5],
       ['polished_andesite', 'building', 'stone', 1.5],
-      ['deepslate', 'natural', 'stone', 3.0],
-      ['cobbled_deepslate', 'building', 'stone', 3.5],
-      ['deepslate_bricks', 'building', 'stone', 3.5],
-      ['tuff', 'natural', 'stone', 1.5],
+      ['deepslate', 'natural', 'deepslate', 3.0],
+      ['cobbled_deepslate', 'building', 'deepslate', 3.5],
+      ['deepslate_bricks', 'building', 'deepslate', 3.5],
+      ['tuff', 'natural', 'deepslate', 1.5],
       ['bricks', 'building', 'stone', 2.0],
       ['mud_bricks', 'building', 'stone', 1.5],
       ['coal_ore', 'natural', 'stone', 3.0],
@@ -1012,14 +1039,14 @@ export class Registries {
       ['emerald_ore', 'natural', 'stone', 3.0],
       ['lapis_ore', 'natural', 'stone', 3.0],
       ['diamond_ore', 'natural', 'stone', 3.0],
-      ['deepslate_coal_ore', 'natural', 'stone', 4.5],
-      ['deepslate_iron_ore', 'natural', 'stone', 4.5],
-      ['deepslate_copper_ore', 'natural', 'stone', 4.5],
-      ['deepslate_gold_ore', 'natural', 'stone', 4.5],
-      ['deepslate_redstone_ore', 'natural', 'stone', 4.5],
-      ['deepslate_diamond_ore', 'natural', 'stone', 4.5],
-      ['deepslate_lapis_ore', 'natural', 'stone', 4.5],
-      ['deepslate_emerald_ore', 'natural', 'stone', 4.5],
+      ['deepslate_coal_ore', 'natural', 'deepslate', 4.5],
+      ['deepslate_iron_ore', 'natural', 'deepslate', 4.5],
+      ['deepslate_copper_ore', 'natural', 'deepslate', 4.5],
+      ['deepslate_gold_ore', 'natural', 'deepslate', 4.5],
+      ['deepslate_redstone_ore', 'natural', 'deepslate', 4.5],
+      ['deepslate_diamond_ore', 'natural', 'deepslate', 4.5],
+      ['deepslate_lapis_ore', 'natural', 'deepslate', 4.5],
+      ['deepslate_emerald_ore', 'natural', 'deepslate', 4.5],
       ['coal_block', 'building', 'stone', 5.0],
       ['iron_block', 'building', 'stone', 5.0],
       ['gold_block', 'building', 'stone', 3.0],

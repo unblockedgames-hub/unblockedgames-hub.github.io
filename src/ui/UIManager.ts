@@ -193,6 +193,7 @@ export class UIManager {
   public mouseY = 0;
   private interactiveRects: InteractiveRect[] = [];
   private activeSlider: InteractiveRect | null = null;
+  public lastContainerBounds = { x1: 0, y1: 0, x2: 0, y2: 0 };
   private isRightMouseDown = false;
   private isLeftMouseDown = false;
   private lastRightDragSlotKey = '';
@@ -704,7 +705,14 @@ export class UIManager {
       }
 
       // Click outside container window drops cursor item into the world as a 3D dropped item entity!
-      if (this.state === 'INVENTORY' && this.inventory.cursorStack) {
+      const cb = this.lastContainerBounds;
+      const isInsideContainerWindow =
+        this.mouseX >= cb.x1 &&
+        this.mouseX <= cb.x2 &&
+        this.mouseY >= cb.y1 &&
+        this.mouseY <= cb.y2;
+
+      if (this.state === 'INVENTORY' && this.inventory.cursorStack && !isInsideContainerWindow) {
         const dropCount = isUseButton ? 1 : this.inventory.cursorStack.count;
         const dropId = this.inventory.cursorStack.item.shortId;
         this.inventory.cursorStack.count -= dropCount;
@@ -1306,9 +1314,7 @@ export class UIManager {
               this.mouseY >= r.y &&
               this.mouseY < r.y + r.h
             ) {
-              if (this.isRightMouseDown && r.onRightDragPlace) {
-                r.onRightDragPlace();
-              } else if (
+              if (
                 this.isLeftMouseDown &&
                 r.slotKey?.startsWith('craft_out_') &&
                 r.onClick
@@ -3932,10 +3938,10 @@ export class UIManager {
     const centerX = Math.floor(sw / 2);
     const centerY = Math.floor(sh / 2);
 
-    // Red screen hurt vignette flash on damage (authentic subtle red vignette)
+    // Red screen hurt vignette flash on damage (authentic Minecraft crimson flash)
     if (this.player.hurtTimer > 0) {
-      const alpha = Math.min(0.15, (this.player.hurtTimer / 0.45) * 0.15);
-      this.gui.fill(0, 0, sw, sh, `rgba(180, 0, 0, ${alpha.toFixed(3)})`);
+      const alpha = Math.min(0.38, (this.player.hurtTimer / 0.5) * 0.38);
+      this.gui.fill(0, 0, sw, sh, `rgba(220, 15, 15, ${alpha.toFixed(3)})`);
     }
 
     // Purple nether portal swirl vignette when standing in portal
@@ -3953,6 +3959,28 @@ export class UIManager {
         15,
         15
       );
+
+      // Minecraft 1.9+ Crosshair Attack Strength Indicator
+      const attackStrength = this.player.getAttackStrength();
+      if (attackStrength < 1.0) {
+        this.gui.blitSprite(
+          '/assets/minecraft/textures/gui/sprites/hud/crosshair_attack_indicator_background.png',
+          centerX - 8,
+          centerY + 9,
+          16,
+          4
+        );
+        const fillW = Math.floor(attackStrength * 16);
+        if (fillW > 0) {
+          this.gui.blitSprite(
+            '/assets/minecraft/textures/gui/sprites/hud/crosshair_attack_indicator_progress.png',
+            centerX - 8,
+            centerY + 9,
+            fillW,
+            4
+          );
+        }
+      }
     }
 
     // Official Ender Dragon Boss Bar
@@ -4467,6 +4495,13 @@ export class UIManager {
     const sw = this.gui.scaledWidth;
     const sh = this.gui.scaledHeight;
     this.gui.fill(0, 0, sw, sh, 'rgba(16, 16, 16, 0.72)');
+
+    const winW = this.player.gameMode === 'creative' && this.activeContainerTab === 'inventory' ? 195 : 176;
+    const winH = this.player.gameMode === 'creative' && this.activeContainerTab === 'inventory' ? 136 : 166;
+    const leftPos = Math.floor((sw - winW) / 2) + (this.showRecipeBook && this.activeContainerTab === 'inventory' ? 77 : 0);
+    const topPos = Math.floor((sh - winH) / 2);
+    const minX = this.showRecipeBook && this.activeContainerTab === 'inventory' ? leftPos - 149 : leftPos;
+    this.lastContainerBounds = { x1: minX, y1: topPos, x2: leftPos + winW, y2: topPos + winH };
 
     if (this.activeContainerTab === 'crafting') {
       this.renderCraftingTableScreen();

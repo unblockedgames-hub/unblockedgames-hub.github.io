@@ -93,6 +93,8 @@ export class Player {
   isSwinging = false;
   eyesUnderwater = false;
   eyesInLava = false;
+  attackProgress = 1.0; // 0.0 to 1.0 (Minecraft Attack Strength Meter)
+  lastSelectedSlot = 0;
 
   // Survival Mining / Block Breaking state
   isMining = false;
@@ -338,6 +340,14 @@ export class Player {
     this.swingProgress = 0;
   }
 
+  getAttackStrength(): number {
+    return Math.min(1.0, this.attackProgress);
+  }
+
+  resetAttackStrength() {
+    this.attackProgress = 0.0;
+  }
+
   resetMining() {
     this.miningTargetKey = '';
     this.miningProgress = 0;
@@ -477,6 +487,23 @@ export class Player {
 
     if (this.hurtTimer > 0) this.hurtTimer -= dt;
     if (this.invulnerableTimer > 0) this.invulnerableTimer -= dt;
+
+    // Update Attack Strength Cooldown Meter
+    const curSlot = this.inventory.selectedHotbarSlot;
+    if (curSlot !== this.lastSelectedSlot) {
+      this.lastSelectedSlot = curSlot;
+      this.attackProgress = 0.0;
+    }
+    const heldItem = this.inventory.getHeldStack()?.item;
+    let attackSpeed = 4.0; // default bare hand (0.25s)
+    if (heldItem) {
+      if (heldItem.toolType === 'sword') attackSpeed = 1.6;
+      else if (heldItem.toolType === 'axe') attackSpeed = heldItem.tier === 'wood' || heldItem.tier === 'stone' ? 0.8 : 1.0;
+      else if (heldItem.toolType === 'pickaxe') attackSpeed = 1.2;
+      else if (heldItem.toolType === 'shovel') attackSpeed = 1.0;
+      else if (heldItem.toolType === 'hoe') attackSpeed = 2.0;
+    }
+    this.attackProgress = Math.min(1.0, this.attackProgress + dt * attackSpeed);
 
     if (this.isSwinging) {
       this.swingProgress += dt * 4.5;
@@ -674,13 +701,28 @@ export class Player {
       this.velocity.z += (wishVz - this.velocity.z) * blend;
 
       if (this.inWater) {
-        this.velocity.x *= Math.pow(0.8, dt * 20);
-        this.velocity.z *= Math.pow(0.8, dt * 20);
-        this.velocity.y -= 6.5 * dt;
-        this.velocity.y = Math.max(-3.0, this.velocity.y);
+        this.velocity.x *= Math.pow(0.85, dt * 20);
+        this.velocity.z *= Math.pow(0.85, dt * 20);
+        this.velocity.y -= 7.0 * dt;
+        this.velocity.y = Math.max(-3.5, this.velocity.y);
         const jKey = kb?.jump || 'Space';
-        if (controlsActive && this.keys.has(jKey)) {
-          this.velocity.y = 4.2;
+        const isJumping = controlsActive && this.keys.has(jKey);
+        if (isJumping) {
+          // Check horizontal obstruction or near water surface
+          const checkDist = 0.25;
+          const isBlockedH =
+            this.collidesAt(this.position.x + (this.velocity.x >= 0 ? checkDist : -checkDist), this.position.y + 0.2, this.position.z) ||
+            this.collidesAt(this.position.x, this.position.y + 0.2, this.position.z + (this.velocity.z >= 0 ? checkDist : -checkDist));
+          if (isBlockedH || !this.eyesUnderwater) {
+            // Vanilla water exit boost: vault player upwards onto land
+            this.velocity.y = 6.8;
+            if (wishVx !== 0 || wishVz !== 0) {
+              this.velocity.x = wishVx * 0.85;
+              this.velocity.z = wishVz * 0.85;
+            }
+          } else {
+            this.velocity.y = 4.8;
+          }
         }
       } else {
         if (this.onGround) {
@@ -724,12 +766,21 @@ export class Player {
     if (!this.collidesAt(nextX, this.position.y, this.position.z)) {
       this.position.x = nextX;
     } else if (
-      this.onGround &&
+      (this.onGround || this.inWater) &&
       !this.collidesAt(nextX, this.position.y + 0.52, this.position.z) &&
       this.collidesAt(nextX, this.position.y + 0.05, this.position.z)
     ) {
       this.position.x = nextX;
       this.position.y += 0.5;
+      this.currentEyeHeight -= 0.5; // Smooth camera stair glide
+    } else if (
+      this.inWater &&
+      !this.collidesAt(nextX, this.position.y + 1.1, this.position.z) &&
+      this.collidesAt(nextX, this.position.y + 0.2, this.position.z)
+    ) {
+      this.position.x = nextX;
+      this.position.y += 1.0;
+      this.currentEyeHeight -= 1.0; // Smooth camera shore climb
     } else {
       this.velocity.x = 0;
     }
@@ -748,12 +799,21 @@ export class Player {
     if (!this.collidesAt(this.position.x, this.position.y, nextZ)) {
       this.position.z = nextZ;
     } else if (
-      this.onGround &&
+      (this.onGround || this.inWater) &&
       !this.collidesAt(this.position.x, this.position.y + 0.52, nextZ) &&
       this.collidesAt(this.position.x, this.position.y + 0.05, nextZ)
     ) {
       this.position.z = nextZ;
       this.position.y += 0.5;
+      this.currentEyeHeight -= 0.5; // Smooth camera stair glide
+    } else if (
+      this.inWater &&
+      !this.collidesAt(this.position.x, this.position.y + 1.1, nextZ) &&
+      this.collidesAt(this.position.x, this.position.y + 0.2, nextZ)
+    ) {
+      this.position.z = nextZ;
+      this.position.y += 1.0;
+      this.currentEyeHeight -= 1.0; // Smooth camera shore climb
     } else {
       this.velocity.z = 0;
     }
@@ -969,8 +1029,9 @@ export class Player {
     // Authentic Minecraft damage camera tilt (bobHurt)
     let hurtRoll = 0;
     if (this.hurtTimer > 0) {
-      const hurtRatio = this.hurtTimer / 0.45;
-      hurtRoll = Math.sin(hurtRatio * Math.PI) * ((3.5 * Math.PI) / 180.0) * this.hurtDirection;
+      const hurtRatio = this.hurtTimer / 0.5;
+      // Minecraft Java Mth.sin(f * f * PI) * 14.0 degrees tilt
+      hurtRoll = -Math.sin(hurtRatio * hurtRatio * Math.PI) * ((14.0 * Math.PI) / 180.0) * this.hurtDirection;
     }
 
     const euler = new THREE.Euler(0, 0, 0, 'YXZ');

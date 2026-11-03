@@ -2043,7 +2043,11 @@ export class EntityRenderer {
             mob.vx = Math.sin(mob.yaw) * (1.5 + sSize * 0.3);
             mob.vz = Math.cos(mob.yaw) * (1.5 + sSize * 0.3);
             if (dist3D < 1.2 + sSize * 0.2 && onMobAttackPlayer) {
-              onMobAttackPlayer(sSize, 'slime');
+              // Authentic Minecraft Slime damage parity: size 1 (small) deals 0 damage, size 2 deals 2, size 4 deals 4
+              const slimeDamage = sSize <= 1 ? 0 : sSize;
+              if (slimeDamage > 0) {
+                onMobAttackPlayer(slimeDamage, 'slime');
+              }
             }
           }
         }

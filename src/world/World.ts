@@ -288,10 +288,78 @@ export class World {
     }
   }
 
+  private fluidQueue: { x: number; y: number; z: number; dist: number }[] = [];
+
+  scheduleFluidTick(x: number, y: number, z: number, dist = 0) {
+    if (dist > 7) return;
+    this.fluidQueue.push({ x, y, z, dist });
+  }
+
+  processFluidFlow(maxUpdates = 24) {
+    if (this.fluidQueue.length === 0) return;
+    const waterId = Registries.getBlock('water')?.numId;
+    const cobblestoneId = Registries.getBlock('cobblestone')?.numId || 0;
+    if (!waterId) return;
+
+    let processed = 0;
+    while (this.fluidQueue.length > 0 && processed < maxUpdates) {
+      const cur = this.fluidQueue.shift()!;
+      processed++;
+
+      const b = this.getBlock(cur.x, cur.y, cur.z);
+      if (b !== waterId) continue;
+
+      // 1. Downward flow check (priority)
+      const belowY = cur.y - 1;
+      if (belowY >= 1) {
+        const belowBlock = this.getBlock(cur.x, belowY, cur.z);
+        const belowDef = Registries.getBlock(belowBlock);
+        if (belowBlock === 0 || (belowDef && (belowDef.shape === 'cross' || belowDef.shape === 'carpet' || !belowDef.solid))) {
+          this.setBlock(cur.x, belowY, cur.z, waterId);
+          this.scheduleFluidTick(cur.x, belowY, cur.z, 0);
+          continue;
+        }
+      }
+
+      // 2. Lateral spread check (up to 7 blocks from source when bottom is blocked)
+      if (cur.dist < 7) {
+        const card = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ];
+        for (const [dx, dz] of card) {
+          const nx = cur.x + dx;
+          const nz = cur.z + dz;
+          const nb = this.getBlock(nx, cur.y, nz);
+          const nbDef = Registries.getBlock(nb);
+
+          // Lava meets water -> Cobblestone
+          if (nbDef && (nbDef.fluid === 'lava' || nbDef.shortId === 'lava')) {
+            this.setBlock(nx, cur.y, nz, cobblestoneId);
+            AudioEngine.play('block.lava.extinguish', 0.85);
+            this.particleSystem.spawnDeathPoof(nx + 0.5, cur.y + 1.0, nz + 0.5);
+            continue;
+          }
+
+          if (nb === 0 || (nbDef && (nbDef.shape === 'cross' || nbDef.shape === 'carpet' || !nbDef.solid))) {
+            this.setBlock(nx, cur.y, nz, waterId);
+            this.scheduleFluidTick(nx, cur.y, nz, cur.dist + 1);
+          }
+        }
+      }
+    }
+  }
+
   checkFluidContact(bx: number, by: number, bz: number) {
     const curBlock = this.getBlock(bx, by, bz);
     const curDef = Registries.getBlock(curBlock);
     if (!curDef) return;
+
+    if (curDef.fluid === 'water' || curDef.shortId === 'water') {
+      this.scheduleFluidTick(bx, by, bz, 0);
+    }
 
     const waterId = Registries.getBlock('water')?.numId;
     const lavaId = Registries.getBlock('lava')?.numId;
