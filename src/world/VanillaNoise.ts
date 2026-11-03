@@ -235,7 +235,9 @@ export class VanillaClimate {
     const key = ((wx & 0xffff) << 16) | (wz & 0xffff);
     let h = VanillaClimate.heightCache.get(key);
     if (h === undefined) {
-      h = this.generator.getBaseHeight(wx, wz, 'WORLD_SURFACE_WG', this.randomState);
+      // Sample OCEAN_FLOOR_WG to obtain genuine solid terrain and ocean bed height
+      // (WORLD_SURFACE_WG returns 63 over water because it includes fluids).
+      h = this.generator.getBaseHeight(wx, wz, 'OCEAN_FLOOR_WG', this.randomState);
       if (VanillaClimate.heightCache.size > 8192) {
         VanillaClimate.heightCache.clear();
       }
@@ -268,6 +270,8 @@ export class VanillaClimate {
     const lavaId = getBlockId('lava');
     const gravelId = getBlockId('gravel') || dirtId;
     const snowBlockId = getBlockId('snow_block') || stoneId;
+    const iceId = getBlockId('ice') || waterId;
+    const clayId = getBlockId('clay') || gravelId;
 
     const SEA_LEVEL = 62;
     const seedOffset = Number(this.seed & 0x7fffffffn);
@@ -292,7 +296,10 @@ export class VanillaClimate {
         const wx = minX + lx;
         const qx = lx >> 2;
         const rawH = heightMap[lz * 16 + lx];
-        const H = Math.max(1, Math.min(127, rawH));
+        // In Minecraft/deepslate, getBaseHeight returns blockY + 1 (the first air/fluid space).
+        // The top solid block of the terrain/seabed is therefore rawH - 1.
+        const H = Math.max(1, Math.min(127, rawH - 1));
+        heightMap[lz * 16 + lx] = H;
 
         const biome = quartetBiomes[qz * 4 + qx];
         setBiome(lx, lz, biome);
@@ -300,6 +307,10 @@ export class VanillaClimate {
         const isDesert = biome.includes('desert') || biome.includes('beach');
         const isBadlands = biome.includes('badlands');
         const isSnowy = biome.includes('snowy') || biome.includes('ice') || biome.includes('frozen');
+        const isOcean = biome.includes('ocean');
+        const isRiver = biome.includes('river');
+        const isWarmOcean = biome.includes('warm_ocean');
+        const isFrozen = biome.includes('frozen') || biome.includes('ice');
 
         // Solid bedrock floor at Y=0, dithered at Y=1..4
         setBlock(lx, 0, lz, bedrockId);
@@ -316,7 +327,14 @@ export class VanillaClimate {
           // Surface & subsurface block palette
           if (y === H) {
             if (H < SEA_LEVEL) {
-              setBlock(lx, y, lz, isDesert ? sandId : gravelId);
+              if (isWarmOcean || isDesert) {
+                setBlock(lx, y, lz, sandId);
+              } else if (isOcean || isRiver) {
+                const isClay = this.hash2D(wx, wz, 123) < 0.12;
+                setBlock(lx, y, lz, isClay ? clayId : gravelId);
+              } else {
+                setBlock(lx, y, lz, dirtId);
+              }
             } else if (isDesert) {
               setBlock(lx, y, lz, sandId);
             } else if (isBadlands) {
@@ -327,7 +345,13 @@ export class VanillaClimate {
               setBlock(lx, y, lz, grassId);
             }
           } else if (y >= H - 3) {
-            if (isDesert) {
+            if (H < SEA_LEVEL) {
+              if (isWarmOcean || isDesert) {
+                setBlock(lx, y, lz, sandstoneId);
+              } else {
+                setBlock(lx, y, lz, dirtId);
+              }
+            } else if (isDesert) {
               setBlock(lx, y, lz, sandstoneId);
             } else if (isBadlands) {
               setBlock(lx, y, lz, terracottaId);
@@ -355,10 +379,17 @@ export class VanillaClimate {
           }
         }
 
-        // Fill sea level water if surface is below SEA_LEVEL
+        // Fill sea level water/ice if seabed is below SEA_LEVEL (Y=62)
         if (H < SEA_LEVEL) {
-          for (let y = H + 1; y <= SEA_LEVEL; y++) {
-            setBlock(lx, y, lz, waterId);
+          if (isFrozen) {
+            setBlock(lx, SEA_LEVEL, lz, iceId);
+            for (let y = H + 1; y < SEA_LEVEL; y++) {
+              setBlock(lx, y, lz, waterId);
+            }
+          } else {
+            for (let y = H + 1; y <= SEA_LEVEL; y++) {
+              setBlock(lx, y, lz, waterId);
+            }
           }
         }
       }
@@ -374,7 +405,7 @@ export class VanillaClimate {
   }
 
   getTerrainHeight(blockX: number, blockZ: number): number {
-    return this.getSampledHeight(blockX, blockZ);
+    return Math.max(1, this.getSampledHeight(blockX, blockZ) - 1);
   }
 
   getChunkHeightMap(cx: number, cz: number): Int32Array {
@@ -481,8 +512,8 @@ export class VanillaClimate {
       for (const [dx, dz] of [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]]) {
         const sx = bestX + dx;
         const sz = bestZ + dz;
-        const h = this.generator.getBaseHeight(sx, sz, 'WORLD_SURFACE_WG', this.randomState);
-        if (h >= 63) {
+        const h = this.generator.getBaseHeight(sx, sz, 'OCEAN_FLOOR_WG', this.randomState);
+        if (h >= 64) { // Terrain solid height is h - 1 >= 63, safely above ocean water (Y=62)
           return { x: sx, z: sz };
         }
       }

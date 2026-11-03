@@ -488,6 +488,7 @@ export class Chunk {
       const nDef = Registries.getBlock(neighborNum);
       if (selfDef.fluid === 'water') {
         if (nDef.fluid === 'water') return false;
+        if (nDef.shortId === 'ice') return false;
         if (nDef.solid && !nDef.transparent) return false;
       }
       // Cull adjacent leaves interior faces to drastically boost framerate in canopies
@@ -495,8 +496,8 @@ export class Chunk {
         return false;
       }
       if (nDef.transparent || nDef.shape !== 'cube') {
-        // Cull identical leaves or glass interiors to keep framerate high while showing outer faces
-        if (nDef.numId === selfDef.numId && (selfDef.shortId === 'glass' || selfDef.fluid)) {
+        // Cull identical leaves, glass, or ice interiors to keep framerate high while showing outer faces
+        if (nDef.numId === selfDef.numId && (selfDef.shortId === 'glass' || selfDef.fluid || selfDef.shortId === 'ice')) {
           return false;
         }
         return true;

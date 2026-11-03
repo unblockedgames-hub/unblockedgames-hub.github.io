@@ -91,6 +91,8 @@ export class Player {
   currentFovMultiplier = 1.0;
   swingProgress = 0;
   isSwinging = false;
+  eyesUnderwater = false;
+  eyesInLava = false;
 
   // Survival Mining / Block Breaking state
   isMining = false;
@@ -652,7 +654,18 @@ export class Player {
       this.velocity.y += (wishVy - this.velocity.y) * Math.min(1, dt * 14.0);
     } else {
       // Ground vs Air horizontal acceleration (preserves jump momentum in air!)
-      const accelRate = this.onGround ? 18.0 : 4.2;
+      let accelRate = this.onGround ? 18.0 : 4.2;
+      if (this.onGround) {
+        const blockBelow = this.world.getBlock(
+          Math.floor(this.position.x),
+          Math.floor(this.position.y - 0.1),
+          Math.floor(this.position.z)
+        );
+        const blockDef = Registries.getBlock(blockBelow);
+        if (blockDef && (blockDef.shortId === 'ice' || blockDef.shortId === 'packed_ice' || blockDef.shortId === 'blue_ice')) {
+          accelRate = 3.4; // Authentic Minecraft ice slipperiness
+        }
+      }
       const blend = Math.min(1, dt * accelRate);
       this.velocity.x += (wishVx - this.velocity.x) * blend;
       this.velocity.z += (wishVz - this.velocity.z) * blend;
@@ -796,6 +809,8 @@ export class Player {
     );
     const eyeDef = Registries.getBlock(eyeBlock);
     const eyesUnderwater = eyeDef.fluid === 'water';
+    this.eyesUnderwater = eyesUnderwater;
+    this.eyesInLava = eyeDef.fluid === 'lava';
 
     if (this.gameMode === 'survival') {
       if (eyesUnderwater) {

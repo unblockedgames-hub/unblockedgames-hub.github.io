@@ -1044,7 +1044,30 @@ export class Game {
           dropId = Math.random() < 0.1 ? 'flint' : 'gravel';
         } else if (id === 'straw_bed_head') dropId = 'straw_bed';
         else if (id.endsWith('_door')) dropId = id;
-        else if (id === 'glass' || id.endsWith('_glass') || id === 'glass_pane' || id.endsWith('_glass_pane')) {
+        else if (id === 'ice') {
+          dropId = ''; // Ice drops nothing without Silk Touch
+          if (this.world.dimension !== 'nether') {
+            const blockBelow = this.world.getBlock(hit.bx, hit.by - 1, hit.bz);
+            if (blockBelow !== 0) {
+              const waterId = Registries.getBlock('water')?.numId || 0;
+              this.world.setBlock(hit.bx, hit.by, hit.bz, waterId);
+            }
+          }
+        } else if (id === 'snow_block') {
+          if (toolType === 'shovel') {
+            dropId = 'snowball';
+            dropCount = 4;
+          } else {
+            dropId = '';
+          }
+        } else if (id === 'snow') {
+          if (toolType === 'shovel') {
+            dropId = 'snowball';
+            dropCount = 1;
+          } else {
+            dropId = '';
+          }
+        } else if (id === 'glass' || id.endsWith('_glass') || id === 'glass_pane' || id.endsWith('_glass_pane')) {
           dropId = ''; // Glass drops nothing without silk touch
         } else if (id.includes('leaves')) {
           const roll = Math.random();
@@ -1982,10 +2005,20 @@ export class Game {
 
     this.skyColor.setRGB(0.47 * daylight, 0.65 * daylight, 1.0 * daylight);
     if (this.scene.fog instanceof THREE.Fog) {
-      this.scene.fog.color.copy(this.skyColor);
-      const rDist = OptionsManager.current.renderDistance || 8;
-      this.scene.fog.far = rDist * 16;
-      this.scene.fog.near = this.scene.fog.far * 0.75;
+      if (this.player.eyesUnderwater) {
+        this.scene.fog.color.setRGB(0.02, 0.04, 0.22);
+        this.scene.fog.near = -4;
+        this.scene.fog.far = 38;
+      } else if (this.player.eyesInLava) {
+        this.scene.fog.color.setRGB(0.6, 0.1, 0.0);
+        this.scene.fog.near = 0.25;
+        this.scene.fog.far = 2.5;
+      } else {
+        this.scene.fog.color.copy(this.skyColor);
+        const rDist = OptionsManager.current.renderDistance || 8;
+        this.scene.fog.far = rDist * 16;
+        this.scene.fog.near = this.scene.fog.far * 0.75;
+      }
     }
     this.ambientLight.intensity = 0.18 + 0.62 * daylight;
     this.sunLight.intensity = 0.95 * daylight;

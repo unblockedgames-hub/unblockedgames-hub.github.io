@@ -10,7 +10,7 @@ function trapezoid(random: { nextInt(n: number): number }, min: number, max: num
 }
 
 export class FeaturePlacer {
-  static SEA_LEVEL = 63;
+  static SEA_LEVEL = 62;
 
   /**
    * Places authentic Minecraft 26.3 ore veins (step 6: underground_ores) using Mojang's
@@ -209,6 +209,12 @@ export class FeaturePlacer {
           const biomeId = WorldGen26_3.vanillaClimate.getBiomeAt(twx, twz);
           const h = getSurfaceHeight(twx, twz);
           if (h <= this.SEA_LEVEL) continue;
+
+          // Trees require soil ground (grass_block, dirt, podzol)
+          const groundBlock = chunk.getBlock(lx, h, lz);
+          if (groundBlock !== grassId && groundBlock !== podzolId && groundBlock !== (Registries.getBlock('dirt')?.numId || 0)) {
+            continue;
+          }
 
           // Per-candidate probability based on biome density
           let treeChance = 0;

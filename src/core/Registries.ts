@@ -1522,6 +1522,7 @@ export class Registries {
       ['splash_potion', 'combat_tools'],
       ['lingering_potion', 'combat_tools'],
       ['glass_bottle', 'combat_tools'],
+      ['snowball', 'combat_tools'],
  // Abandoned Camp Explorer Map!
       ['wheat', 'natural'],
       ['stick', 'natural'],
