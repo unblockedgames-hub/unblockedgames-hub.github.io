@@ -765,6 +765,11 @@ export class Game {
     });
 
     window.addEventListener('mouseup', (e) => {
+
+    if (e.button === 2) {
+      this.player.isBlocking = false;
+    }
+
       const kb = OptionsManager.current.keyBinds;
       const isAttackMatch = kb?.attack
         ? kb.attack === `Mouse${e.button}`
@@ -1417,7 +1422,7 @@ export class Game {
       targetDef.shortId === 'straw_bed_head' ||
       targetDef.shortId.endsWith('_bed')
     ) {
-      if (this.world.dimension === 'nether') {
+      if (this.world.dimension === 'nether' || this.world.dimension === 'the_end') {
         // Authentic Nether Bed explosion!
         AudioEngine.play('entity.generic.explode', 1.0);
         this.world.setBlock(hit.bx, hit.by, hit.bz, 0);
@@ -1627,6 +1632,29 @@ export class Game {
       } else {
         this.world.setBlock(placeX, placeY, placeZ, placeDef.numId, facingMeta);
       }
+      
+      // Wither Summoning Check (T-shape of soul sand with 3 skulls on top)
+      if (placeDef.shortId === 'wither_skeleton_skull') {
+        const soulSandId = Registries.getBlock('soul_sand')?.numId;
+        const soulSoilId = Registries.getBlock('soul_soil')?.numId;
+        const isSoul = (b: number) => b === soulSandId || b === soulSoilId;
+
+        if (isSoul(this.world.getBlock(placeX, placeY - 1, placeZ)) && isSoul(this.world.getBlock(placeX, placeY - 2, placeZ))) {
+          // Check X-axis T-shape
+          const isT_X = isSoul(this.world.getBlock(placeX - 1, placeY - 1, placeZ)) && isSoul(this.world.getBlock(placeX + 1, placeY - 1, placeZ));
+          // Check Z-axis T-shape
+          const isT_Z = isSoul(this.world.getBlock(placeX, placeY - 1, placeZ - 1)) && isSoul(this.world.getBlock(placeX, placeY - 1, placeZ + 1));
+
+          if (isT_X || isT_Z) {
+            // Summon The Wither
+            this.entityRenderer.spawnMob(`wither_${Date.now()}`, 'wither', placeX + 0.5, placeY + 1.0, placeZ + 0.5, 'The Wither');
+            AudioEngine.play('entity.wither.spawn', 1.0);
+            this.ui.addChatMessage('§8The Wither has been summoned!');
+            this.particleSystem.spawnDeathPoof(placeX + 0.5, placeY + 1.0, placeZ + 0.5);
+          }
+        }
+      }
+
       this.world.checkGravity(placeX, placeY, placeZ, (bx, by, bz, blockId, targetY, meta) => {
         this.entityRenderer.spawnFallingBlock(bx, by, bz, blockId, targetY, meta);
       });

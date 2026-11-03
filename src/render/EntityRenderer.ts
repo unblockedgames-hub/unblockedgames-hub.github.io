@@ -68,7 +68,22 @@ export interface MobEntity {
     | 'ghast'
     | 'shulker'
     | 'piglin'
-    | 'wither_skeleton';
+    | 'wither_skeleton'
+    | 'wither'
+    | 'warden'
+    | 'witch'
+    | 'pillager'
+    | 'evoker'
+    | 'ravager'
+    | 'phantom'
+    | 'breeze'
+    | 'wolf'
+    | 'cat'
+    | 'horse'
+    | 'bee'
+    | 'dolphin'
+    | 'axolotl'
+    | 'strider';
   name?: string;
   x: number;
   y: number;
@@ -925,6 +940,20 @@ export class EntityRenderer {
         ? 20
         : type === 'shulker'
         ? 30
+        : type === 'wither'
+        ? 300
+        : type === 'warden'
+        ? 500
+        : type === 'ravager'
+        ? 100
+        : type === 'witch' || type === 'pillager' || type === 'evoker'
+        ? 24
+        : type === 'phantom' || type === 'breeze' || type === 'horse' || type === 'strider'
+        ? 20
+        : type === 'wolf'
+        ? 16
+        : type === 'bee' || type === 'cat' || type === 'dolphin'
+        ? 10
         : type === 'ghast'
         ? 10
         : type === 'piglin'

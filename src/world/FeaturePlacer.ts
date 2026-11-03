@@ -235,13 +235,10 @@ export class FeaturePlacer {
           if (h <= this.SEA_LEVEL) return;
 
           if (biomeId === 'minecraft:snowy_plains') {
-            // Authentic Minecraft trees_snowy: count roll with high chance
-            const roll = chunkRng.nextInt(10);
-            if (roll < 8) {
-              const trunkH = 5 + chunkRng.nextInt(3) + chunkRng.nextInt(2);
-              const folRadius = 2 + chunkRng.nextInt(2);
-              this.placeSpruceTree(setBlockInChunk, twx, h + 1, twz, trunkH, folRadius);
-            }
+            // Authentic Minecraft trees_snowy: tall conical pines with tiered snowy crowns
+            const trunkH = 7 + chunkRng.nextInt(4);
+            const folRadius = 2 + (chunkRng.nextInt(10) < 3 ? 1 : 0);
+            this.placeSpruceTree(setBlockInChunk, twx, h + 1, twz, trunkH, folRadius);
           } else if (biomeId.includes('taiga') || biomeId === 'minecraft:grove') {
             const trunkH = 6 + chunkRng.nextInt(4);
             const folRadius = 2 + chunkRng.nextInt(2);
@@ -290,7 +287,7 @@ export class FeaturePlacer {
         } else if (centerBiome.includes('jungle')) {
           treeAttempts = 4 + (treeRoll % 3);
         } else if (centerBiome === 'minecraft:snowy_plains') {
-          treeAttempts = 1;
+          treeAttempts = 1 + (treeRoll % 2);
         } else if (centerBiome === 'minecraft:plains' || centerBiome === 'minecraft:sunflower_plains') {
           treeAttempts = treeRoll < 2 ? 1 : 0;
         } else if (centerBiome === 'minecraft:savanna') {
@@ -307,46 +304,27 @@ export class FeaturePlacer {
     const biomeAtCenter = chunk.biomes[8 * CHUNK_SIZE + 8] || 'minecraft:plains';
 
     if (biomeAtCenter === 'minecraft:snowy_plains' || biomeAtCenter.includes('snowy')) {
-      // 1. Clustered grass patches (patch_grass_badlands)
+      // 1. Clustered grass patches (patch_grass_plain) - small natural tufts
       const patchRng = pr.at(cx, 1, cz);
-      const ox = cx * CHUNK_SIZE + patchRng.nextInt(16);
-      const oz = cz * CHUNK_SIZE + patchRng.nextInt(16);
-      for (let i = 0; i < 32; i++) {
-        const dx = trapezoid(patchRng, -7, 7);
-        const dz = trapezoid(patchRng, -7, 7);
-        const wx = ox + dx;
-        const wz = oz + dz;
-        const lx = wx - cx * CHUNK_SIZE;
-        const lz = wz - cz * CHUNK_SIZE;
-        if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE) {
-          const h = heightMap[lz * CHUNK_SIZE + lx];
-          if (h > this.SEA_LEVEL && chunk.getBlock(lx, h, lz) === grassId && chunk.getBlock(lx, h + 1, lz) === 0) {
-            chunk.setBlock(lx, h + 1, lz, shortGrassId);
-          }
-        }
-      }
-
-      // 2. Flowers (flower_default: dandelions and poppies)
-      const flRng = pr.at(cx, 2, cz);
-      if (flRng.nextInt(3) === 0) {
-        const fox = cx * CHUNK_SIZE + flRng.nextInt(16);
-        const foz = cz * CHUNK_SIZE + flRng.nextInt(16);
-        for (let i = 0; i < 20; i++) {
-          const dx = trapezoid(flRng, -7, 7);
-          const dz = trapezoid(flRng, -7, 7);
-          const wx = fox + dx;
-          const wz = foz + dz;
+      if (patchRng.nextInt(2) === 0) {
+        const ox = cx * CHUNK_SIZE + patchRng.nextInt(16);
+        const oz = cz * CHUNK_SIZE + patchRng.nextInt(16);
+        for (let i = 0; i < 8; i++) {
+          const dx = trapezoid(patchRng, -4, 4);
+          const dz = trapezoid(patchRng, -4, 4);
+          const wx = ox + dx;
+          const wz = oz + dz;
           const lx = wx - cx * CHUNK_SIZE;
           const lz = wz - cz * CHUNK_SIZE;
           if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE) {
             const h = heightMap[lz * CHUNK_SIZE + lx];
             if (h > this.SEA_LEVEL && chunk.getBlock(lx, h, lz) === grassId && chunk.getBlock(lx, h + 1, lz) === 0) {
-              const flowerId = flRng.nextFloat() < 0.5 ? dandelionId : poppyId;
-              chunk.setBlock(lx, h + 1, lz, flowerId);
+              chunk.setBlock(lx, h + 1, lz, shortGrassId);
             }
           }
         }
       }
+      // NO flowers in snowy plains (vanilla Minecraft 26.3 parity: zero dandelions/poppies)
     } else {
       // General Biome flora
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -453,6 +431,7 @@ export class FeaturePlacer {
         }
 
         // 2. Scan downwards through column to place snow on leaves and ground
+        let hasCanopyAbove = false;
         for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
           const b = chunk.getBlock(lx, y, lz);
           if (b === 0) continue;
@@ -461,9 +440,10 @@ export class FeaturePlacer {
 
           // If leaf block with air above: place snow layer on it!
           if (b === spruceLeavesId || b === oakLeavesId || b === birchLeavesId) {
-            if (above === 0 && snowLayerId) {
+            if (!hasCanopyAbove && above === 0 && snowLayerId) {
               chunk.setBlock(lx, y + 1, lz, snowLayerId);
             }
+            hasCanopyAbove = true;
             continue; // Continue scanning down for lower canopy tiers and ground
           }
 
@@ -474,20 +454,19 @@ export class FeaturePlacer {
           }
 
           // If solid ground (grass block, dirt, stone, gravel, sand)
-          if (b === grassId) {
-            if (above === 0 && snowLayerId) {
-              chunk.setBlock(lx, y, lz, grassSnowId);
-              chunk.setBlock(lx, y + 1, lz, snowLayerId);
+          if (!hasCanopyAbove) {
+            if (b === grassId) {
+              if (above === 0 && snowLayerId) {
+                chunk.setBlock(lx, y, lz, grassSnowId);
+                chunk.setBlock(lx, y + 1, lz, snowLayerId);
+              }
+            } else if (b === dirtId || b === stoneId || b === grassSnowId) {
+              if (above === 0 && snowLayerId) {
+                chunk.setBlock(lx, y + 1, lz, snowLayerId);
+              }
             }
-            break;
-          } else if (b === dirtId || b === stoneId || b === grassSnowId) {
-            if (above === 0 && snowLayerId) {
-              chunk.setBlock(lx, y + 1, lz, snowLayerId);
-            }
-            break;
-          } else if (b === waterId || b === iceId) {
-            break;
           }
+          break;
         }
       }
     }
@@ -507,45 +486,58 @@ export class FeaturePlacer {
   ) {
     const logId = Registries.getBlock('spruce_log')?.numId || Registries.getBlock('oak_log').numId;
     const leafId = Registries.getBlock('spruce_leaves')?.numId || Registries.getBlock('oak_leaves').numId;
+    const snowId = Registries.getBlock('snow')?.numId || 0;
 
     // 1. Trunk
     for (let y = baseY; y < baseY + trunkHeight; y++) {
       setBlockWorld(baseX, y, baseZ, logId);
     }
 
-    // 2. Foliage (Minecraft SpruceFoliagePlacer)
+    // 2. Foliage (Minecraft SpruceFoliagePlacer: tiered evergreen pine with snow layers)
     const topY = baseY + trunkHeight;
-    let currentRadius = 0;
-    let maxRadius = 1;
-    let minRadius = 0;
-    const foliageHeight = trunkHeight - 1;
+    // Top tip
+    setBlockWorld(baseX, topY, baseZ, leafId);
+    if (snowId) setBlockWorld(baseX, topY + 1, baseZ, snowId);
 
-    for (let y = topY; y >= topY - foliageHeight; y--) {
-      const r = currentRadius;
-      for (let dx = -r; dx <= r; dx++) {
-        for (let dz = -r; dz <= r; dz++) {
-          if (r === 0) {
-            setBlockWorld(baseX, y, baseZ, leafId);
-          } else if (r === 1) {
-            if (Math.abs(dx) + Math.abs(dz) <= 1) {
-              setBlockWorld(baseX + dx, y, baseZ + dz, leafId);
-            }
-          } else if (r === 2) {
-            if (Math.abs(dx) === 2 && Math.abs(dz) === 2) continue; // Truncate corners
-            setBlockWorld(baseX + dx, y, baseZ + dz, leafId);
-          } else if (r >= 3) {
-            if (Math.abs(dx) + Math.abs(dz) > r + 1) continue;
-            setBlockWorld(baseX + dx, y, baseZ + dz, leafId);
+    // Tier 1: cross shape at topY - 1
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (Math.abs(dx) + Math.abs(dz) <= 1) {
+          setBlockWorld(baseX + dx, topY - 1, baseZ + dz, leafId);
+          if (snowId && (dx !== 0 || dz !== 0)) {
+            setBlockWorld(baseX + dx, topY, baseZ + dz, snowId);
           }
         }
       }
+    }
 
-      if (currentRadius >= maxRadius) {
-        currentRadius = minRadius;
-        minRadius = 1;
-        maxRadius = Math.min(maxRadius + 1, foliageRadius);
-      } else {
-        currentRadius++;
+    // Tier 2: 3x3 square at topY - 2
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        setBlockWorld(baseX + dx, topY - 2, baseZ + dz, leafId);
+        if (snowId && Math.abs(dx) === 1 && Math.abs(dz) === 1) {
+          setBlockWorld(baseX + dx, topY - 1, baseZ + dz, snowId);
+        }
+      }
+    }
+
+    // Tiers downwards to baseY + 1: alternating conical widening
+    let currentR = 1;
+    for (let y = topY - 3; y >= baseY + 1; y--) {
+      const step = topY - y;
+      const isWide = step % 2 === 0;
+      if (isWide && currentR < foliageRadius) {
+        currentR++;
+      }
+      const r = isWide ? currentR : Math.max(1, currentR - 1);
+
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+          if (r >= 2 && Math.abs(dx) === r && Math.abs(dz) === r) continue; // Truncate corners
+          if (r === 1 && !isWide && Math.abs(dx) + Math.abs(dz) > 1) continue; // Cross shape
+
+          setBlockWorld(baseX + dx, y, baseZ + dz, leafId);
+        }
       }
     }
   }

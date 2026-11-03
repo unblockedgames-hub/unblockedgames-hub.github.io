@@ -1274,6 +1274,91 @@ export class Registries {
       category: 'natural',
     });
 
+
+    // Redstone Automation & Power Devices
+    const redstoneBlocks: Array<{ id: string; top?: string; bot?: string; side?: string; all?: string; shape?: string; solid?: boolean; transparent?: boolean; light?: number }> = [
+      { id: 'observer', top: 'observer_top', bot: 'observer_top', side: 'observer_front' },
+      { id: 'hopper', top: 'hopper_top', bot: 'hopper_inside', side: 'hopper_outside' },
+      { id: 'dispenser', top: 'furnace_top', bot: 'furnace_top', side: 'dispenser_front' },
+      { id: 'dropper', top: 'furnace_top', bot: 'furnace_top', side: 'dropper_front' },
+      { id: 'comparator', all: 'comparator', shape: 'carpet', solid: false, transparent: true },
+      { id: 'target', top: 'target_top', bot: 'target_top', side: 'target_side' },
+      { id: 'daylight_detector', top: 'daylight_detector_top', bot: 'oak_planks', side: 'daylight_detector_side', shape: 'slab' },
+      { id: 'daylight_detector_inverted', top: 'daylight_detector_inverted_top', bot: 'oak_planks', side: 'daylight_detector_side', shape: 'slab' },
+      { id: 'note_block', all: 'note_block' },
+      { id: 'crafter', top: 'crafter_top', bot: 'crafter_bottom', side: 'crafter_side' },
+    ];
+
+    for (const b of redstoneBlocks) {
+      this.registerBlock({
+        shortId: b.id,
+        shape: (b.shape as any) || 'cube',
+        transparent: b.transparent ?? false,
+        solid: b.solid ?? true,
+        lightEmission: b.light || 0,
+        hardness: 1.5,
+        soundGroup: 'stone',
+        textures: b.all ? this.allFaces(b.all) : this.topBottomSide(b.top!, b.bot!, b.side!),
+        category: 'redstone',
+      });
+    }
+
+    // Workstations & Functional Blocks
+    const workstations: Array<{ id: string; top?: string; bot?: string; side?: string; all?: string; shape?: string; solid?: boolean; transparent?: boolean; light?: number }> = [
+      { id: 'enchanting_table', top: 'enchanting_table_top', bot: 'obsidian', side: 'enchanting_table_side' },
+      { id: 'anvil', top: 'anvil_top', bot: 'anvil', side: 'anvil' },
+      { id: 'chipped_anvil', top: 'chipped_anvil_top', bot: 'anvil', side: 'anvil' },
+      { id: 'damaged_anvil', top: 'damaged_anvil_top', bot: 'anvil', side: 'anvil' },
+      { id: 'brewing_stand', all: 'brewing_stand', shape: 'carpet', solid: false, transparent: true },
+      { id: 'grindstone', top: 'grindstone_round', bot: 'dark_oak_planks', side: 'grindstone_side' },
+      { id: 'smithing_table', top: 'smithing_table_top', bot: 'smithing_table_bottom', side: 'smithing_table_front' },
+      { id: 'lectern', top: 'lectern_top', bot: 'lectern_base', side: 'lectern_sides' },
+      { id: 'composter', top: 'composter_top', bot: 'composter_bottom', side: 'composter_side' },
+      { id: 'cauldron', top: 'cauldron_top', bot: 'cauldron_bottom', side: 'cauldron_side' },
+      { id: 'bell', top: 'bell_top', bot: 'bell_bottom', side: 'bell_side' },
+      { id: 'respawn_anchor', top: 'respawn_anchor_top_off', bot: 'respawn_anchor_bottom', side: 'respawn_anchor_side0', light: 3 },
+      { id: 'lodestone', top: 'lodestone_top', bot: 'lodestone_top', side: 'lodestone_side' },
+    ];
+
+    for (const b of workstations) {
+      this.registerBlock({
+        shortId: b.id,
+        shape: (b.shape as any) || 'cube',
+        transparent: b.transparent ?? false,
+        solid: b.solid ?? true,
+        lightEmission: b.light || 0,
+        hardness: 2.0,
+        soundGroup: b.id.includes('anvil') || b.id === 'cauldron' || b.id === 'bell' ? 'metal' : 'stone',
+        textures: b.all ? this.allFaces(b.all) : this.topBottomSide(b.top!, b.bot!, b.side!),
+        category: 'functional',
+      });
+    }
+
+    // Sculk & Trial Chamber Blocks
+    const sculkTrial: Array<{ id: string; top?: string; bot?: string; side?: string; all?: string; light?: number }> = [
+      { id: 'sculk', all: 'sculk' },
+      { id: 'sculk_catalyst', top: 'sculk_catalyst_top', bot: 'sculk_catalyst_bottom', side: 'sculk_catalyst_side', light: 6 },
+      { id: 'sculk_sensor', top: 'sculk_sensor_tendril_active', bot: 'sculk', side: 'sculk_sensor_side', light: 1 },
+      { id: 'sculk_shrieker', top: 'sculk_shrieker_top', bot: 'sculk_shrieker_bottom', side: 'sculk_shrieker_side' },
+      { id: 'trial_spawner', top: 'trial_spawner_top_inactive', bot: 'trial_spawner_bottom', side: 'trial_spawner_side_inactive', light: 4 },
+      { id: 'vault', top: 'vault_top', bot: 'vault_bottom', side: 'vault_front_off', light: 6 },
+      { id: 'heavy_core', all: 'heavy_core' },
+    ];
+
+    for (const b of sculkTrial) {
+      this.registerBlock({
+        shortId: b.id,
+        shape: 'cube',
+        transparent: false,
+        solid: true,
+        lightEmission: b.light || 0,
+        hardness: 3.0,
+        soundGroup: 'stone',
+        textures: b.all ? this.allFaces(b.all) : this.topBottomSide(b.top!, b.bot!, b.side!),
+        category: 'natural',
+      });
+    }
+
     // Hay Block & Bone Block
     this.registerBlock({
       shortId: 'hay_block',
@@ -1420,7 +1505,24 @@ export class Registries {
       ['chorus_fruit', 'natural'],
       ['elytra', 'combat_tools'],
       ['shulker_shell', 'natural'],
-      ['dragon_breath', 'natural'], // Abandoned Camp Explorer Map!
+      ['dragon_breath', 'natural'],
+      ['wither_skeleton_skull', 'combat_tools'],
+      ['nether_star', 'natural'],
+      ['totem_of_undying', 'combat_tools'],
+      ['shield', 'combat_tools'],
+      ['trident', 'combat_tools'],
+      ['crossbow', 'combat_tools'],
+      ['mace', 'combat_tools'],
+      ['breeze_rod', 'natural'],
+      ['wind_charge', 'combat_tools'],
+      ['trial_key', 'combat_tools'],
+      ['ominous_trial_key', 'combat_tools'],
+      ['ominous_bottle', 'combat_tools'],
+      ['potion', 'combat_tools'],
+      ['splash_potion', 'combat_tools'],
+      ['lingering_potion', 'combat_tools'],
+      ['glass_bottle', 'combat_tools'],
+ // Abandoned Camp Explorer Map!
       ['wheat', 'natural'],
       ['stick', 'natural'],
       ['coal', 'natural'],

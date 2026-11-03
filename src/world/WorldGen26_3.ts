@@ -289,6 +289,162 @@ export class WorldGen26_3 {
     return { x: nearest.x, z: nearest.z, dist: Math.round(minDist) };
   }
 
+
+  static placeMineshaft(chunk: Chunk, cx: number, cz: number, baseY = 24): { mobs: Array<{ type: string; x: number; y: number; z: number }> } {
+    const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
+    const oakPlanksId = Registries.getBlock('oak_planks')?.numId || 1;
+    const oakFenceId = Registries.getBlock('oak_fence')?.numId || oakPlanksId;
+    const railId = Registries.getBlock('rail')?.numId || 0;
+    const cobwebId = Registries.getBlock('cobweb')?.numId || 0;
+    const chestId = Registries.getBlock('chest')?.numId || 0;
+    const spawnerId = Registries.getBlock('spawner')?.numId || oakPlanksId;
+
+    // Corridor 3x3 carved along Z axis
+    for (let x = 6; x <= 8; x++) {
+      for (let z = 0; z < CHUNK_SIZE; z++) {
+        for (let y = baseY; y <= baseY + 3; y++) {
+          if (y === baseY) {
+            chunk.setBlock(x, y, z, oakPlanksId);
+            if (x === 7 && railId && z % 2 === 0) chunk.setBlock(x, y + 1, z, railId);
+          } else {
+            chunk.setBlock(x, y, z, 0);
+          }
+        }
+        // Wooden support arches every 4 blocks
+        if (z % 4 === 0) {
+          chunk.setBlock(6, baseY + 1, z, oakFenceId);
+          chunk.setBlock(6, baseY + 2, z, oakFenceId);
+          chunk.setBlock(8, baseY + 1, z, oakFenceId);
+          chunk.setBlock(8, baseY + 2, z, oakFenceId);
+          chunk.setBlock(6, baseY + 3, z, oakPlanksId);
+          chunk.setBlock(7, baseY + 3, z, oakPlanksId);
+          chunk.setBlock(8, baseY + 3, z, oakPlanksId);
+        }
+      }
+    }
+    // Cobwebs & Cave Spider Spawner
+    if (cobwebId) {
+      chunk.setBlock(6, baseY + 2, 8, cobwebId);
+      chunk.setBlock(8, baseY + 2, 9, cobwebId);
+    }
+    chunk.setBlock(7, baseY + 1, 8, spawnerId);
+    if (chestId) chunk.setBlock(7, baseY + 1, 12, chestId);
+    mobs.push({ type: 'spider', x: cx * CHUNK_SIZE + 7.5, y: baseY + 1, z: cz * CHUNK_SIZE + 8.5 });
+    return { mobs };
+  }
+
+  static placeAncientCity(chunk: Chunk, cx: number, cz: number, baseY = 16): { mobs: Array<{ type: string; x: number; y: number; z: number }> } {
+    const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
+    const deepslateId = Registries.getBlock('deepslate')?.numId || 1;
+    const deepslateBricksId = Registries.getBlock('deepslate_bricks')?.numId || deepslateId;
+    const sculkId = Registries.getBlock('sculk')?.numId || deepslateId;
+    const sculkSensorId = Registries.getBlock('sculk_sensor')?.numId || sculkId;
+    const sculkShriekerId = Registries.getBlock('sculk_shrieker')?.numId || sculkId;
+    const sculkCatalystId = Registries.getBlock('sculk_catalyst')?.numId || sculkId;
+    const chestId = Registries.getBlock('chest')?.numId || 0;
+
+    // Grand hall with reinforced deepslate portal frame
+    for (let x = 1; x <= 14; x++) {
+      for (let z = 1; z <= 14; z++) {
+        for (let y = baseY; y <= baseY + 9; y++) {
+          const isFloor = y === baseY;
+          const isRoof = y === baseY + 9;
+          const isWall = x === 1 || x === 14 || z === 1 || z === 14;
+          if (isFloor) {
+            const isSculk = (x * 7 + z * 11) % 3 === 0;
+            chunk.setBlock(x, y, z, isSculk ? sculkId : deepslateBricksId);
+          } else if (isRoof || isWall) {
+            chunk.setBlock(x, y, z, deepslateBricksId);
+          } else {
+            chunk.setBlock(x, y, z, 0);
+          }
+        }
+      }
+    }
+    // Reinforced portal frame in center
+    for (let py = baseY + 1; py <= baseY + 7; py++) {
+      chunk.setBlock(5, py, 7, deepslateId);
+      chunk.setBlock(10, py, 7, deepslateId);
+    }
+    for (let px = 5; px <= 10; px++) {
+      chunk.setBlock(px, baseY + 7, 7, deepslateId);
+    }
+    // Sculk shrieker & sensor & chest
+    chunk.setBlock(7, baseY + 1, 9, sculkShriekerId);
+    chunk.setBlock(8, baseY + 1, 9, sculkSensorId);
+    chunk.setBlock(9, baseY + 1, 9, sculkCatalystId);
+    if (chestId) chunk.setBlock(6, baseY + 1, 10, chestId);
+    mobs.push({ type: 'warden', x: cx * CHUNK_SIZE + 7.5, y: baseY + 1, z: cz * CHUNK_SIZE + 7.5 });
+    return { mobs };
+  }
+
+  static placeTrialChambers(chunk: Chunk, cx: number, cz: number, baseY = 20): { mobs: Array<{ type: string; x: number; y: number; z: number }> } {
+    const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
+    const copperId = Registries.getBlock('copper_block')?.numId || 1;
+    const tuffId = Registries.getBlock('tuff')?.numId || copperId;
+    const spawnerId = Registries.getBlock('trial_spawner')?.numId || copperId;
+    const vaultId = Registries.getBlock('vault')?.numId || copperId;
+
+    for (let x = 2; x <= 13; x++) {
+      for (let z = 2; z <= 13; z++) {
+        for (let y = baseY; y <= baseY + 6; y++) {
+          const isBorder = x === 2 || x === 13 || z === 2 || z === 13 || y === baseY || y === baseY + 6;
+          chunk.setBlock(x, y, z, isBorder ? ((x + z) % 2 === 0 ? copperId : tuffId) : 0);
+        }
+      }
+    }
+    chunk.setBlock(7, baseY + 1, 7, spawnerId);
+    chunk.setBlock(8, baseY + 1, 7, vaultId);
+    mobs.push({ type: 'breeze', x: cx * CHUNK_SIZE + 7.5, y: baseY + 1, z: cz * CHUNK_SIZE + 7.5 });
+    return { mobs };
+  }
+
+  static placeOceanMonument(chunk: Chunk, cx: number, cz: number, baseY = 36): { mobs: Array<{ type: string; x: number; y: number; z: number }> } {
+    const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
+    const prismarineId = Registries.getBlock('prismarine')?.numId || 1;
+    const seaLanternId = Registries.getBlock('sea_lantern')?.numId || prismarineId;
+    const goldBlockId = Registries.getBlock('gold_block')?.numId || prismarineId;
+
+    for (let x = 1; x <= 14; x++) {
+      for (let z = 1; z <= 14; z++) {
+        for (let y = baseY; y <= baseY + 12; y++) {
+          const isEdge = x === 1 || x === 14 || z === 1 || z === 14 || y === baseY || y === baseY + 12;
+          chunk.setBlock(x, y, z, isEdge ? prismarineId : 0);
+        }
+      }
+    }
+    // 8 Gold block core
+    for (let gx = 7; gx <= 8; gx++) {
+      for (let gz = 7; gz <= 8; gz++) {
+        chunk.setBlock(gx, baseY + 1, gz, goldBlockId);
+        chunk.setBlock(gx, baseY + 2, gz, goldBlockId);
+      }
+    }
+    chunk.setBlock(4, baseY + 2, 4, seaLanternId);
+    chunk.setBlock(11, baseY + 2, 11, seaLanternId);
+    mobs.push({ type: 'elder_guardian' as any, x: cx * CHUNK_SIZE + 7.5, y: baseY + 3, z: cz * CHUNK_SIZE + 7.5 });
+    return { mobs };
+  }
+
+  static placeWoodlandMansion(chunk: Chunk, cx: number, cz: number, baseY = 65): { mobs: Array<{ type: string; x: number; y: number; z: number }> } {
+    const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
+    const darkOakId = Registries.getBlock('dark_oak_planks')?.numId || Registries.getBlock('oak_planks').numId;
+    const cobblestoneId = Registries.getBlock('cobblestone')?.numId || 1;
+
+    for (let x = 1; x <= 14; x++) {
+      for (let z = 1; z <= 14; z++) {
+        for (let y = baseY; y <= baseY + 14; y++) {
+          const isWall = x === 1 || x === 14 || z === 1 || z === 14;
+          const isFloor = y === baseY || y === baseY + 7 || y === baseY + 14;
+          chunk.setBlock(x, y, z, (isWall || isFloor) ? (y < baseY + 3 ? cobblestoneId : darkOakId) : 0);
+        }
+      }
+    }
+    mobs.push({ type: 'evoker', x: cx * CHUNK_SIZE + 5.5, y: baseY + 1, z: cz * CHUNK_SIZE + 5.5 });
+    mobs.push({ type: 'pillager', x: cx * CHUNK_SIZE + 9.5, y: baseY + 1, z: cz * CHUNK_SIZE + 9.5 });
+    return { mobs };
+  }
+
   static placeStrongholdPiece(chunk: Chunk, cx: number, cz: number, shX: number, shZ: number): { mobs: Array<{ type: string; x: number; y: number; z: number }> } {
     const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
     const stoneBrickId = Registries.getBlock('stone_bricks')?.numId || 1;
@@ -1595,7 +1751,38 @@ export class WorldGen26_3 {
       mobs.push(...res.mobs);
     }
 
-    // 9. Stronghold Structure (End Portal Room, Silverfish Spawner, Library, Corridors)
+
+    // 10. Abandoned Mineshaft
+    if (this.generateStructures && Math.abs(((cx % 18) + 18) % 18) === 7 && Math.abs(((cz % 18) + 18) % 18) === 7) {
+      const res = WorldGen26_3.placeMineshaft(chunk, cx, cz, 24);
+      mobs.push(...res.mobs);
+    }
+
+    // 11. Ancient City (Deep underground)
+    if (this.generateStructures && Math.abs(((cx % 36) + 36) % 36) === 18 && Math.abs(((cz % 36) + 36) % 36) === 18) {
+      const res = WorldGen26_3.placeAncientCity(chunk, cx, cz, 16);
+      mobs.push(...res.mobs);
+    }
+
+    // 12. Trial Chambers
+    if (this.generateStructures && Math.abs(((cx % 28) + 28) % 28) === 12 && Math.abs(((cz % 28) + 28) % 28) === 12) {
+      const res = WorldGen26_3.placeTrialChambers(chunk, cx, cz, 22);
+      mobs.push(...res.mobs);
+    }
+
+    // 13. Ocean Monument (Deep ocean biomes)
+    if (this.generateStructures && centerBiome.includes('ocean') && Math.abs(((cx % 32) + 32) % 32) === 16 && Math.abs(((cz % 32) + 32) % 32) === 16) {
+      const res = WorldGen26_3.placeOceanMonument(chunk, cx, cz, 36);
+      mobs.push(...res.mobs);
+    }
+
+    // 14. Woodland Mansion (Roofed forest / dark forest)
+    if (this.generateStructures && centerBiome.includes('dark_forest') && Math.abs(((cx % 48) + 48) % 48) === 24 && Math.abs(((cz % 48) + 48) % 48) === 24) {
+      const res = WorldGen26_3.placeWoodlandMansion(chunk, cx, cz, Math.max(65, heightMap[7 * CHUNK_SIZE + 7]));
+      mobs.push(...res.mobs);
+    }
+
+        // 9. Stronghold Structure (End Portal Room, Silverfish Spawner, Library, Corridors)
     const nearestSh = WorldGen26_3.getNearestStronghold(cx * CHUNK_SIZE + 8, cz * CHUNK_SIZE + 8);
     const shChunkX = Math.floor(nearestSh.x / CHUNK_SIZE);
     const shChunkZ = Math.floor(nearestSh.z / CHUNK_SIZE);

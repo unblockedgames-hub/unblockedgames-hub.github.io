@@ -279,7 +279,7 @@ export class Chunk {
         if (face === 'side' && isSnowyGrass) {
           return [shade, shade, shade];
         }
-        if (def.tint === 'grass' && face === 'top') {
+        if (def.tint === 'grass' && (face === 'top' || face === 'side')) {
           return [biome.grassColor[0] * shade, biome.grassColor[1] * shade, biome.grassColor[2] * shade];
         }
         if (def.tint === 'foliage') {
@@ -307,14 +307,7 @@ export class Chunk {
           (() => {
             const aboveId = getWorldBlock(wx, Math.floor(y0) + 1, wz);
             const aboveDef = Registries.getBlock(aboveId);
-            if (aboveDef && (aboveDef.shortId === 'snow' || aboveDef.shortId === 'snow_block')) return true;
-            if (
-              (biome.id.includes('snowy') || biome.id.includes('frozen') || biome.id.includes('ice') || biome.id.includes('grove')) &&
-              (!aboveDef || aboveDef.shape === 'air' || aboveDef.shape === 'cross' || aboveDef.shortId === 'short_grass')
-            ) {
-              return true;
-            }
-            return false;
+            return !!(aboveDef && (aboveDef.shortId === 'snow' || aboveDef.shortId === 'snow_block'));
           })());
 
       // Top (+Y)

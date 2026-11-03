@@ -162,6 +162,66 @@ export class RedstoneEngine {
       }
       return;
     }
+
+    // 7. Observer Block
+    if (def.shortId === 'observer') {
+      const meta = world.getMeta(x, y, z);
+      // Emit 1-tick pulse at rear
+      world.setMeta(x, y, z, meta | 8);
+      AudioEngine.play('block.dispenser.click', 0.6);
+      this.notifyNeighbors(world, x, y, z, depth + 1);
+      setTimeout(() => {
+        world.setMeta(x, y, z, meta & ~8);
+        this.notifyNeighbors(world, x, y, z, depth + 1);
+      }, 50);
+      return;
+    }
+
+    // 8. Dispenser & Dropper Activation
+    if (def.shortId === 'dispenser' || def.shortId === 'dropper') {
+      const power = this.getPowerLevel(world, x, y, z);
+      if (power > 0) {
+        AudioEngine.play('block.dispenser.dispense', 0.85);
+        if (def.shortId === 'dispenser') {
+          // Dispense arrow or projectile
+          const facingOffsets = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]];
+          const facing = world.getMeta(x, y, z) & 7;
+          const [pdx, pdy, pdz] = facingOffsets[facing] || [0, 0, 1];
+          world.entityRenderer?.spawnArrow?.(x + 0.5 + pdx, y + 0.5 + pdy, z + 0.5 + pdz, pdx * 20, pdy * 20 + 2, pdz * 20, 6);
+        }
+      }
+      return;
+    }
+
+    // 9. Daylight Detector
+    if (def.shortId === 'daylight_detector' || def.shortId === 'daylight_detector_inverted') {
+      const isNight = def.shortId === 'daylight_detector_inverted';
+      const time = world.timeOfDay;
+      let power = 0;
+      if (time >= 0 && time <= 12000) {
+        power = Math.round((1.0 - Math.abs(time - 6000) / 6000) * 15);
+      }
+      if (isNight) power = 15 - power;
+      world.setMeta(x, y, z, power);
+      this.notifyNeighbors(world, x, y, z, depth + 1);
+      return;
+    }
+
+    // 10. Note Block
+    if (def.shortId === 'note_block') {
+      const power = this.getPowerLevel(world, x, y, z);
+      if (power > 0) {
+        const belowBlock = world.getBlock(x, y - 1, z);
+        const belowDef = Registries.getBlock(belowBlock);
+        let instrument = 'block.note_block.harp';
+        if (belowDef.soundGroup === 'wood') instrument = 'block.note_block.bass';
+        else if (belowDef.soundGroup === 'sand') instrument = 'block.note_block.snare';
+        else if (belowDef.soundGroup === 'glass') instrument = 'block.note_block.hat';
+        else if (belowDef.soundGroup === 'stone') instrument = 'block.note_block.basedrum';
+        AudioEngine.play(instrument, 0.85);
+      }
+      return;
+    }
   }
 
   static getPowerLevel(world: World, x: number, y: number, z: number): number {
@@ -176,6 +236,8 @@ export class RedstoneEngine {
       if (!def) continue;
 
       if (def.shortId === 'redstone_block') return 15;
+      if (def.shortId === 'observer' && (world.getMeta(nx, ny, nz) & 8) !== 0) return 15;
+      if (def.shortId.includes('daylight_detector')) return world.getMeta(nx, ny, nz);
       if (def.shortId === 'redstone_torch' && (world.getMeta(nx, ny, nz) & 1) === 0) return 15;
       if (def.shortId === 'lever' && (world.getMeta(nx, ny, nz) & 8) !== 0) return 15;
       if ((def.shortId.includes('button') || def.shortId.includes('pressure_plate')) && (world.getMeta(nx, ny, nz) & 8) !== 0) return 15;

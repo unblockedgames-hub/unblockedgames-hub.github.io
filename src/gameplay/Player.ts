@@ -37,6 +37,10 @@ export class Player {
   isSprinting = false;
   isSneaking = false;
 
+  isBlocking = false;
+  shieldDisabledTimer = 0;
+  totemAnimationTimer = 0;
+  effects = new Map<string, { duration: number; amplifier: number }>();
   health = 20;
   maxHealth = 20;
   hunger = 20;
@@ -62,8 +66,7 @@ export class Player {
   maxAirSupply = 300;
   drownTimer = 0;
 
-  // Combat & Item Use: Archery & Shield Blocking
-  isBlocking = false;
+  // Combat & Item Use: Archery
   isPullingBow = false;
   bowPullTime = 0.0;
 
@@ -224,6 +227,18 @@ export class Player {
     AudioEngine.play('entity.cushion.get_up', 0.85);
   }
 
+  addEffect(name: string, durationSeconds: number, amplifier = 0) {
+    this.effects.set(name, { duration: durationSeconds, amplifier });
+  }
+
+  hasEffect(name: string): boolean {
+    return this.effects.has(name);
+  }
+
+  getEffect(name: string) {
+    return this.effects.get(name);
+  }
+
   applyDamage(amount: number, source: string) {
     if (this.gameMode === 'creative' || this.gameMode === 'spectator') return;
     if (this.invulnerableTimer > 0) return;
@@ -231,6 +246,12 @@ export class Player {
     this.invulnerableTimer = 0.5;
     this.hurtTimer = 0.45;
     this.hurtDirection = Math.random() < 0.5 ? -1 : 1;
+
+    // 1. Shield Blocking: blocks 100% melee and projectile damage
+    if (this.isBlocking && source !== 'suffocation' && source !== 'starvation' && source !== 'drown' && source !== 'void' && source !== 'fall') {
+      AudioEngine.play('item.shield.block', 0.9);
+      return;
+    }
 
     let finalAmount = amount;
     if (source !== 'suffocation' && source !== 'starvation' && source !== 'drown' && source !== 'void' && source !== 'fall') {
@@ -242,6 +263,20 @@ export class Player {
     this.health = Math.max(0, this.health - finalAmount);
     this.lastDeathCause = source;
     AudioEngine.play('entity.player.hurt', 0.9);
+
+    // 2. Totem of Undying: prevents fatal damage
+    if (this.health <= 0) {
+      const held = this.inventory.getHeldStack();
+      if (held && held.item.shortId === 'totem_of_undying') {
+        this.inventory.consumeHeld(1);
+        this.health = 2;
+        this.totemAnimationTimer = 2.0;
+        this.addEffect('regeneration', 45, 1);
+        this.addEffect('fire_resistance', 40, 0);
+        AudioEngine.play('item.totem.use', 1.0);
+        return;
+      }
+    }
 
     if (this.health <= 0) {
       const username = OptionsManager.current.username || 'Player';
