@@ -36,6 +36,7 @@ export class Player {
   inWater = false;
   isSprinting = false;
   isSneaking = false;
+  wasOnGroundSneak = false;
 
   isBlocking = false;
   shieldDisabledTimer = 0;
@@ -819,19 +820,77 @@ export class Player {
     const oldX = this.position.x;
     const oldZ = this.position.z;
 
-    // 1. Resolve X Movement (with Sneak Edge Guard & Slab/Stair 0.5m Step-Up)
+    // Authentic Minecraft Edge Guard (Sneak Footing Checker)
+    const hasFooting = (tx: number, tz: number): boolean => {
+      return (
+        this.collidesAt(tx, this.position.y - 0.05, tz) ||
+        this.collidesAt(tx, this.position.y - 0.3, tz) ||
+        this.collidesAt(tx, this.position.y - 0.6, tz)
+      );
+    };
+
+    const isGroundedForSneak =
+      (this.onGround || this.wasOnGroundSneak) &&
+      hasFooting(this.position.x, this.position.z);
+
     let dx = this.velocity.x * dt;
-    if (this.isSneaking && this.onGround) {
-      while (
-        Math.abs(dx) > 0.001 &&
-        !this.collidesAt(this.position.x + dx, this.position.y - 0.52, this.position.z)
-      ) {
-        dx = Math.abs(dx) < 0.02 ? 0 : dx * 0.5;
+    let dz = this.velocity.z * dt;
+
+    // Authentic Mojang 3-Pass maybeBackOffFromEdge algorithm (prevents falling straight or diagonally off blocks)
+    if (this.isSneaking && isGroundedForSneak && !this.flying && this.gameMode !== 'spectator') {
+      const step = 0.02;
+
+      // Pass 1: Back off X if no footing along X
+      while (dx !== 0 && !hasFooting(this.position.x + dx, this.position.z)) {
+        if (Math.abs(dx) <= step) {
+          dx = 0;
+          break;
+        } else if (dx > 0) {
+          dx -= step;
+        } else {
+          dx += step;
+        }
+      }
+
+      // Pass 2: Back off Z if no footing along Z
+      while (dz !== 0 && !hasFooting(this.position.x, this.position.z + dz)) {
+        if (Math.abs(dz) <= step) {
+          dz = 0;
+          break;
+        } else if (dz > 0) {
+          dz -= step;
+        } else {
+          dz += step;
+        }
+      }
+
+      // Pass 3: Back off BOTH diagonally if diagonal vector loses footing
+      while (dx !== 0 && dz !== 0 && !hasFooting(this.position.x + dx, this.position.z + dz)) {
+        if (Math.abs(dx) <= step) {
+          dx = 0;
+        } else if (dx > 0) {
+          dx -= step;
+        } else {
+          dx += step;
+        }
+        if (Math.abs(dz) <= step) {
+          dz = 0;
+        } else if (dz > 0) {
+          dz -= step;
+        } else {
+          dz += step;
+        }
       }
     }
+
+    // 1. Resolve X Movement
     const nextX = this.position.x + dx;
     if (!this.collidesAt(nextX, this.position.y, this.position.z)) {
-      this.position.x = nextX;
+      if (!this.isSneaking || !isGroundedForSneak || hasFooting(nextX, this.position.z)) {
+        this.position.x = nextX;
+      } else {
+        this.velocity.x = 0;
+      }
     } else if (this.onGround || this.inWater) {
       let stepH = 0;
       for (const h of [0.5, 0.5625, 0.6]) {
@@ -851,7 +910,7 @@ export class Player {
       ) {
         this.position.x = nextX;
         this.position.y += 1.0;
-        this.currentEyeHeight -= 1.0; // Smooth camera shore climb
+        this.currentEyeHeight -= 1.0;
       } else {
         this.velocity.x = 0;
       }
@@ -859,19 +918,14 @@ export class Player {
       this.velocity.x = 0;
     }
 
-    // 2. Resolve Z Movement (with Sneak Edge Guard & Slab/Stair 0.5m Step-Up)
-    let dz = this.velocity.z * dt;
-    if (this.isSneaking && this.onGround) {
-      while (
-        Math.abs(dz) > 0.001 &&
-        !this.collidesAt(this.position.x, this.position.y - 0.52, this.position.z + dz)
-      ) {
-        dz = Math.abs(dz) < 0.02 ? 0 : dz * 0.5;
-      }
-    }
+    // 2. Resolve Z Movement
     const nextZ = this.position.z + dz;
     if (!this.collidesAt(this.position.x, this.position.y, nextZ)) {
-      this.position.z = nextZ;
+      if (!this.isSneaking || !isGroundedForSneak || hasFooting(this.position.x, nextZ)) {
+        this.position.z = nextZ;
+      } else {
+        this.velocity.z = 0;
+      }
     } else if (this.onGround || this.inWater) {
       let stepH = 0;
       for (const h of [0.5, 0.5625, 0.6]) {
@@ -891,14 +945,13 @@ export class Player {
       ) {
         this.position.z = nextZ;
         this.position.y += 1.0;
-        this.currentEyeHeight -= 1.0; // Smooth camera shore climb
+        this.currentEyeHeight -= 1.0;
       } else {
         this.velocity.z = 0;
       }
     } else {
       this.velocity.z = 0;
     }
-
     // 3. Resolve Y Movement with exact surface snapping so onGround never flickers!
     const dy = this.velocity.y * dt;
     const nextY = this.position.y + dy;
@@ -907,7 +960,7 @@ export class Player {
       // Check if feet are resting within 0.015m of ground surface
       this.onGround =
         this.velocity.y <= 0 &&
-        this.collidesAt(this.position.x, this.position.y - 0.015, this.position.z);
+        this.collidesAt(this.position.x, this.position.y - 0.05, this.position.z);
     } else {
       if (this.velocity.y < 0) {
         // Binary refine down to exact surface contact (within 0.001m)
@@ -936,6 +989,7 @@ export class Player {
       }
       this.velocity.y = 0;
     }
+    this.wasOnGroundSneak = this.onGround;
 
     // Water detection at feet & eyes
     const currentFeetBlock = this.world.getBlock(
