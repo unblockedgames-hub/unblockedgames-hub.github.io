@@ -300,9 +300,20 @@ export class Chunk {
         return [shade, shade, shade];
       };
 
-      const dy = y1 - y0;
-      const uvSubSide: [number, number, number, number] | undefined =
-        dy < 1.0 ? [0, 0, 1, dy] : undefined;
+      const fx0 = x0 - Math.floor(x0);
+      const fx1 = x1 - Math.floor(x0);
+      const fy0 = y0 - Math.floor(y0);
+      const fy1 = y1 - Math.floor(y0);
+      const fz0 = z0 - Math.floor(z0);
+      const fz1 = z1 - Math.floor(z0);
+
+      const isSubBox = fx0 > 0.001 || fx1 < 0.999 || fy0 > 0.001 || fy1 < 0.999 || fz0 > 0.001 || fz1 < 0.999;
+      const uvSubSouth: [number, number, number, number] | undefined = isSubBox ? [fx0, fy0, fx1, fy1] : undefined;
+      const uvSubNorth: [number, number, number, number] | undefined = isSubBox ? [1.0 - fx1, fy0, 1.0 - fx0, fy1] : undefined;
+      const uvSubEast: [number, number, number, number] | undefined = isSubBox ? [1.0 - fz1, fy0, 1.0 - fz0, fy1] : undefined;
+      const uvSubWest: [number, number, number, number] | undefined = isSubBox ? [fz0, fy0, fz1, fy1] : undefined;
+      const uvSubTop: [number, number, number, number] | undefined = isSubBox ? [fx0, 1.0 - fz1, fx1, 1.0 - fz0] : undefined;
+      const uvSubBottom: [number, number, number, number] | undefined = isSubBox ? [fx0, fz0, fx1, fz1] : undefined;
 
       const isSnowyGrass =
         (def.shortId === 'grass_block' || def.shortId === 'grass_block_snow') &&
@@ -330,7 +341,7 @@ export class Chunk {
           r,
           g,
           b,
-          undefined,
+          uvSubTop,
           rotTop
         );
       }
@@ -350,7 +361,7 @@ export class Chunk {
           r,
           g,
           b,
-          undefined,
+          uvSubBottom,
           rotBottom
         );
       }
@@ -409,7 +420,7 @@ export class Chunk {
           r,
           g,
           b,
-          uvSubSide
+          uvSubSouth
         );
       }
       // North (-Z)
@@ -428,7 +439,7 @@ export class Chunk {
           r,
           g,
           b,
-          uvSubSide
+          uvSubNorth
         );
       }
       // East (+X)
@@ -447,7 +458,7 @@ export class Chunk {
           r,
           g,
           b,
-          uvSubSide
+          uvSubEast
         );
       }
       // West (-X)
@@ -466,7 +477,7 @@ export class Chunk {
           r,
           g,
           b,
-          uvSubSide
+          uvSubWest
         );
       }
     };
@@ -612,9 +623,8 @@ export class Chunk {
               }
             }
           } else if (def.shape === 'stairs') {
-            // Render bottom half + upper step based on facing & upside-down (meta: facing=0..3, upsideDown=meta&4)
             const isUpsideDown = (meta & 4) !== 0;
-            const facing = meta & 3;
+            const facing = meta & 3; // 0=North, 1=East, 2=South, 3=West
             const yBase0 = isUpsideDown ? y + 0.5 : y;
             const yBase1 = isUpsideDown ? y + 1.0 : y + 0.5;
             const yStep0 = isUpsideDown ? y : y + 0.5;
@@ -623,16 +633,62 @@ export class Chunk {
             let baseMask = 0x3f;
             if (!isUpsideDown && !shouldRenderNeighborFace(def, getBlockFast(lx, y - 1, lz))) baseMask &= ~2;
             if (isUpsideDown && !shouldRenderNeighborFace(def, getBlockFast(lx, y + 1, lz))) baseMask &= ~1;
-            pushBox(lx, yBase0, lz, lx + 1, yBase1, lz + 1, def, biome, baseMask);
+
+            let stepMask = 0x3f;
+            if (!isUpsideDown) stepMask &= ~2; else stepMask &= ~1;
 
             if (facing === 0) {
-              pushBox(lx, yStep0, lz, lx + 1, yStep1, lz + 0.5, def, biome, 0x3f);
+              let underMask = baseMask;
+              if (!isUpsideDown) underMask &= ~1; else underMask &= ~2;
+              pushBox(lx, yBase0, lz, lx + 1, yBase1, lz + 0.5, def, biome, underMask & ~4);
+              pushBox(lx, yBase0, lz + 0.5, lx + 1, yBase1, lz + 1, def, biome, baseMask & ~8);
+              pushBox(lx, yStep0, lz, lx + 1, yStep1, lz + 0.5, def, biome, stepMask);
             } else if (facing === 1) {
-              pushBox(lx + 0.5, yStep0, lz, lx + 1, yStep1, lz + 1, def, biome, 0x3f);
+              let underMask = baseMask;
+              if (!isUpsideDown) underMask &= ~1; else underMask &= ~2;
+              pushBox(lx + 0.5, yBase0, lz, lx + 1, yBase1, lz + 1, def, biome, underMask & ~32);
+              pushBox(lx, yBase0, lz, lx + 0.5, yBase1, lz + 1, def, biome, baseMask & ~16);
+              pushBox(lx + 0.5, yStep0, lz, lx + 1, yStep1, lz + 1, def, biome, stepMask);
             } else if (facing === 2) {
-              pushBox(lx, yStep0, lz + 0.5, lx + 1, yStep1, lz + 1, def, biome, 0x3f);
+              let underMask = baseMask;
+              if (!isUpsideDown) underMask &= ~1; else underMask &= ~2;
+              pushBox(lx, yBase0, lz + 0.5, lx + 1, yBase1, lz + 1, def, biome, underMask & ~8);
+              pushBox(lx, yBase0, lz, lx + 1, yBase1, lz + 0.5, def, biome, baseMask & ~4);
+              pushBox(lx, yStep0, lz + 0.5, lx + 1, yStep1, lz + 1, def, biome, stepMask);
             } else {
-              pushBox(lx, yStep0, lz, lx + 0.5, yStep1, lz + 1, def, biome, 0x3f);
+              let underMask = baseMask;
+              if (!isUpsideDown) underMask &= ~1; else underMask &= ~2;
+              pushBox(lx, yBase0, lz, lx + 0.5, yBase1, lz + 1, def, biome, underMask & ~16);
+              pushBox(lx + 0.5, yBase0, lz, lx + 1, yBase1, lz + 1, def, biome, baseMask & ~32);
+              pushBox(lx, yStep0, lz, lx + 0.5, yStep1, lz + 1, def, biome, stepMask);
+            }
+          } else if (def.shape === 'bars') {
+            const canConnectBars = (nb: number) => {
+              if (nb === 0) return false;
+              const nd = Registries.getBlock(nb);
+              return nd.shape === 'bars' || nd.shape === 'cube' || nd.shape === 'pillar' || nd.shape === 'fence';
+            };
+            const cN = canConnectBars(getBlockFast(lx, y, lz - 1));
+            const cS = canConnectBars(getBlockFast(lx, y, lz + 1));
+            const cW = canConnectBars(getBlockFast(lx - 1, y, lz));
+            const cE = canConnectBars(getBlockFast(lx + 1, y, lz));
+
+            const tex = def.textures.north;
+            const [r, g, b] = [0.95, 0.95, 0.95];
+
+            if (!cN && !cS && !cW && !cE) {
+              const x0 = lx + 0.5;
+              const z0 = lz + 0.5;
+              pushQuad(false, [x0, y, lz], [x0, y, lz + 1], [x0, y + 1, lz + 1], [x0, y + 1, lz], 1, 0, 0, tex, r, g, b);
+              pushQuad(false, [x0, y, lz + 1], [x0, y, lz], [x0, y + 1, lz], [x0, y + 1, lz + 1], -1, 0, 0, tex, r, g, b);
+              pushQuad(false, [lx, y, z0], [lx + 1, y, z0], [lx + 1, y + 1, z0], [lx, y + 1, z0], 0, 0, 1, tex, r, g, b);
+              pushQuad(false, [lx + 1, y, z0], [lx, y, z0], [lx, y + 1, z0], [lx + 1, y + 1, z0], 0, 0, -1, tex, r, g, b);
+            } else {
+              pushBox(lx + 0.4375, y, lz + 0.4375, lx + 0.5625, y + 1, lz + 0.5625, def, biome, 0x3f);
+              if (cN) pushBox(lx + 0.4375, y, lz, lx + 0.5625, y + 1, lz + 0.4375, def, biome, 0x3f);
+              if (cS) pushBox(lx + 0.4375, y, lz + 0.5625, lx + 0.5625, y + 1, lz + 1, def, biome, 0x3f);
+              if (cW) pushBox(lx, y, lz + 0.4375, lx + 0.4375, y + 1, lz + 0.5625, def, biome, 0x3f);
+              if (cE) pushBox(lx + 0.5625, y, lz + 0.4375, lx + 1, y + 1, lz + 0.5625, def, biome, 0x3f);
             }
           } else if (def.shape === 'portal') {
             // Translucent purple nether portal plane

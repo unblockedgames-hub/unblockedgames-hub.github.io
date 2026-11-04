@@ -460,19 +460,86 @@ export class Player {
     const halfW = 0.295;
     const height = this.isSneaking ? 1.5 : 1.78;
 
-    const minX = Math.floor(px - halfW);
-    const maxX = Math.floor(px + halfW);
-    const minY = Math.floor(py);
-    const maxY = Math.floor(py + height);
-    const minZ = Math.floor(pz - halfW);
-    const maxZ = Math.floor(pz + halfW);
+    const pX0 = px - halfW;
+    const pX1 = px + halfW;
+    const pY0 = py;
+    const pY1 = py + height;
+    const pZ0 = pz - halfW;
+    const pZ1 = pz + halfW;
+
+    const minX = Math.floor(pX0);
+    const maxX = Math.floor(pX1);
+    const minY = Math.floor(pY0);
+    const maxY = Math.floor(pY1);
+    const minZ = Math.floor(pZ0);
+    const maxZ = Math.floor(pZ1);
+
+    const testBox = (bX0: number, bY0: number, bZ0: number, bX1: number, bY1: number, bZ1: number): boolean => {
+      return (
+        pX0 < bX1 - 0.0001 &&
+        pX1 > bX0 + 0.0001 &&
+        pY0 < bY1 - 0.0001 &&
+        pY1 > bY0 + 0.0001 &&
+        pZ0 < bZ1 - 0.0001 &&
+        pZ1 > bZ0 + 0.0001
+      );
+    };
 
     for (let y = minY; y <= maxY; y++) {
       for (let z = minZ; z <= maxZ; z++) {
         for (let x = minX; x <= maxX; x++) {
-          const bh = this.getBlockHeight(x, y, z);
-          if (bh > 0 && py < y + bh - 0.0001 && py + height > y + 0.0001) {
-            return true;
+          const b = this.world.getBlock(x, y, z);
+          if (b === 0) continue;
+          const def = Registries.getBlock(b);
+          if (!def || !def.solid) continue;
+
+          if (def.shape === 'stairs') {
+            const meta = this.world.getMeta(x, y, z);
+            const isUpsideDown = (meta & 4) !== 0;
+            const facing = meta & 3; // 0=North, 1=East, 2=South, 3=West
+            const bY0 = isUpsideDown ? y + 0.5 : y;
+            const bY1 = isUpsideDown ? y + 1.0 : y + 0.5;
+            if (testBox(x, bY0, z, x + 1, bY1, z + 1)) return true;
+
+            const sY0 = isUpsideDown ? y : y + 0.5;
+            const sY1 = isUpsideDown ? y + 0.5 : y + 1.0;
+            if (facing === 0) {
+              if (testBox(x, sY0, z, x + 1, sY1, z + 0.5)) return true;
+            } else if (facing === 1) {
+              if (testBox(x + 0.5, sY0, z, x + 1, sY1, z + 1)) return true;
+            } else if (facing === 2) {
+              if (testBox(x, sY0, z + 0.5, x + 1, sY1, z + 1)) return true;
+            } else {
+              if (testBox(x, sY0, z, x + 0.5, sY1, z + 1)) return true;
+            }
+          } else if (def.shape === 'slab_bottom') {
+            const meta = this.world.getMeta(x, y, z);
+            const topHalf = (meta & 4) !== 0;
+            const sY0 = topHalf ? y + 0.5 : y;
+            const sY1 = topHalf ? y + 1.0 : y + 0.5;
+            if (testBox(x, sY0, z, x + 1, sY1, z + 1)) return true;
+          } else if (def.shape === 'slab_top') {
+            if (testBox(x, y + 0.5, z, x + 1, y + 1.0, z + 1)) return true;
+          } else if (def.shape === 'bars') {
+            if (testBox(x + 0.375, y, z + 0.375, x + 0.625, y + 1, z + 0.625)) return true;
+          } else if (def.shape === 'trapdoor') {
+            const meta = this.world.getMeta(x, y, z);
+            const isOpen = (meta & 8) !== 0;
+            if (isOpen) continue;
+            const isTop = (meta & 4) !== 0;
+            const tY0 = isTop ? y + 0.8125 : y;
+            const tY1 = isTop ? y + 1.0 : y + 0.1875;
+            if (testBox(x, tY0, z, x + 1, tY1, z + 1)) return true;
+          } else if (def.shortId === 'lily_pad') {
+            if (testBox(x, y, z, x + 1, y + 0.09375, z + 1)) return true;
+          } else if (def.shape === 'bed_foot' || def.shape === 'bed_head' || def.shape === 'campfire') {
+            if (testBox(x, y, z, x + 1, y + 0.5625, z + 1)) return true;
+          } else if (def.shape === 'path') {
+            if (testBox(x, y, z, x + 1, y + 0.9375, z + 1)) return true;
+          } else if (def.shape === 'carpet') {
+            if (testBox(x, y, z, x + 1, y + 0.0625, z + 1)) return true;
+          } else {
+            if (testBox(x, y, z, x + 1, y + 1, z + 1)) return true;
           }
         }
       }
@@ -765,22 +832,29 @@ export class Player {
     const nextX = this.position.x + dx;
     if (!this.collidesAt(nextX, this.position.y, this.position.z)) {
       this.position.x = nextX;
-    } else if (
-      (this.onGround || this.inWater) &&
-      !this.collidesAt(nextX, this.position.y + 0.52, this.position.z) &&
-      this.collidesAt(nextX, this.position.y + 0.05, this.position.z)
-    ) {
-      this.position.x = nextX;
-      this.position.y += 0.5;
-      this.currentEyeHeight -= 0.5; // Smooth camera stair glide
-    } else if (
-      this.inWater &&
-      !this.collidesAt(nextX, this.position.y + 1.1, this.position.z) &&
-      this.collidesAt(nextX, this.position.y + 0.2, this.position.z)
-    ) {
-      this.position.x = nextX;
-      this.position.y += 1.0;
-      this.currentEyeHeight -= 1.0; // Smooth camera shore climb
+    } else if (this.onGround || this.inWater) {
+      let stepH = 0;
+      for (const h of [0.5, 0.5625, 0.6]) {
+        if (!this.collidesAt(nextX, this.position.y + h + 0.01, this.position.z)) {
+          stepH = h;
+          break;
+        }
+      }
+      if (stepH > 0 && this.collidesAt(nextX, this.position.y + 0.05, this.position.z)) {
+        this.position.x = nextX;
+        this.position.y += stepH;
+        this.currentEyeHeight -= stepH; // Smooth camera stair glide
+      } else if (
+        this.inWater &&
+        !this.collidesAt(nextX, this.position.y + 1.1, this.position.z) &&
+        this.collidesAt(nextX, this.position.y + 0.2, this.position.z)
+      ) {
+        this.position.x = nextX;
+        this.position.y += 1.0;
+        this.currentEyeHeight -= 1.0; // Smooth camera shore climb
+      } else {
+        this.velocity.x = 0;
+      }
     } else {
       this.velocity.x = 0;
     }
@@ -798,22 +872,29 @@ export class Player {
     const nextZ = this.position.z + dz;
     if (!this.collidesAt(this.position.x, this.position.y, nextZ)) {
       this.position.z = nextZ;
-    } else if (
-      (this.onGround || this.inWater) &&
-      !this.collidesAt(this.position.x, this.position.y + 0.52, nextZ) &&
-      this.collidesAt(this.position.x, this.position.y + 0.05, nextZ)
-    ) {
-      this.position.z = nextZ;
-      this.position.y += 0.5;
-      this.currentEyeHeight -= 0.5; // Smooth camera stair glide
-    } else if (
-      this.inWater &&
-      !this.collidesAt(this.position.x, this.position.y + 1.1, nextZ) &&
-      this.collidesAt(this.position.x, this.position.y + 0.2, nextZ)
-    ) {
-      this.position.z = nextZ;
-      this.position.y += 1.0;
-      this.currentEyeHeight -= 1.0; // Smooth camera shore climb
+    } else if (this.onGround || this.inWater) {
+      let stepH = 0;
+      for (const h of [0.5, 0.5625, 0.6]) {
+        if (!this.collidesAt(this.position.x, this.position.y + h + 0.01, nextZ)) {
+          stepH = h;
+          break;
+        }
+      }
+      if (stepH > 0 && this.collidesAt(this.position.x, this.position.y + 0.05, nextZ)) {
+        this.position.z = nextZ;
+        this.position.y += stepH;
+        this.currentEyeHeight -= stepH; // Smooth camera stair glide
+      } else if (
+        this.inWater &&
+        !this.collidesAt(this.position.x, this.position.y + 1.1, nextZ) &&
+        this.collidesAt(this.position.x, this.position.y + 0.2, nextZ)
+      ) {
+        this.position.z = nextZ;
+        this.position.y += 1.0;
+        this.currentEyeHeight -= 1.0; // Smooth camera shore climb
+      } else {
+        this.velocity.z = 0;
+      }
     } else {
       this.velocity.z = 0;
     }

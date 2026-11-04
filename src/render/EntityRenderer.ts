@@ -269,8 +269,8 @@ export class EntityRenderer {
       const faceTexs = [
         this.cropSubTexture(img, u + dz + dx, v + dz, dz, dy, true), // +X (left flank)
         this.cropSubTexture(img, u, v + dz, dz, dy, true), // -X (right flank)
-        this.cropSubTexture(img, u + dz, v + dz, dx, dy), // +Y (top back - spotted hide)
-        this.cropSubTexture(img, u + dz + dx + dz, v + dz, dx, dy), // -Y (belly - udder underside)
+        this.cropSubTexture(img, u + dz + dx + dz, v + dz, dx, dy), // +Y (top back - spotted hide)
+        this.cropSubTexture(img, u + dz, v + dz, dx, dy), // -Y (belly - udder underside)
         this.cropSubTexture(img, u + dz, v, dx, dz), // +Z (front chest)
         this.cropSubTexture(img, u + dz + dx, v, dx, dz), // -Z (rear)
       ];
@@ -1769,7 +1769,11 @@ export class EntityRenderer {
         mob.y = 74 + Math.sin(mob.walkPhase * 2.5) * 6;
         mob.yaw = -mob.walkPhase + Math.PI / 2;
         mob.mesh.position.set(mob.x, mob.y, mob.z);
-        mob.mesh.rotation.y = mob.yaw;
+        // Smooth shortest-arc yaw interpolation (eliminates rotation snapping)
+      let rotDiff = (mob.yaw - mob.mesh.rotation.y) % (Math.PI * 2);
+      if (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+      if (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+      mob.mesh.rotation.y += rotDiff * Math.min(1.0, dt * 8.0);
 
         const flap = Math.sin(mob.walkPhase * 8.0) * 0.4;
         if (mob.mesh.children[2]) mob.mesh.children[2].rotation.z = flap;
@@ -2137,6 +2141,17 @@ export class EntityRenderer {
 
       // Authentic Mob AABB Collision & Physics Resolution (Prevents clipping and teleporting into trees/ceilings)
       const onGround = this.isMobOnGround(mob, isSolidAt);
+
+      // Unstick safeguard if embedded inside terrain/blocks
+      if (this.mobCollidesAt(mob, mob.x, mob.y, mob.z, isSolidAt)) {
+        for (let pop = 0.5; pop <= 3.0; pop += 0.5) {
+          if (!this.mobCollidesAt(mob, mob.x, mob.y + pop, mob.z, isSolidAt)) {
+            mob.y += pop;
+            mob.vy = 0;
+            break;
+          }
+        }
+      }
 
       // 1. Horizontal X Movement
       const dx = mob.vx * dt;

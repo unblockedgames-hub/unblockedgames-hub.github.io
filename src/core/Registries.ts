@@ -19,6 +19,7 @@ export type BlockShapeType =
   | 'door'
   | 'fence_gate'
   | 'trapdoor'
+  | 'bars'
   | 'portal';
 
 export interface BlockDefinition {
@@ -1134,7 +1135,7 @@ export class Registries {
             : this.allFaces(shortId);
         this.registerBlock({
           shortId,
-          shape: 'cube',
+          shape: shortId === 'iron_bars' ? 'bars' : 'cube',
           transparent: !!transparent,
           solid: true,
           lightEmission:

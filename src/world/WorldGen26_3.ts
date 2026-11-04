@@ -1,5 +1,6 @@
 import { Chunk, CHUNK_SIZE, CHUNK_MIN_Y, CHUNK_MAX_Y, CHUNK_HEIGHT } from './Chunk';
 import { Registries } from '../core/Registries';
+import { ContainerManager } from '../gameplay/Inventory';
 import structuresBundle from './structures_bundle.json';
 import { VanillaClimate } from './VanillaNoise';
 import { SurfaceSystem } from './SurfaceSystem';
@@ -859,6 +860,15 @@ export class WorldGen26_3 {
             else if (props.facing === 'west') meta = 3;
             if (props.half === 'top') meta |= 4;
             chunk.setBlock(tx, ty, tz, def.numId, meta);
+        if (blockId.includes('chest') && blk.nbt?.LootTable) {
+          const wx = chunk.cx * CHUNK_SIZE + tx;
+          const wy = ty;
+          const wz = chunk.cz * CHUNK_SIZE + tz;
+          const posKey = `${wx}_${wy}_${wz}`;
+          ContainerManager.setLootTable(posKey, blk.nbt.LootTable);
+          ContainerManager.populateLootTable(posKey, blk.nbt.LootTable);
+          chunk.setBlock(tx, ty + 1, tz, 0);
+        }
           }
         }
       }
@@ -1413,7 +1423,6 @@ export class WorldGen26_3 {
     const templateKey = (cx + cz) % 2 === 0 ? 'ruined_portal/portal_1' : 'ruined_portal/giant_portal_1';
     if (this.structuresMap[templateKey]) {
       this.applyStructureTemplate(chunk, templateKey, 3, baseY, 3, 'netherrack');
-      return;
     }
 
     const obsidianId = Registries.getBlock('obsidian').numId;
@@ -1441,6 +1450,11 @@ export class WorldGen26_3 {
     }
     chunk.setBlock(6, baseY + 1, 5, goldId);
     chunk.setBlock(9, baseY + 1, 6, chestId);
+    chunk.setBlock(9, baseY + 2, 6, 0); // clear air above chest
+    chunk.setBlock(9, baseY + 3, 6, 0);
+    const posKey = `${cx * CHUNK_SIZE + 9}_${baseY + 1}_${cz * CHUNK_SIZE + 6}`;
+    ContainerManager.setLootTable(posKey, 'minecraft:chests/ruined_portal');
+    ContainerManager.populateLootTable(posKey, 'minecraft:chests/ruined_portal');
   }
 
   static placeIgloo(

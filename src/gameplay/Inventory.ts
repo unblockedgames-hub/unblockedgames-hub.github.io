@@ -1470,9 +1470,62 @@ export class ContainerManager {
     return f;
   }
 
+  static pendingLootTables = new Map<string, string>();
+
+  static setLootTable(key: string, lootTable: string) {
+    this.pendingLootTables.set(key, lootTable);
+  }
+
+  static populateLootTable(key: string, lootTable: string): (ItemStack | null)[] {
+    let chest = this.chests.get(key);
+    if (!chest) {
+      chest = new Array(27).fill(null);
+      this.chests.set(key, chest);
+    }
+    if (chest.some((s) => s !== null)) return chest;
+
+    const randSlot = () => Math.floor(Math.random() * 27);
+    const putItem = (shortId: string, count: number) => {
+      const def = Registries.getItem(shortId);
+      if (!def) return;
+      for (let attempts = 0; attempts < 10; attempts++) {
+        const slot = randSlot();
+        if (!chest![slot]) {
+          chest![slot] = { item: def, count, durability: def.maxDurability, maxDurability: def.maxDurability };
+          break;
+        }
+      }
+    };
+
+    if (lootTable.includes('ruined_portal')) {
+      putItem('obsidian', 1 + Math.floor(Math.random() * 3));
+      if (Math.random() < 0.8) putItem('crying_obsidian', 1 + Math.floor(Math.random() * 3));
+      putItem('gold_nugget', 4 + Math.floor(Math.random() * 12));
+      putItem('gold_ingot', 1 + Math.floor(Math.random() * 6));
+      if (Math.random() < 0.75) putItem('flint_and_steel', 1);
+      if (Math.random() < 0.5) putItem('fire_charge', 1 + Math.floor(Math.random() * 2));
+      if (Math.random() < 0.3) putItem('golden_apple', 1);
+      const gear = ['golden_sword', 'golden_axe', 'golden_pickaxe', 'golden_shovel', 'golden_helmet', 'golden_chestplate', 'golden_leggings', 'golden_boots'];
+      putItem(gear[Math.floor(Math.random() * gear.length)], 1);
+      if (Math.random() < 0.4) putItem(gear[Math.floor(Math.random() * gear.length)], 1);
+      if (Math.random() < 0.35) putItem('golden_carrot', 1 + Math.floor(Math.random() * 3));
+      if (Math.random() < 0.35) putItem('clock', 1);
+    } else {
+      putItem('iron_ingot', 1 + Math.floor(Math.random() * 5));
+      putItem('gold_ingot', 1 + Math.floor(Math.random() * 3));
+      putItem('bread', 1 + Math.floor(Math.random() * 4));
+      if (Math.random() < 0.5) putItem('saddle', 1);
+      if (Math.random() < 0.25) putItem('golden_apple', 1);
+    }
+    return chest;
+  }
+
   static getChest(key: string): (ItemStack | null)[] {
     let c = this.chests.get(key);
     if (!c) {
+      if (this.pendingLootTables.has(key)) {
+        return this.populateLootTable(key, this.pendingLootTables.get(key)!);
+      }
       c = new Array(27).fill(null);
       this.chests.set(key, c);
     }

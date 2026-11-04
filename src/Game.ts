@@ -111,6 +111,24 @@ export class Game {
     }
   }
 
+  findSafeSpawnSurface(x: number, z: number): number {
+    const bx = Math.floor(x);
+    const bz = Math.floor(z);
+    let sy = this.world.getTopSolidY(bx, bz);
+    for (let testY = sy; testY < sy + 8; testY++) {
+      const bFeet = this.world.getBlock(bx, testY, bz);
+      const bHead = this.world.getBlock(bx, testY + 1, bz);
+      const bBelow = this.world.getBlock(bx, testY - 1, bz);
+      const feetDef = Registries.getBlock(bFeet);
+      const headDef = Registries.getBlock(bHead);
+      const belowDef = Registries.getBlock(bBelow);
+      if ((!feetDef || !feetDef.solid) && (!headDef || !headDef.solid) && (belowDef && belowDef.solid)) {
+        return testY;
+      }
+    }
+    return sy;
+  }
+
   async init(uiRoot: HTMLElement) {
     uiRoot.innerHTML = `
       <div style="position:fixed;inset:0;background:#ef323d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;z-index:50;">
@@ -224,23 +242,23 @@ export class Game {
       this.entityRenderer.spawnMob(
         'sheep_1',
         'sheep',
-        px + 8,
-        this.world.getTopSolidY(px + 8, pz + 6),
-        pz + 6
+        px + 8.5,
+        this.findSafeSpawnSurface(px + 8, pz + 6),
+        pz + 6.5
       );
       this.entityRenderer.spawnMob(
         'pig_1',
         'pig',
-        px - 7,
-        this.world.getTopSolidY(px - 7, pz + 5),
-        pz + 5
+        px - 6.5,
+        this.findSafeSpawnSurface(px - 7, pz + 5),
+        pz + 5.5
       );
       this.entityRenderer.spawnMob(
         'cow_1',
         'cow',
-        px + 12,
-        this.world.getTopSolidY(px + 12, pz - 6),
-        pz - 6
+        px + 12.5,
+        this.findSafeSpawnSurface(px + 12, pz - 6),
+        pz - 5.5
       );
     }
     if (!isMultiplayer) {
@@ -2341,13 +2359,15 @@ export class Game {
               for (let p = 0; p < packSize; p++) {
                 const ox = (Math.random() - 0.5) * 3;
                 const oz = (Math.random() - 0.5) * 3;
-                const pyPack = this.world.getTopSolidY(Math.floor(sx + ox), Math.floor(sz + oz));
+                const spX = Math.floor(sx + ox);
+                const spZ = Math.floor(sz + oz);
+                const pyPack = this.findSafeSpawnSurface(spX, spZ);
                 this.entityRenderer.spawnMob(
                   `${t}_${Date.now()}_${p}`,
                   t,
-                  sx + 0.5 + ox,
+                  spX + 0.5,
                   pyPack,
-                  sz + 0.5 + oz
+                  spZ + 0.5
                 );
               }
             }
