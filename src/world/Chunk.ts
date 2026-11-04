@@ -3,7 +3,9 @@ import { Registries, BlockDefinition } from '../core/Registries';
 import { TextureAtlas } from '../render/TextureAtlas';
 
 export const CHUNK_SIZE = 16;
-export const CHUNK_HEIGHT = 128;
+export const CHUNK_MIN_Y = -64;
+export const CHUNK_MAX_Y = 320;
+export const CHUNK_HEIGHT = 384; // CHUNK_MAX_Y - CHUNK_MIN_Y
 
 export interface BiomeInfo {
   id: string;
@@ -116,18 +118,19 @@ export class Chunk {
   }
 
   private idx(lx: number, y: number, lz: number): number {
-    return (y * CHUNK_SIZE + lz) * CHUNK_SIZE + lx;
+    const localY = y - CHUNK_MIN_Y;
+    return (localY * CHUNK_SIZE + lz) * CHUNK_SIZE + lx;
   }
 
   getBlock(lx: number, y: number, lz: number): number {
-    if (lx < 0 || lx >= CHUNK_SIZE || y < 0 || y >= CHUNK_HEIGHT || lz < 0 || lz >= CHUNK_SIZE) {
+    if (lx < 0 || lx >= CHUNK_SIZE || y < CHUNK_MIN_Y || y >= CHUNK_MAX_Y || lz < 0 || lz >= CHUNK_SIZE) {
       return 0;
     }
     return this.blocks[this.idx(lx, y, lz)];
   }
 
   setBlock(lx: number, y: number, lz: number, blockNumId: number, metaVal = 0) {
-    if (lx < 0 || lx >= CHUNK_SIZE || y < 0 || y >= CHUNK_HEIGHT || lz < 0 || lz >= CHUNK_SIZE) {
+    if (lx < 0 || lx >= CHUNK_SIZE || y < CHUNK_MIN_Y || y >= CHUNK_MAX_Y || lz < 0 || lz >= CHUNK_SIZE) {
       return;
     }
     const i = this.idx(lx, y, lz);
@@ -137,7 +140,7 @@ export class Chunk {
   }
 
   getMeta(lx: number, y: number, lz: number): number {
-    if (lx < 0 || lx >= CHUNK_SIZE || y < 0 || y >= CHUNK_HEIGHT || lz < 0 || lz >= CHUNK_SIZE) {
+    if (lx < 0 || lx >= CHUNK_SIZE || y < CHUNK_MIN_Y || y >= CHUNK_MAX_Y || lz < 0 || lz >= CHUNK_SIZE) {
       return 0;
     }
     return this.meta[this.idx(lx, y, lz)];
@@ -476,9 +479,9 @@ export class Chunk {
     // Direct typed array memory access (0ms) for interior blocks (95%+ of queries),
     // only delegating to getWorldBlock on chunk borders.
     const getBlockFast = (x: number, y: number, z: number): number => {
-      if (y < 0 || y >= CHUNK_HEIGHT) return 0;
+      if (y < CHUNK_MIN_Y || y >= CHUNK_MAX_Y) return 0;
       if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE) {
-        return blocks[(y * CHUNK_SIZE + z) * CHUNK_SIZE + x];
+        return blocks[((y - CHUNK_MIN_Y) * CHUNK_SIZE + z) * CHUNK_SIZE + x];
       }
       return getWorldBlock(baseX + x, y, baseZ + z);
     };
@@ -505,11 +508,11 @@ export class Chunk {
       return false;
     };
 
-    // Find maximum block height in chunk to skip looping over empty sky
-    let maxY = CHUNK_HEIGHT - 1;
-    while (maxY > 1) {
+    // Find maximum and minimum block height in chunk to skip looping over empty sky and void
+    let maxY = CHUNK_MAX_Y - 1;
+    while (maxY > CHUNK_MIN_Y) {
       let hasBlock = false;
-      const yOffset = maxY * CHUNK_SIZE * CHUNK_SIZE;
+      const yOffset = (maxY - CHUNK_MIN_Y) * CHUNK_SIZE * CHUNK_SIZE;
       for (let i = 0; i < CHUNK_SIZE * CHUNK_SIZE; i++) {
         if (blocks[yOffset + i] !== 0) {
           hasBlock = true;
@@ -520,10 +523,25 @@ export class Chunk {
       maxY--;
     }
 
-    for (let y = 0; y <= maxY; y++) {
+    let minY = CHUNK_MIN_Y;
+    while (minY < maxY) {
+      let hasBlock = false;
+      const yOffset = (minY - CHUNK_MIN_Y) * CHUNK_SIZE * CHUNK_SIZE;
+      for (let i = 0; i < CHUNK_SIZE * CHUNK_SIZE; i++) {
+        if (blocks[yOffset + i] !== 0) {
+          hasBlock = true;
+          break;
+        }
+      }
+      if (hasBlock) break;
+      minY++;
+    }
+
+    for (let y = minY; y <= maxY; y++) {
+      const localY = y - CHUNK_MIN_Y;
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-          const bNum = blocks[(y * CHUNK_SIZE + lz) * CHUNK_SIZE + lx];
+          const bNum = blocks[(localY * CHUNK_SIZE + lz) * CHUNK_SIZE + lx];
           if (bNum === 0) continue;
 
           const def = Registries.getBlock(bNum);

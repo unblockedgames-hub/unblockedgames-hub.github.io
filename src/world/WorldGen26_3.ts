@@ -1,4 +1,4 @@
-import { Chunk, CHUNK_SIZE, CHUNK_HEIGHT } from './Chunk';
+import { Chunk, CHUNK_SIZE, CHUNK_MIN_Y, CHUNK_MAX_Y, CHUNK_HEIGHT } from './Chunk';
 import { Registries } from '../core/Registries';
 import structuresBundle from './structures_bundle.json';
 import { VanillaClimate } from './VanillaNoise';
@@ -333,7 +333,7 @@ export class WorldGen26_3 {
     return { mobs };
   }
 
-  static placeAncientCity(chunk: Chunk, cx: number, cz: number, baseY = 16): { mobs: Array<{ type: string; x: number; y: number; z: number }> } {
+  static placeAncientCity(chunk: Chunk, cx: number, cz: number, baseY = -52): { mobs: Array<{ type: string; x: number; y: number; z: number }> } {
     const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
     const deepslateId = Registries.getBlock('deepslate')?.numId || 1;
     const deepslateBricksId = Registries.getBlock('deepslate_bricks')?.numId || deepslateId;
@@ -378,7 +378,7 @@ export class WorldGen26_3 {
     return { mobs };
   }
 
-  static placeTrialChambers(chunk: Chunk, cx: number, cz: number, baseY = 20): { mobs: Array<{ type: string; x: number; y: number; z: number }> } {
+  static placeTrialChambers(chunk: Chunk, cx: number, cz: number, baseY = -20): { mobs: Array<{ type: string; x: number; y: number; z: number }> } {
     const mobs: Array<{ type: string; x: number; y: number; z: number }> = [];
     const copperId = Registries.getBlock('copper_block')?.numId || 1;
     const tuffId = Registries.getBlock('tuff')?.numId || copperId;
@@ -646,8 +646,8 @@ export class WorldGen26_3 {
   }
 
   static getBlockAt(wx: number, wy: number, wz: number): number {
-    if (wy <= 0) return Registries.getBlock('bedrock').numId;
-    if (wy >= CHUNK_HEIGHT) return 0;
+    if (wy <= CHUNK_MIN_Y) return Registries.getBlock('bedrock').numId;
+    if (wy >= CHUNK_MAX_Y) return 0;
     const h = this.getTerrainHeight(wx, wz);
     if (wy <= h) return Registries.getBlock('stone').numId;
     if (wy <= 62) return Registries.getBlock('water').numId;
@@ -698,7 +698,7 @@ export class WorldGen26_3 {
 
           const tx = lx + dx;
           const tz = lz + dz;
-          if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && y < CHUNK_HEIGHT) {
+          if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && y < CHUNK_MAX_Y) {
             if (chunk.getBlock(tx, y, tz) === 0) {
               chunk.setBlock(tx, y, tz, leafId);
             }
@@ -848,7 +848,7 @@ export class WorldGen26_3 {
         const ty = offsetY + by;
         const tz = offsetZ + bz;
 
-        if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && ty >= 1 && ty < CHUNK_HEIGHT) {
+        if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && ty >= CHUNK_MIN_Y && ty < CHUNK_MAX_Y) {
           if (blockId === 'minecraft:air') {
             chunk.setBlock(tx, ty, tz, 0);
           } else {
@@ -1017,7 +1017,7 @@ export class WorldGen26_3 {
       const ty = baseY + by;
       const tz = offsetZ + bz;
 
-      if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && ty >= 1 && ty < CHUNK_HEIGHT) {
+      if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && ty >= CHUNK_MIN_Y && ty < CHUNK_MAX_Y) {
         if (blockId === 'minecraft:air' || blockId === 'minecraft:cave_air') {
           chunk.setBlock(tx, ty, tz, 0);
           continue;
@@ -1183,7 +1183,7 @@ export class WorldGen26_3 {
     const chestId = Registries.getBlock('chest').numId;
 
     const setBlock = (x: number, y: number, z: number, id: number, meta = 0) => {
-      if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE && y >= 1 && y < CHUNK_HEIGHT) {
+      if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE && y >= CHUNK_MIN_Y && y < CHUNK_MAX_Y) {
         chunk.setBlock(x, y, z, id, meta);
       }
     };
@@ -1302,7 +1302,7 @@ export class WorldGen26_3 {
     const dispenserId = Registries.getBlock('dispenser')?.numId || cobbleId;
 
     const setBlock = (x: number, y: number, z: number, id: number, meta = 0) => {
-      if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE && y >= 1 && y < CHUNK_HEIGHT) {
+      if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE && y >= CHUNK_MIN_Y && y < CHUNK_MAX_Y) {
         chunk.setBlock(x, y, z, id, meta);
       }
     };
@@ -1354,7 +1354,7 @@ export class WorldGen26_3 {
     const flowerPotId = Registries.getBlock('flower_pot')?.numId || craftingId;
 
     const setBlock = (x: number, y: number, z: number, id: number, meta = 0) => {
-      if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE && y >= 1 && y < CHUNK_HEIGHT) {
+      if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE && y >= CHUNK_MIN_Y && y < CHUNK_MAX_Y) {
         chunk.setBlock(x, y, z, id, meta);
       }
     };
@@ -1758,15 +1758,15 @@ export class WorldGen26_3 {
       mobs.push(...res.mobs);
     }
 
-    // 11. Ancient City (Deep underground)
+    // 11. Ancient City (Deep underground deepslate layer at Y=-52)
     if (this.generateStructures && Math.abs(((cx % 36) + 36) % 36) === 18 && Math.abs(((cz % 36) + 36) % 36) === 18) {
-      const res = WorldGen26_3.placeAncientCity(chunk, cx, cz, 16);
+      const res = WorldGen26_3.placeAncientCity(chunk, cx, cz, -52);
       mobs.push(...res.mobs);
     }
 
-    // 12. Trial Chambers
+    // 12. Trial Chambers (Underground at Y=-20)
     if (this.generateStructures && Math.abs(((cx % 28) + 28) % 28) === 12 && Math.abs(((cz % 28) + 28) % 28) === 12) {
-      const res = WorldGen26_3.placeTrialChambers(chunk, cx, cz, 22);
+      const res = WorldGen26_3.placeTrialChambers(chunk, cx, cz, -20);
       mobs.push(...res.mobs);
     }
 
@@ -1806,7 +1806,7 @@ export class WorldGen26_3 {
     // Bonus Chest near spawn if enabled
     if (this.bonusChest && cx === 0 && cz === 0) {
       const topH = heightMap[2 * CHUNK_SIZE + 2];
-      if (topH > 0 && topH < CHUNK_HEIGHT - 2) {
+      if (topH > CHUNK_MIN_Y && topH < CHUNK_MAX_Y - 2) {
         const chestId = Registries.getBlock('chest')?.numId || Registries.getBlock('oak_planks').numId;
         const torchId = Registries.getBlock('torch')?.numId || 0;
         chunk.setBlock(2, topH + 1, 2, chestId);
@@ -1838,13 +1838,13 @@ export class WorldGen26_3 {
     const snowId = Registries.getBlock('snow')?.numId || 0;
 
     for (let y = baseY; y < baseY + height; y++) {
-      if (y < CHUNK_HEIGHT) chunk.setBlock(lx, y, lz, logId);
+      if (y < CHUNK_MAX_Y) chunk.setBlock(lx, y, lz, logId);
     }
 
     const topY = baseY + height;
-    if (topY < CHUNK_HEIGHT) {
+    if (topY < CHUNK_MAX_Y) {
       chunk.setBlock(lx, topY, lz, leafId);
-      if (withSnow && snowId && topY + 1 < CHUNK_HEIGHT) {
+      if (withSnow && snowId && topY + 1 < CHUNK_MAX_Y) {
         chunk.setBlock(lx, topY + 1, lz, snowId);
       }
     }
@@ -1869,10 +1869,10 @@ export class WorldGen26_3 {
           }
           const tx = lx + dx;
           const tz = lz + dz;
-          if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && y < CHUNK_HEIGHT) {
+          if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && y < CHUNK_MAX_Y) {
             if (chunk.getBlock(tx, y, tz) === 0) {
               chunk.setBlock(tx, y, tz, leafId);
-              if (withSnow && snowId && y + 1 < CHUNK_HEIGHT && chunk.getBlock(tx, y + 1, tz) === 0) {
+              if (withSnow && snowId && y + 1 < CHUNK_MAX_Y && chunk.getBlock(tx, y + 1, tz) === 0) {
                 if (((tx * 13 + y * 7 + tz * 17) & 1) === 0) {
                   chunk.setBlock(tx, y + 1, tz, snowId);
                 }
@@ -1908,7 +1908,7 @@ export class WorldGen26_3 {
           const tx = lx + dx;
           const tz = lz + dz;
           const ty = baseY + dy;
-          if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && ty < CHUNK_HEIGHT) {
+          if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && ty < CHUNK_MAX_Y) {
             if (chunk.getBlock(tx, ty, tz) === 0) {
               chunk.setBlock(tx, ty, tz, leafId);
             }
@@ -1977,10 +1977,10 @@ export class WorldGen26_3 {
 
         // Solid bedrock ceiling (Y=127) and floor (Y=0)
         chunk.setBlock(lx, 0, lz, bedrockId);
-        chunk.setBlock(lx, CHUNK_HEIGHT - 1, lz, bedrockId);
+        chunk.setBlock(lx, 127, lz, bedrockId);
 
         // Fill solid nether baseline
-        for (let y = 1; y < CHUNK_HEIGHT - 1; y++) {
+        for (let y = 1; y < 127; y++) {
           chunk.setBlock(lx, y, lz, netherrackId);
         }
 
@@ -2038,7 +2038,7 @@ export class WorldGen26_3 {
                   for (let dy = h - 2; dy <= h + 1; dy++) {
                     if (Math.abs(dx) === 2 && Math.abs(dz) === 2 && dy > h) continue;
                     const tx = lx + dx, tz = lz + dz, ty = y + dy;
-                    if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && ty < CHUNK_HEIGHT) {
+                    if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && ty < 127) {
                       chunk.setBlock(tx, ty, tz, (dx === 0 && dz === 0 && dy === h) ? shroomlightId : netherWartBlockId);
                     }
                   }
@@ -2059,7 +2059,7 @@ export class WorldGen26_3 {
                   for (let dy = h - 2; dy <= h + 1; dy++) {
                     if (Math.abs(dx) === 2 && Math.abs(dz) === 2 && dy > h) continue;
                     const tx = lx + dx, tz = lz + dz, ty = y + dy;
-                    if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && ty < CHUNK_HEIGHT) {
+                    if (tx >= 0 && tx < CHUNK_SIZE && tz >= 0 && tz < CHUNK_SIZE && ty < 127) {
                       chunk.setBlock(tx, ty, tz, (dx === 0 && dz === 0 && dy === h) ? shroomlightId : warpedWartBlockId);
                     }
                   }

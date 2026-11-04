@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Chunk, CHUNK_SIZE, CHUNK_HEIGHT, BIOMES_26_3 } from './Chunk';
+import { Chunk, CHUNK_SIZE, CHUNK_MIN_Y, CHUNK_MAX_Y, CHUNK_HEIGHT, BIOMES_26_3 } from './Chunk';
 import { WorldGen26_3, AbandonedCampLocation, CushionEntityData } from './WorldGen26_3';
 import { Registries } from '../core/Registries';
 import { TextureAtlas } from '../render/TextureAtlas';
@@ -110,16 +110,15 @@ export class World {
       this.chunks.set(key, chunk);
 
       // Apply any saved player block edits in this chunk
-      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-          const wx = cx * CHUNK_SIZE + lx;
-          const wz = cz * CHUNK_SIZE + lz;
-          for (let y = 0; y < CHUNK_HEIGHT; y++) {
-            const diff = this.blockDiffs.get(`${wx},${y},${wz}`);
-            if (diff) {
-              chunk.setBlock(lx, y, lz, diff.numId, diff.meta);
-            }
-          }
+      for (const [coordKey, diff] of this.blockDiffs) {
+        const parts = coordKey.split(',');
+        const bx = Number(parts[0]);
+        const by = Number(parts[1]);
+        const bz = Number(parts[2]);
+        if (Math.floor(bx / CHUNK_SIZE) === cx && Math.floor(bz / CHUNK_SIZE) === cz) {
+          const lx = ((bx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+          const lz = ((bz % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+          chunk.setBlock(lx, by, lz, diff.numId, diff.meta);
         }
       }
 
@@ -177,7 +176,7 @@ export class World {
   }
 
   getBlock(wx: number, wy: number, wz: number): number {
-    if (wy < 0 || wy >= CHUNK_HEIGHT) return 0;
+    if (wy < CHUNK_MIN_Y || wy >= CHUNK_MAX_Y) return 0;
     const cx = Math.floor(wx / CHUNK_SIZE);
     const cz = Math.floor(wz / CHUNK_SIZE);
     const chunk = this.chunks.get(this.chunkKey(cx, cz));
@@ -200,7 +199,7 @@ export class World {
   }
 
   getMeta(wx: number, wy: number, wz: number): number {
-    if (wy < 0 || wy >= CHUNK_HEIGHT) return 0;
+    if (wy < CHUNK_MIN_Y || wy >= CHUNK_MAX_Y) return 0;
     const cx = Math.floor(wx / CHUNK_SIZE);
     const cz = Math.floor(wz / CHUNK_SIZE);
     const chunk = this.chunks.get(this.chunkKey(cx, cz));
@@ -211,7 +210,7 @@ export class World {
   }
 
   setBlock(wx: number, wy: number, wz: number, blockNumId: number, meta = 0, recordDiff = true) {
-    if (wy < 0 || wy >= CHUNK_HEIGHT) return;
+    if (wy < CHUNK_MIN_Y || wy >= CHUNK_MAX_Y) return;
     const bx = Math.floor(wx);
     const by = Math.floor(wy);
     const bz = Math.floor(wz);
@@ -253,15 +252,15 @@ export class World {
     const gravelId = Registries.getBlock('gravel')?.numId;
     if (!sandId && !gravelId) return;
 
-    let curY = Math.max(1, Math.floor(wy));
+    let curY = Math.max(CHUNK_MIN_Y, Math.floor(wy));
     const bx = Math.floor(wx);
     const bz = Math.floor(wz);
 
-    while (curY < CHUNK_HEIGHT) {
+    while (curY < CHUNK_MAX_Y) {
       const b = this.getBlock(bx, curY, bz);
       if (b === sandId || b === gravelId) {
         let fallY = curY;
-        while (fallY > 0) {
+        while (fallY > CHUNK_MIN_Y) {
           const below = this.getBlock(bx, fallY - 1, bz);
           const belowDef = Registries.getBlock(below);
           if (below === 0 || (belowDef && (!belowDef.solid || belowDef.soundGroup === 'grass'))) {
@@ -311,7 +310,7 @@ export class World {
 
       // 1. Downward flow check (priority)
       const belowY = cur.y - 1;
-      if (belowY >= 1) {
+      if (belowY >= CHUNK_MIN_Y) {
         const belowBlock = this.getBlock(cur.x, belowY, cur.z);
         const belowDef = Registries.getBlock(belowBlock);
         if (belowBlock === 0 || (belowDef && (belowDef.shape === 'cross' || belowDef.shape === 'carpet' || !belowDef.solid))) {
@@ -472,7 +471,7 @@ export class World {
     const bx = Math.floor(wx);
     const bz = Math.floor(wz);
     this.ensureChunk(Math.floor(bx / CHUNK_SIZE), Math.floor(bz / CHUNK_SIZE));
-    for (let y = CHUNK_HEIGHT - 1; y >= 1; y--) {
+    for (let y = CHUNK_MAX_Y - 1; y >= CHUNK_MIN_Y; y--) {
       const b = this.getBlock(bx, y, bz);
       if (b !== 0) {
         const def = Registries.getBlock(b);

@@ -965,6 +965,11 @@ export class Player {
       }
     }
 
+    // Void damage below Y = -96 (authentic Minecraft 1.18+ void damage floor)
+    if (this.position.y < -96 && this.gameMode !== 'spectator') {
+      this.applyDamage(4, 'void');
+    }
+
     if (isWalkingOnGround) {
       this.walkBobPhase += movedDist * 3.6;
       this.walkBobIntensity += (1.0 - this.walkBobIntensity) * Math.min(1, dt * 10);

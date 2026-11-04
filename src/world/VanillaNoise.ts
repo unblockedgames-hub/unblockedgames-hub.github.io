@@ -298,7 +298,7 @@ export class VanillaClimate {
         const rawH = heightMap[lz * 16 + lx];
         // In Minecraft/deepslate, getBaseHeight returns blockY + 1 (the first air/fluid space).
         // The top solid block of the terrain/seabed is therefore rawH - 1.
-        const H = Math.max(1, Math.min(127, rawH - 1));
+        const H = Math.max(-60, Math.min(319, rawH - 1));
         heightMap[lz * 16 + lx] = H;
 
         const biome = quartetBiomes[qz * 4 + qx];
@@ -312,22 +312,25 @@ export class VanillaClimate {
         const isWarmOcean = biome.includes('warm_ocean');
         const isFrozen = biome.includes('frozen') || biome.includes('ice');
 
-        // Fill rock column up to H with authentic staggered bedrock (Y=0..4),
-        // deepslate transition (Y=8 to Y=0), and 1.18+ cheese & noodle caves
-        for (let y = 0; y <= H; y++) {
-          // Staggered bedrock: 100% at Y=0, dithered across Y=1..4 matching Minecraft Java
+        // Fill rock column from Y=-64 up to H with authentic staggered bedrock (Y=-64..-60),
+        // deepslate layer (Y=-59 to Y=0), deepslate transition (Y=0 to Y=8), and 1.18+ cheese & noodle caves
+        for (let y = -64; y <= H; y++) {
+          // Staggered bedrock: 100% at Y=-64, dithered across Y=-63..-60 matching Minecraft Java 1.18+
           if (
-            y === 0 ||
-            (y === 1 && this.hash2D(wx, wz, 101) < 0.8) ||
-            (y === 2 && this.hash2D(wx, wz, 202) < 0.6) ||
-            (y === 3 && this.hash2D(wx, wz, 303) < 0.4) ||
-            (y === 4 && this.hash2D(wx, wz, 404) < 0.2)
+            y === -64 ||
+            (y === -63 && this.hash2D(wx, wz, 101) < 0.8) ||
+            (y === -62 && this.hash2D(wx, wz, 202) < 0.6) ||
+            (y === -61 && this.hash2D(wx, wz, 303) < 0.4) ||
+            (y === -60 && this.hash2D(wx, wz, 404) < 0.2)
           ) {
             setBlock(lx, y, lz, bedrockId);
             continue;
           }
 
-          // Deepslate transition zone: starts at Y=8 down to Y=0
+          // Deepslate layer and transition zone:
+          // Y in [-59, 0]: 100% deepslate
+          // Y in [0, 8]: dithered transition between deepslate and stone
+          // Y >= 8: stone
           let baseRock = stoneId;
           if (y <= 0) {
             baseRock = deepslateId;
@@ -371,15 +374,18 @@ export class VanillaClimate {
               setBlock(lx, y, lz, dirtId);
             }
           } else {
-            // Underground rock zone: sample caves efficiently only where caverns can exist
-            if (y >= 6 && y <= H - 4) {
+            // Underground rock zone: sample caves down to Y=-58
+            if (y >= -58 && y <= H - 4) {
               const cheese = this.smoothNoise3D(wx, y * 1.15, wz, 34, seedOffset + 101);
               const n1 = this.smoothNoise3D(wx, y * 0.95, wz, 22, seedOffset + 202) * 2.0 - 1.0;
               const n2 = this.smoothNoise3D(wx, y * 0.95, wz, 22, seedOffset + 303) * 2.0 - 1.0;
               const noodleDistSq = n1 * n1 + n2 * n2;
 
               if (cheese > 0.46 || noodleDistSq < 0.038) {
-                if (y <= 10) {
+                // Deep cave lava lakes: in vanilla 1.18+, caves below Y=-54 are flooded with lava!
+                if (y <= -54) {
+                  setBlock(lx, y, lz, lavaId);
+                } else if (y <= 10 && y >= 0 && this.smoothNoise3D(wx, 5, wz, 30, seedOffset + 505) > 0.6) {
                   setBlock(lx, y, lz, lavaId);
                 } else if (y <= 24 && this.smoothNoise3D(wx, 20, wz, 40, seedOffset + 404) > 0.58) {
                   setBlock(lx, y, lz, waterId);
@@ -417,7 +423,7 @@ export class VanillaClimate {
   }
 
   getTerrainHeight(blockX: number, blockZ: number): number {
-    return Math.max(1, this.getSampledHeight(blockX, blockZ) - 1);
+    return Math.max(-60, this.getSampledHeight(blockX, blockZ) - 1);
   }
 
   getChunkHeightMap(cx: number, cz: number): Int32Array {

@@ -1,4 +1,4 @@
-import { Chunk, CHUNK_SIZE, CHUNK_HEIGHT } from './Chunk';
+import { Chunk, CHUNK_SIZE, CHUNK_MIN_Y, CHUNK_MAX_Y, CHUNK_HEIGHT } from './Chunk';
 import { Registries } from '../core/Registries';
 
 /**
@@ -86,18 +86,18 @@ export class SurfaceSystem {
         const isSwamp = biomeId.includes('swamp');
         const isMushroom = biomeId.includes('mushroom');
 
-        // 1. Bedrock floor (Y=0 solid, Y=1..4 dither)
-        chunk.setBlock(lx, 0, lz, bedrockId);
-        for (let y = 1; y <= 4; y++) {
+        // 1. Bedrock floor (Y=CHUNK_MIN_Y solid, Y=CHUNK_MIN_Y+1..+4 dither)
+        chunk.setBlock(lx, CHUNK_MIN_Y, lz, bedrockId);
+        for (let y = CHUNK_MIN_Y + 1; y <= CHUNK_MIN_Y + 4; y++) {
           const dither = (this.hash2D(wx ^ (y * 37), wz ^ (y * 73), 999) * 5) | 0;
-          if (y <= dither) {
+          if (y - CHUNK_MIN_Y <= dither) {
             chunk.setBlock(lx, y, lz, bedrockId);
           }
         }
 
-        // 2. Subterranean fill: Deepslate vs Stone transition (Y=0..8 dither)
+        // 2. Subterranean fill: Deepslate vs Stone transition (Y=CHUNK_MIN_Y..8)
         const deepslateHeight = 8 + Math.round(this.hash2D(wx, wz, 555) * 4);
-        for (let y = 1; y < h - 4; y++) {
+        for (let y = CHUNK_MIN_Y + 1; y < h - 4; y++) {
           if (chunk.getBlock(lx, y, lz) === bedrockId) continue;
           if (y < deepslateHeight) {
             chunk.setBlock(lx, y, lz, deepslateId);

@@ -1,5 +1,5 @@
 import * as deepslate from 'deepslate';
-import { Chunk, CHUNK_SIZE, CHUNK_HEIGHT } from './Chunk';
+import { Chunk, CHUNK_SIZE, CHUNK_MIN_Y, CHUNK_MAX_Y, CHUNK_HEIGHT } from './Chunk';
 import { Registries } from '../core/Registries';
 import { WorldGen26_3 } from './WorldGen26_3';
 
@@ -32,36 +32,36 @@ export class FeaturePlacer {
       { ore: 'iron_ore', deep: 'deepslate_iron_ore', count: 90, type: 'trapezoid', min: 80, max: 256, size: 9, airDiscard: 0.0, step: 2 },
       // Iron middle: 10 attempts, trapezoid [-24..56], size 9, air 0
       { ore: 'iron_ore', deep: 'deepslate_iron_ore', count: 10, type: 'trapezoid', min: -24, max: 56, size: 9, airDiscard: 0.0, step: 3 },
-      // Iron small: 10 attempts, uniform [0..72], size 4, air 0
-      { ore: 'iron_ore', deep: 'deepslate_iron_ore', count: 10, type: 'uniform', min: 0, max: 72, size: 4, airDiscard: 0.0, step: 4 },
+      // Iron small/lower: 10 attempts, uniform [-64..24], size 4, air 0
+      { ore: 'iron_ore', deep: 'deepslate_iron_ore', count: 10, type: 'uniform', min: -64, max: 24, size: 4, airDiscard: 0.0, step: 4 },
       // Copper: 16 attempts, trapezoid [-16..112], size 10, air 0
       { ore: 'copper_ore', deep: 'deepslate_copper_ore', count: 16, type: 'trapezoid', min: -16, max: 112, size: 10, airDiscard: 0.0, step: 5 },
       // Copper large: 16 attempts, trapezoid [-16..112], size 20, air 0
       { ore: 'copper_ore', deep: 'deepslate_copper_ore', count: 16, type: 'trapezoid', min: -16, max: 112, size: 20, airDiscard: 0.0, step: 6 },
       // Gold: 4 attempts, trapezoid [-64..32], size 9, air 0.5
       { ore: 'gold_ore', deep: 'deepslate_gold_ore', count: 4, type: 'trapezoid', min: -64, max: 32, size: 9, airDiscard: 0.5, step: 7 },
-      // Redstone: 4 attempts, uniform [0..15], size 8, air 0
-      { ore: 'redstone_ore', deep: 'deepslate_redstone_ore', count: 4, type: 'uniform', min: 0, max: 15, size: 8, airDiscard: 0.0, step: 8 },
-      // Redstone lower: 8 attempts, trapezoid [0..32], size 8, air 0
-      { ore: 'redstone_ore', deep: 'deepslate_redstone_ore', count: 8, type: 'trapezoid', min: 0, max: 32, size: 8, airDiscard: 0.0, step: 9 },
-      // Diamond: 7 attempts, trapezoid [0..16], size 4, air 0.5
-      { ore: 'diamond_ore', deep: 'deepslate_diamond_ore', count: 7, type: 'trapezoid', min: 0, max: 16, size: 4, airDiscard: 0.5, step: 10 },
-      // Diamond medium: 2 attempts, uniform [0..16], size 8, air 0.5
-      { ore: 'diamond_ore', deep: 'deepslate_diamond_ore', count: 2, type: 'uniform', min: 0, max: 16, size: 8, airDiscard: 0.5, step: 11 },
-      // Lapis: 2 attempts, trapezoid [0..64], size 7, air 0
-      { ore: 'lapis_ore', deep: 'deepslate_lapis_ore', count: 2, type: 'trapezoid', min: 0, max: 64, size: 7, airDiscard: 0.0, step: 12 },
+      // Redstone: 4 attempts, uniform [-64..15], size 8, air 0
+      { ore: 'redstone_ore', deep: 'deepslate_redstone_ore', count: 4, type: 'uniform', min: -64, max: 15, size: 8, airDiscard: 0.0, step: 8 },
+      // Redstone lower: 8 attempts, trapezoid [-64..32], size 8, air 0
+      { ore: 'redstone_ore', deep: 'deepslate_redstone_ore', count: 8, type: 'trapezoid', min: -64, max: 32, size: 8, airDiscard: 0.0, step: 9 },
+      // Diamond: 7 attempts, trapezoid [-64..16], size 4, air 0.5
+      { ore: 'diamond_ore', deep: 'deepslate_diamond_ore', count: 7, type: 'trapezoid', min: -64, max: 16, size: 4, airDiscard: 0.5, step: 10 },
+      // Diamond medium: 2 attempts, uniform [-64..16], size 8, air 0.5
+      { ore: 'diamond_ore', deep: 'deepslate_diamond_ore', count: 2, type: 'uniform', min: -64, max: 16, size: 8, airDiscard: 0.5, step: 11 },
+      // Lapis: 2 attempts, trapezoid [-64..64], size 7, air 0
+      { ore: 'lapis_ore', deep: 'deepslate_lapis_ore', count: 2, type: 'trapezoid', min: -64, max: 64, size: 7, airDiscard: 0.0, step: 12 },
       // Dirt: 7 attempts, uniform [0..160], size 33, air 0
       { ore: 'dirt', deep: 'dirt', count: 7, type: 'uniform', min: 0, max: 160, size: 33, airDiscard: 0.0, step: 13 },
-      // Gravel: 14 attempts, uniform [0..128], size 33, air 0
-      { ore: 'gravel', deep: 'gravel', count: 14, type: 'uniform', min: 0, max: 128, size: 33, airDiscard: 0.0, step: 14 },
+      // Gravel: 14 attempts, uniform [-64..128], size 33, air 0
+      { ore: 'gravel', deep: 'gravel', count: 14, type: 'uniform', min: -64, max: 128, size: 33, airDiscard: 0.0, step: 14 },
       // Granite: 2 attempts, uniform [0..60], size 64, air 0
       { ore: 'granite', deep: 'tuff', count: 2, type: 'uniform', min: 0, max: 60, size: 64, airDiscard: 0.0, step: 15 },
       // Diorite: 2 attempts, uniform [0..60], size 64, air 0
       { ore: 'diorite', deep: 'tuff', count: 2, type: 'uniform', min: 0, max: 60, size: 64, airDiscard: 0.0, step: 16 },
       // Andesite: 2 attempts, uniform [0..60], size 64, air 0
       { ore: 'andesite', deep: 'tuff', count: 2, type: 'uniform', min: 0, max: 60, size: 64, airDiscard: 0.0, step: 17 },
-      // Tuff: 2 attempts, uniform [0..16], size 64, air 0
-      { ore: 'tuff', deep: 'tuff', count: 2, type: 'uniform', min: 0, max: 16, size: 64, airDiscard: 0.0, step: 18 }
+      // Tuff: 2 attempts, uniform [-64..16], size 64, air 0
+      { ore: 'tuff', deep: 'tuff', count: 2, type: 'uniform', min: -64, max: 16, size: 64, airDiscard: 0.0, step: 18 }
     ];
 
     for (const cfg of ores) {
@@ -80,7 +80,7 @@ export class FeaturePlacer {
           originY = cfg.min + oreRng.nextInt(Math.max(1, cfg.max - cfg.min + 1));
         }
 
-        if (originY < 1 || originY >= CHUNK_HEIGHT) continue;
+        if (originY < CHUNK_MIN_Y + 1 || originY >= CHUNK_MAX_Y) continue;
 
         // Mojang OreFeature line equation
         const f = oreRng.nextFloat() * Math.PI;
@@ -116,7 +116,7 @@ export class FeaturePlacer {
             for (let by = minBy; by <= maxBy; by++) {
               const dy = (by + 0.5 - curY) / radius;
               if (dx * dx + dy * dy >= 1.0) continue;
-              if (by < 1 || by >= CHUNK_HEIGHT) continue;
+              if (by < CHUNK_MIN_Y + 1 || by >= CHUNK_MAX_Y) continue;
 
               for (let bz = minBz; bz <= maxBz; bz++) {
                 const dz = (bz + 0.5 - curZ) / radius;
@@ -130,8 +130,8 @@ export class FeaturePlacer {
                     const nearAir =
                       (lx > 0 && chunk.getBlock(lx - 1, by, lz) === 0) ||
                       (lx < 15 && chunk.getBlock(lx + 1, by, lz) === 0) ||
-                      (by > 0 && chunk.getBlock(lx, by - 1, lz) === 0) ||
-                      (by < CHUNK_HEIGHT - 1 && chunk.getBlock(lx, by + 1, lz) === 0) ||
+                      (by > CHUNK_MIN_Y && chunk.getBlock(lx, by - 1, lz) === 0) ||
+                      (by < CHUNK_MAX_Y - 1 && chunk.getBlock(lx, by + 1, lz) === 0) ||
                       (lz > 0 && chunk.getBlock(lx, by, lz - 1) === 0) ||
                       (lz < 15 && chunk.getBlock(lx, by, lz + 1) === 0);
                     if (nearAir && oreRng.nextFloat() < cfg.airDiscard) continue;
@@ -179,7 +179,7 @@ export class FeaturePlacer {
 
     // World block setter restricted to the current chunk
     const setBlockInChunk = (wx: number, y: number, wz: number, id: number) => {
-      if (y < 0 || y >= CHUNK_HEIGHT) return;
+      if (y < CHUNK_MIN_Y || y >= CHUNK_MAX_Y) return;
       const lx = wx - cx * CHUNK_SIZE;
       const lz = wz - cz * CHUNK_SIZE;
       if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE) {
@@ -323,7 +323,7 @@ export class FeaturePlacer {
             if (fRoll < 0.008 && cactusId) {
               const cactusHeight = 1 + Math.floor(this.hash2D(wx, wz, 77) * 3);
               for (let y = 1; y <= cactusHeight; y++) {
-                if (h + y < CHUNK_HEIGHT) chunk.setBlock(lx, h + y, lz, cactusId);
+                if (h + y < CHUNK_MAX_Y) chunk.setBlock(lx, h + y, lz, cactusId);
               }
             } else if (fRoll < 0.025 && deadBushId) {
               chunk.setBlock(lx, h + 1, lz, deadBushId);
@@ -339,7 +339,7 @@ export class FeaturePlacer {
         } else if (biomeId === 'minecraft:sunflower_plains') {
           if (fRoll < 0.05 && sunflowerId) {
             chunk.setBlock(lx, h + 1, lz, sunflowerId);
-            if (h + 2 < CHUNK_HEIGHT) chunk.setBlock(lx, h + 2, lz, sunflowerId);
+            if (h + 2 < CHUNK_MAX_Y) chunk.setBlock(lx, h + 2, lz, sunflowerId);
           } else if (fRoll < 0.15 && shortGrassId) {
             chunk.setBlock(lx, h + 1, lz, shortGrassId);
           }
@@ -408,7 +408,7 @@ export class FeaturePlacer {
 
         // 2. Scan downwards through column to place snow on leaves and ground
         let hasCanopyAbove = false;
-        for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
+        for (let y = CHUNK_MAX_Y - 2; y >= CHUNK_MIN_Y + 1; y--) {
           const b = chunk.getBlock(lx, y, lz);
           if (b === 0) continue;
 
